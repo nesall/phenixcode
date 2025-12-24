@@ -24,6 +24,20 @@ namespace {
     cfg.apiKey = expandEnvVar(item.value("api_key", item.value("apiKey", "")));
     cfg.model = item.value("model", "");
     cfg.maxTokensName = item.value("max_tokens_name", section.value("default_max_tokens_name", "max_tokens"));
+
+    if (item.contains("fim") && item["fim"].is_object()) {
+      auto fim = item["fim"];
+      cfg.fim.apiUrl = fim.value("api_url", cfg.apiUrl);
+      cfg.fim.prefixName = fim.value("prefix_name", "");
+      cfg.fim.suffixName = fim.value("suffix_name", "");
+      if (fim.contains("stop_tokens") && fim["stop_tokens"].is_array()) {
+        for (const auto &st : fim["stop_tokens"]) {
+          if (st.is_string())
+            cfg.fim.stopTokens.push_back(st.get<std::string>());
+        }
+      }
+    }
+    
     cfg.documentFormat = item.value("document_format", "");
     cfg.queryFormat = item.value("query_format", "");
     cfg.temperatureSupport = item.value("temperature_support", true);

@@ -26,6 +26,12 @@ struct ApiConfig {
     float output = 0;
     float cachedInput = 0;
   } pricing;
+  struct {
+    std::string apiUrl;
+    std::string prefixName; // non-empty means model supports FIM mode.
+    std::string suffixName;
+    std::vector<std::string> stopTokens;
+  } fim;
 
   // Compute an effective "combined" price per million tokens.
   // hitRatio = fraction of input tokens served from cache (0.0–1.0)

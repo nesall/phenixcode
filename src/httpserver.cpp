@@ -568,6 +568,19 @@ namespace {
     return { orderedResults, usedTokens };
   }
 
+  ApiConfig getTargetApi(const json &request, const App &app) {
+    ApiConfig apiConfig = app.settings().generationCurrentApi();
+    if (request.contains("targetapi") && request["targetapi"].is_string()) {
+      std::string targetApi = request["targetapi"].get<std::string>();
+      if (targetApi != apiConfig.id) {
+        auto apis = app.settings().generationApis();
+        auto it = std::find_if(apis.begin(), apis.end(), [&targetApi](const ApiConfig &a) { return a.id == targetApi; });
+        if (it != apis.end()) apiConfig = *it;
+      }
+    }
+    return apiConfig;
+  }
+
 } // anonymous namespace
 
 
@@ -960,17 +973,18 @@ bool HttpServer::startServer()
         }
       }
 
-      ApiConfig apiConfig = imp->app_.settings().generationCurrentApi();
-      if (request.contains("targetapi")) {
-        std::string targetApi = request["targetapi"];
-        if (targetApi != apiConfig.id) {
-          auto apis = imp->app_.settings().generationApis();
-          auto it = std::find_if(apis.begin(), apis.end(), [&targetApi](const ApiConfig &a) { return a.id == targetApi; });
-          if (it != apis.end()) {
-            apiConfig = *it;
-          }
-        }
-      }
+      //ApiConfig apiConfig = imp->app_.settings().generationCurrentApi();
+      //if (request.contains("targetapi")) {
+      //  std::string targetApi = request["targetapi"];
+      //  if (targetApi != apiConfig.id) {
+      //    auto apis = imp->app_.settings().generationApis();
+      //    auto it = std::find_if(apis.begin(), apis.end(), [&targetApi](const ApiConfig &a) { return a.id == targetApi; });
+      //    if (it != apis.end()) {
+      //      apiConfig = *it;
+      //    }
+      //  }
+      //}
+      auto apiConfig = getTargetApi(request, imp->app_);
 
       const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
       const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());
@@ -1079,6 +1093,42 @@ bool HttpServer::startServer()
     Impl::chatCounter_++;
     recordDuration(start, Impl::avgChatTimeMs_);
     });
+
+    server.Post("/api/fim", [this](const httplib::Request &req, httplib::Response &res) {
+      const auto start = std::chrono::steady_clock::now();
+      try {
+        LOG_MSG << "POST /api/fim";
+        json request = json::parse(req.body);
+
+        if (!request.contains("prefix") || !request["prefix"].is_string()) {
+          throw std::invalid_argument("'prefix' field required and must be a string");
+        }
+        if (!request.contains("suffix") || !request["suffix"].is_string()) {
+          throw std::invalid_argument("'suffix' field required and must be a string");
+        }
+
+        std::string prefix = request["prefix"].get<std::string>();
+        std::string suffix = request["suffix"].get<std::string>();
+
+        auto apiConfig = getTargetApi(request, imp->app_);
+
+        const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
+        const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());
+
+        CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
+        std::string fullResponse = completionClient.generateFim(prefix, suffix, temperature, maxTokens);
+
+        json response = { {"completion", fullResponse} };
+        res.set_content(response.dump(), "application/json");
+        Impl::requestCounter_++;
+      } catch (const std::exception &e) {
+        json error = { {"error", e.what()} };
+        res.status = 400;
+        res.set_content(error.dump(), "application/json");
+        Impl::errorCounter_++;
+      }
+      recordDuration(start, Impl::avgChatTimeMs_); // reuse chat timing metric
+      });
 
   server.Get("/api/settings", [this](const httplib::Request &, httplib::Response &res) {
     try {
@@ -1272,6 +1322,7 @@ bool HttpServer::startServer()
             {"POST /api/setup", "Setup configuration"},
             {"POST /api/search", "Semantic search"},
             {"POST /api/chat", "Chat with context (streaming)"},
+            {"POST /api/fim", "Fill-In-Middle / Auto-complete"},
             {"POST /api/embed", "Generate embeddings"},
             {"POST /api/documents", "Add documents"},
             {"POST /api/update", "Trigger manual update"},
@@ -1298,6 +1349,7 @@ bool HttpServer::startServer()
   LOG_MSG << "  POST /api/embed     - {\"text\": \"...\"}";
   LOG_MSG << "  POST /api/documents - {\"content\": \"...\", \"source_id\": \"...\"}";
   LOG_MSG << "  POST /api/chat      - {\"messages\":[\"role\":\"...\", \"content\":\"...\"], \"temperature\": \"...\"}";
+  LOG_MSG << "  POST /api/fim       - {\"prefix\": \"...\", \"suffix\":\"...\", \"temperature\": \"...\"}";
   LOG_MSG << "  POST /api/update    - Trigger manual update of sources";
   LOG_MSG << "  POST /api/shutdown  - Initiate server shutdown (expects X-App-Key header for the key)";
   LOG_MSG << "\nPress Ctrl+C to stop";

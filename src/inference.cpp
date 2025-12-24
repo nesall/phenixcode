@@ -5,7 +5,7 @@
 #include "tokenizer.h"
 #include <stdexcept>
 #include <cassert>
-//#include <format>
+#include <unordered_map>
 #include <filesystem>
 #include <cmath>  // for std::sqrt
 #include <httplib.h>
@@ -15,42 +15,46 @@
 
 struct InferenceClient::Impl {
   ApiConfig apiCfg_;
-  std::string schemaHostPort_;
-  std::string path_;
-  size_t timeoutMs_;
-
-  std::unique_ptr<httplib::Client> httpClient_;
-
-  void parseUrl();
+  size_t timeoutMs_ = 1000;
+  std::unordered_map<std::string, std::unique_ptr<httplib::Client>> urlToClient_;
+  std::pair<httplib::Client *, std::string> httpClientForUrl(const std::string &url);
 };
 
-void InferenceClient::Impl::parseUrl()
+std::pair<httplib::Client *, std::string> InferenceClient::Impl::httpClientForUrl(const std::string &url)
 {
-  const auto &url = apiCfg_.apiUrl;
   size_t protocolEnd = url.find("://");
   if (protocolEnd == std::string::npos) {
     throw std::runtime_error("Invalid server URL format");
   }
   size_t hostStart = protocolEnd + 3;
-  size_t portStart = url.find(":", hostStart);
   size_t pathStart = url.find("/", hostStart);
-  schemaHostPort_ = url.substr(0, pathStart);
-  path_ = url.substr(pathStart);
+  if (pathStart == std::string::npos) {
+    pathStart = url.size();
+  }
+  auto schemaHostPort = url.substr(0, pathStart);
+  auto path = url.substr(pathStart);
+  auto it = urlToClient_.find(schemaHostPort);
+  if (it != urlToClient_.end()) {
+    return { it->second.get(), path };
+  } else {
+    try {
+      auto client = std::make_unique<httplib::Client>(schemaHostPort);
+      client->set_connection_timeout(0, timeoutMs_ * 1000);
+      client->set_read_timeout(timeoutMs_ / 1000, (timeoutMs_ % 1000) * 1000);
+      auto ptr = client.get();
+      urlToClient_.emplace(schemaHostPort, std::move(client));
+      return { ptr, path };
+    } catch (const std::exception &e) {
+      LOG_MSG << "Error initializing http client for " << schemaHostPort << ": " << e.what();
+      return { nullptr, "" };
+    }
+  }
 }
 
 InferenceClient::InferenceClient(const ApiConfig &cfg, size_t timeout) : imp(new Impl)
 {
   imp->apiCfg_ = cfg;
   imp->timeoutMs_ = timeout;
-  imp->parseUrl();
-  try {
-    imp->httpClient_ = std::make_unique<httplib::Client>(schemaHostPort());
-    imp->httpClient_->set_connection_timeout(0, timeoutMs() * 1000);
-    imp->httpClient_->set_read_timeout(timeoutMs() / 1000, (timeoutMs() % 1000) * 1000);
-  } catch (const std::exception &e) {
-    LOG_MSG << "Error initializing http client " << e.what();
-    imp->httpClient_.reset();
-  }
 }
 
 InferenceClient::~InferenceClient()
@@ -60,16 +64,6 @@ InferenceClient::~InferenceClient()
 const ApiConfig &InferenceClient::cfg() const
 {
   return imp->apiCfg_;
-}
-
-std::string InferenceClient::path() const
-{
-  return imp->path_;
-}
-
-std::string InferenceClient::schemaHostPort() const
-{
-  return imp->schemaHostPort_;
 }
 
 size_t InferenceClient::timeoutMs() const
@@ -89,7 +83,8 @@ void EmbeddingClient::generateEmbeddings(const std::vector<std::string> &texts, 
 {
   embeddingsList.reserve(texts.size());
   try {
-    if (!imp->httpClient_) {
+    const auto [httpClient, path] = imp->httpClientForUrl(cfg().apiUrl);
+    if (!httpClient) {
       throw std::runtime_error("Failed to initialize http client");
     }
 
@@ -102,7 +97,7 @@ void EmbeddingClient::generateEmbeddings(const std::vector<std::string> &texts, 
       {"Authorization", "Bearer " + cfg().apiKey},
       {"Connection", "keep-alive"}
     };
-    auto res = imp->httpClient_->Post(path().c_str(), headers, bodyStr, "application/json");
+    auto res = httpClient->Post(path.c_str(), headers, bodyStr, "application/json");
     if (!res) {
       throw std::runtime_error("Failed to connect to embedding server");
     }
@@ -206,6 +201,58 @@ namespace {
 
   Answer:
   )" };
+
+  const std::string &_fimTemplate{ R"(
+    You are a helpful coding assistant. When asked to fill the missing middle between a prefix and a suffix, 
+    produce only the middle content - do not repeat the prefix or suffix, do not add explanation.
+    Prefix:
+    __PREFIX__
+
+    Suffix:
+    __SUFFIX__
+    )" };
+
+  std::string processSSEData(const char *data, size_t len, std::function<void(const std::string &)> onStream) {
+    std::string fullResponse;
+    std::string buffer;
+    buffer.append(data, len);
+    size_t pos;
+    while ((pos = buffer.find("\n\n")) != std::string::npos) {
+      std::string event = buffer.substr(0, pos); // one SSE event
+      buffer.erase(0, pos + 2);
+      if (event.find("data: ", 0) == 0) {
+        std::string jsonStr = event.substr(6);
+        if (jsonStr == "[DONE]") {
+          break;
+        }
+        try {
+          nlohmann::json chunkJson = nlohmann::json::parse(jsonStr);
+          if (chunkJson.contains("choices") && !chunkJson["choices"].empty()) {
+            const auto &choice = chunkJson["choices"][0];
+            if (choice.contains("delta") && choice["delta"].contains("content")) {
+              // Either choice["delta"]["content"] or choice["delta"]["reasoning_content"]
+              std::string content;
+              if (!choice["delta"]["content"].is_null())
+                content = choice["delta"]["content"];
+              else if (choice["delta"].contains("reasoning_content") && !choice["delta"]["reasoning_content"].is_null())
+                content = choice["delta"]["reasoning_content"];
+              fullResponse += content;
+              if (onStream) {
+                onStream(content);
+              }
+            }
+          }
+        } catch (const std::exception &e) {
+          LOG_MSG << "Error parsing chunk: " << e.what() << " in: " << jsonStr;
+        }
+      }
+    }
+    if (buffer.find("Unauthorized") != std::string::npos) {
+      if (onStream) onStream(buffer);
+    }
+    return fullResponse;
+  }
+
 } // anonymous namespace
 
 CompletionClient::CompletionClient(const ApiConfig &cfg, size_t timeout, const App &a)
@@ -226,7 +273,8 @@ std::string CompletionClient::generateCompletion(
     throw std::runtime_error("HTTPS not supported in this build");
   }
 #endif
-  if (!imp->httpClient_) {
+  const auto [httpClient, path] = imp->httpClientForUrl(cfg().apiUrl);
+  if (!httpClient) {
     throw std::runtime_error("Failed to initialize http client");
   }
 
@@ -329,8 +377,8 @@ std::string CompletionClient::generateCompletion(
 
     std::string buffer; // holds leftover partial data
 
-    res = imp->httpClient_->Post(
-      path().c_str(),
+    res = httpClient->Post(
+      path.c_str(),
       headers,
       requestBody.dump(),
       "application/json",
@@ -378,8 +426,8 @@ std::string CompletionClient::generateCompletion(
   } else {
     headers.insert({ "Accept", "application/json" });
 
-    res = imp->httpClient_->Post(
-      path().c_str(),
+    res = httpClient->Post(
+      path.c_str(),
       headers,
       requestBody.dump(),
       "application/json"
@@ -406,6 +454,101 @@ std::string CompletionClient::generateCompletion(
   if (res->status != 200) {
     std::string msg = fmt::format("Server returned error: {} - {}", res->status, res->body);
     if (onStream) onStream(msg);
+    throw std::runtime_error(msg);
+  }
+
+  return fullResponse;
+}
+
+std::string CompletionClient::generateFim(
+  const std::string &prefix, 
+  const std::string &suffix, 
+  float temperature, 
+  size_t maxTokens) const
+{
+#ifndef CPPHTTPLIB_OPENSSL_SUPPORT
+  if (schemaHostPort().starts_with("https://")) {
+    throw std::runtime_error("HTTPS not supported in this build");
+  }
+#endif
+
+  std::string fimPrefixName = utils::trimmed(cfg().fim.prefixName);
+  std::string fimSuffixName = utils::trimmed(cfg().fim.suffixName);
+  std::vector<std::string> fimStopTokens = cfg().fim.stopTokens;
+  std::string apiUrl = fimPrefixName.empty() ? cfg().apiUrl : cfg().fim.apiUrl;
+
+  const auto [httpClient, path] = imp->httpClientForUrl(apiUrl);
+  if (!httpClient) {
+    throw std::runtime_error("Failed to initialize http client");
+  }
+
+  nlohmann::json requestBody;
+  requestBody["model"] = cfg().model;
+
+  if (!fimPrefixName.empty()) {
+    requestBody[fimPrefixName] = prefix;
+    requestBody[fimSuffixName] = suffix;
+    if (!fimStopTokens.empty())
+      requestBody["stop"] = fimStopTokens;
+  } else {
+    std::string prompt = _fimTemplate;
+    size_t pos = prompt.find("__PREFIX__");
+    assert(pos != std::string::npos);
+    prompt.replace(pos, std::string("__PREFIX__").length(), prefix);
+    pos = prompt.find("__SUFFIX__");
+    assert(pos != std::string::npos);
+    prompt.replace(pos, std::string("__SUFFIX__").length(), suffix);
+    nlohmann::json messages = nlohmann::json::array();
+    messages.push_back({ {"role", "user"}, {"content", prompt} });
+    requestBody["messages"] = messages;
+    requestBody["stream"] = false;
+  }
+
+  if (cfg().temperatureSupport)
+    requestBody["temperature"] = temperature;
+  requestBody[cfg().maxTokensName] = maxTokens;
+
+  httplib::Headers headers = {
+    {"Authorization", "Bearer " + cfg().apiKey},
+    {"Connection", "keep-alive"},
+    {"Accept", "application/json"}
+  };
+
+  std::string fullResponse;
+  httplib::Result res;
+
+  res = httpClient->Post(
+    path.c_str(),
+    headers,
+    requestBody.dump(),
+    "application/json"
+  );
+
+  if (res && res->status == 200) {
+    try {
+      nlohmann::json jsonRes = nlohmann::json::parse(res->body);
+      if (!jsonRes["choices"].empty()) {
+        const auto &choice = jsonRes["choices"][0];
+        if (choice.contains("message") && choice["message"].contains("content")) {
+          fullResponse = choice["message"]["content"];
+        }
+      }
+    } catch (...) {
+      try {
+        // fallback, assuming the response is SSE stream
+        fullResponse = processSSEData(res->body.c_str(), res->body.length(), nullptr);
+      } catch (const std::exception &ex) {
+        LOG_MSG << "Error processing response: " << ex.what();
+      }
+    }
+  }
+
+  if (!res) {
+    throw std::runtime_error("Failed to connect to completion server");
+  }
+
+  if (res->status != 200) {
+    std::string msg = fmt::format("Server returned error: {} - {}", res->status, res->body);
     throw std::runtime_error(msg);
   }
 

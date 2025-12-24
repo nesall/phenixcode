@@ -23,8 +23,6 @@ protected:
   std::unique_ptr<Impl> imp;
 
   const ApiConfig &cfg() const;
-  std::string path() const;
-  std::string schemaHostPort() const;
   size_t timeoutMs() const;
 };
 
@@ -50,6 +48,11 @@ public:
     float temperature,
     size_t maxTokens,
     std::function<void(const std::string &)> onStream) const;
+
+  std::string generateFim(
+    const std::string &prefix, 
+    const std::string &suffix, 
+    float temperature, size_t maxTokens) const;
 
 private:
 };
