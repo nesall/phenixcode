@@ -344,9 +344,29 @@
   function onEditMsg(index: number) {
     const msg = $messages[index];
     if (msg.role !== "user") return;
-    // Populate the input area with the message content for editing
-    // This is a placeholder; actual implementation may vary
-    toaster.info({ title: "Edit feature not implemented yet." });
+    const div = document.querySelector(`#user-message-${index}`) as HTMLElement | null;
+    if (div) {
+      div.contentEditable = "plaintext-only";
+      div.focus();
+      const range = document.createRange();
+      range.selectNodeContents(div);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      div.addEventListener(
+        "blur",
+        () => {
+          div.contentEditable = "false";
+          const newContent = (div.textContent || "").trim();
+          console.log("Edited content:", newContent);
+          div.innerHTML = newContent;
+          $messages[index].content = newContent;
+          $messages = $messages;
+        },
+        { once: true },
+      );
+    }
   }
 
   function onRetry(index: number) {
@@ -383,7 +403,7 @@
       {#if msg.role === "user"}
         <div class="flex flex-col items-end overflow-y-hidden box-border message" data-role="user">
           <div
-            class="bg-primary-50-950 shadow2 rounded-xl whitespace-pre-wrap p-4 break-normal text-left message-content"
+            class="bg-primary-50-950 shadow2 rounded-xl whitespace-pre-wrap p-4 m-1 break-normal text-left message-content"
             id="user-message-{i}"
           >
             {msg.content}

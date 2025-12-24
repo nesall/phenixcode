@@ -24,6 +24,7 @@
       onSendMessage(input.trim());
       input = "";
       attachments = [];
+      nofInputRows = 1;
     }
   }
 
