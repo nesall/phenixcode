@@ -203,7 +203,7 @@ curl -X GET http://localhost:8590/api/metrics
 curl -X GET http://localhost:8590/metrics
 
 # Setup configuration (POST)
-curl -X POST http://localhost:8080/api/setup \
+curl -X POST http://localhost:8590/api/setup \
   -H "Authorization: Basic $(echo -n "username:password" | base64)" \
   -H "Content-Type: application/json" \
   -d '{
@@ -224,7 +224,7 @@ curl -X POST http://localhost:8590/api/embed \
   -d '{"text": "your text here"}'
 
 # Add document
-curl -X POST http://localhost:8080/api/documents \
+curl -X POST http://localhost:8590/api/documents \
   -H "Content-Type: application/json" \
   -d '{
     "content": "your document content",
@@ -232,10 +232,10 @@ curl -X POST http://localhost:8080/api/documents \
   }'
 
 # Trigger a manual update
-curl -X POST http://localhost:8080/api/update
+curl -X POST http://localhost:8590/api/update
 
 # Chat with optional context (streaming)
-curl -X POST http://localhost:8080/api/chat \
+curl -X POST http://localhost:8590/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [
@@ -263,7 +263,7 @@ curl -X POST http://localhost:8590/api/shutdown \
   -d '{}'  
 
 # Authenticate  
-curl -X POST http://localhost:8080/api/authenticate \
+curl -X POST http://localhost:8590/api/authenticate \
   -H "Authorization: Basic $(echo -n "username:password" | base64)"
 
   
