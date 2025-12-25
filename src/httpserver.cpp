@@ -641,8 +641,8 @@ HttpServer::~HttpServer()
 
 int HttpServer::bindToPortIncremental(int port)
 {
-  int nofTries = 20;
-  while (!isPortAvailable(port)) {
+  int nofTries = port == 0 ? 0 : 20;
+  while (0 < nofTries && !isPortAvailable(port)) {
     if (--nofTries == 0) {
       LOG_MSG << "Unable to reserve a port.";
       return false;

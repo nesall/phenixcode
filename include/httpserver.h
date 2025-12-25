@@ -12,6 +12,7 @@ class HttpServer {
 public:
   HttpServer(App &app);
   ~HttpServer();
+  // port=0 means bind to any available port
   int bindToPortIncremental(int port);
   bool startServer();
   void stop();
