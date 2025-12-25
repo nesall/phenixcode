@@ -56,6 +56,25 @@
         "context_length": 128000
       },
       {
+        "api_key": "${CODESTRAL_API_KEY}",
+        "api_url": "https://codestral.mistral.ai/v1/chat/completions",
+        "context_length": 256000,
+        "enabled": true,
+        "id": "mistral-codestral",
+        "model": "codestral-latest",
+        "name": "Mistral",
+        "fim": {
+          "api_url": "https://codestral.mistral.ai/v1/fim/completions",
+          "prefix_name": "prompt",
+          "suffix_name": "suffix", 
+          "stop_tokens": []
+        },
+        "pricing_tpm": {
+          "input": 0.3,
+          "output": 0.9
+        }
+      },
+      {
         "api_key": "${GEMINI_API_KEY}",
         "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "id": "gemini-2.0-flash",
@@ -163,7 +182,8 @@
       "*/.git/*", ".gitignore", "*/CVS/*",
       "*/debug/*", "*/release/*", "*/lib/*", "*/docker/*",
       "*/fonts/*", "*/images/*", "*/test/*","*/tests/*",
-      "*/example/*", "*/examples/*", "*/obj/*", "*/build_dbg/*", "*/build_rel/*"
+      "*/example/*", "*/examples/*", "*/obj/*", "*/build_dbg/*", "*/build_rel/*",
+      "*/bin/*"
     ],
     "encoding": "utf-8",
     "max_file_size_mb": 10
