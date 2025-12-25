@@ -834,7 +834,7 @@ void App::chat()
   std::cout << "Exiting chat mode." << std::endl;
 }
 
-void App::serve(int suggestedPort, bool watch, int interval)
+void App::serve(int suggestedPort, bool watch, int interval, const std::string &infoFile)
 {
   std::thread watchThread;
   std::thread serverThread;
@@ -879,8 +879,28 @@ void App::serve(int suggestedPort, bool watch, int interval)
       LOG_MSG << "  Auto-update: disabled";
     }
     
-    serverThread = std::thread([this, suggestedPort, watch, interval]() {
-      int newPort = imp->httpServer_->bindToPortIncremental(suggestedPort);
+    serverThread = std::thread([this, suggestedPort, watch, interval, infoFile]() {
+      const int newPort = imp->httpServer_->bindToPortIncremental(suggestedPort);
+      if (!infoFile.empty()) {
+        try {
+          json infoData;
+          infoData["port"] = newPort;
+          infoData["timestamp"] = static_cast<size_t>(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+          infoData["watch_enabled"] = watch;
+          infoData["watch_interval"] = interval;
+
+          std::ofstream outFile(infoFile);
+          if (outFile.is_open()) {
+            outFile << infoData.dump(2);
+            outFile.close();
+            LOG_MSG << "Instance info saved to --info-file" << infoFile;
+          } else {
+            LOG_MSG << "Warning: Unable to open info file for writing: " << infoFile;
+          }
+        } catch (const std::exception &e) {
+          LOG_MSG << "Warning: Error saving instance info: " << e.what();
+        }
+      }
       if (0 < newPort) {
         imp->registry_ = std::make_unique<InstanceRegistry>(newPort, watch ? interval : 0, settings());
         try {
@@ -1495,6 +1515,7 @@ int App::run(int argc, char *argv[])
   bool serveWatch = false;
   int serveWatchInterval = 60;
   std::string privateAppKey;
+  std::string infoFile;
   cmdServe->add_option("-p,--port", servePort, "Server port")
     ->default_val(8590)
     ->envname("EMBEDDER_PORT")
@@ -1502,6 +1523,7 @@ int App::run(int argc, char *argv[])
   cmdServe->add_flag("--watch", serveWatch, "Enable auto-update");
   cmdServe->add_option("--interval", serveWatchInterval, "Watch interval in seconds")->default_val(60);
   cmdServe->add_option("--appkey", privateAppKey, "Caller-provided key for privileged operations (e.g., exit requests through the instance registry)");
+  cmdServe->add_option("--info-file", infoFile, "Path to store instance info such as port server started");
 
   auto cmdProviders = app.add_subcommand("providers", "List embedding and completion providers");
   std::string testProvider;
@@ -1609,7 +1631,7 @@ int App::run(int argc, char *argv[])
           return 1;
         }
       }
-      appInstance.serve(servePort, serveWatch, serveWatchInterval);
+      appInstance.serve(servePort, serveWatch, serveWatchInterval, infoFile);
     } else {
       // No command specified, show help
       std::cout << app.help() << std::endl;

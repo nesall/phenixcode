@@ -31,7 +31,7 @@ public:
   void stats();
   void clear(bool noPrompt);
   void chat();
-  void serve(int port, bool watch = false, int interval = 60);
+  void serve(int port, bool watch = false, int interval = 60, const std::string &infoFile = {});
   void providers(const std::string &testProvider);
 
   const Settings &settings() const;
