@@ -437,7 +437,13 @@ struct InstanceRegistry::Impl {
       instance["cwd"] = stmt.getStr(j++);
       instance["config"] = stmt.getStr(j++);
       instance["status"] = stmt.getStr(j++);
-      instance["params"] = stmt.getStr(j++);
+      std::string params = stmt.getStr(j++);      
+      try {
+        instance["params"] = nlohmann::json::parse(params);
+      } catch (const nlohmann::json::exception &e) {
+        LOG_MSG << "Failed to parse params JSON: " << e.what();
+        instance["params"] = nlohmann::json::object();
+      }
       active.push_back(instance);
     }
     return active;
