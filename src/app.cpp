@@ -888,7 +888,15 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
           infoData["timestamp"] = static_cast<size_t>(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
           infoData["watch_enabled"] = watch;
           infoData["watch_interval"] = interval;
-
+          infoData["pid"] = 
+#ifdef _WIN32
+          GetCurrentProcessId();
+#else
+          getpid();
+#endif
+          ;
+          infoData["exec"] = Impl::binaryName_;
+          
           std::ofstream outFile(infoFile);
           if (outFile.is_open()) {
             outFile << infoData.dump(2);
@@ -993,7 +1001,7 @@ size_t App::update()
   auto dbStats = imp->db_->getStats();
   if (dbStats.totalChunks == 0) {
     LOG_MSG << "No index found. Performing full embedding...";
-    embed(false);
+    embed(true);
     return dbStats.totalChunks; // After embed, totalChunks will be updated
   }
 
@@ -1519,7 +1527,7 @@ int App::run(int argc, char *argv[])
   cmdServe->add_option("-p,--port", servePort, "Server port")
     ->default_val(8590)
     ->envname("EMBEDDER_PORT")
-    ->check(CLI::Range(1, 65535));
+    ->check(CLI::Range(0, 65535));
   cmdServe->add_flag("--watch", serveWatch, "Enable auto-update");
   cmdServe->add_option("--interval", serveWatchInterval, "Watch interval in seconds")->default_val(60);
   cmdServe->add_option("--appkey", privateAppKey, "Caller-provided key for privileged operations (e.g., exit requests through the instance registry)");
