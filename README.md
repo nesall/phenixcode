@@ -256,6 +256,17 @@ curl -X POST http://localhost:8590/api/chat \
     "ctxratio": 0.5,
     "attachedonly": false
   }'
+  
+# Fill-in-the-middle endpoint. Suffix is optional.
+curl -X POST "http://localhost:8590/api/fim" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": "std::string greet(const std::string &name) { return \"Hello, \"+",
+    "suffix": "+\"!\"; }",
+    "temperature": 0.0,
+    "max_tokens": 64,
+    "targetapi": "xai"
+  }'  
 
 # Initiate server shutdown that was started with an app key e.g. ./phenixcode-core serve --appkey abc123
 curl -X POST http://localhost:8590/api/shutdown \
