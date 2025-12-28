@@ -3,7 +3,7 @@ rmdir /s /q build_rel
 mkdir build_rel
 cd build_rel
 cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --config Release
+cmake --build . --config Release --parallel 
 cd ..
 
 set DIRNAME=dist
