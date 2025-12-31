@@ -343,14 +343,20 @@ struct InstanceRegistry::Impl {
 
     int rc = sqlite3_prepare_v2(db_, deleteSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
+      LOG_MSG << "Failed to prepare delete statement: " << sqlite3_errmsg(db_);
       return;
     }
 
     sqlite3_bind_text(stmt.ref(), 1, instanceId_.c_str(), -1, SQLITE_STATIC);
     rc = sqlite3_step(stmt.ref());
-
-    if (rc == SQLITE_DONE && sqlite3_changes(db_) > 0) {
+    if (rc != SQLITE_DONE) {
+      LOG_MSG << "Failed to unregister instance: " << sqlite3_errmsg(db_);
+      return;
+    }
+    if (0 < sqlite3_changes(db_)) {
       LOG_MSG << "Unregistered instance:" << instanceId_;
+    } else {
+      LOG_MSG << "Instance not found for unregistration:" << instanceId_;
     }
   }
 
