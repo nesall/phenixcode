@@ -119,6 +119,155 @@ std::string utils::trimmed(std::string_view sv)
   return (wsfront < wsback ? std::string(wsfront, wsback) : std::string{});
 }
 
+std::string utils::addLineComments(std::string_view code, std::string_view filename)
+{
+  namespace fs = std::filesystem;
+
+  std::string ext = fs::path(filename).extension().string();
+  std::transform(ext.begin(), ext.end(), ext.begin(),
+    [](unsigned char c) { return std::tolower(c); });
+
+  std::string prefix;
+  std::string suffix;  // usually empty, used only for /* ... */ style
+
+  static const std::vector<std::string> hash_style = {
+      ".py", ".pyw", ".sh", ".bash", ".zsh", ".rb", ".rbw",
+      ".yml", ".yaml", ".toml", ".ini", ".cfg", ".dockerfile", ".env"
+  };
+
+  static const std::vector<std::string> slash_style = {
+      ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh", ".hxx",
+      ".js", ".jsx", ".ts", ".tsx", ".vue",
+      ".java", ".kt", ".groovy", ".scala", ".cs",
+      ".rs", ".go", ".php"
+  };
+
+  if (std::find(hash_style.cbegin(), hash_style.cend(), ext) != hash_style.cend()) {
+    prefix = "# ";
+  } else if (std::find(slash_style.cbegin(), slash_style.cend(), ext) != slash_style.cend()) {
+    prefix = "// ";
+  } else if (ext == ".css" || ext == ".scss" || ext == ".less") {
+    prefix = "/* ";
+    suffix = " */";
+  } else if (ext == ".lua" || ext == ".sql" || ext == ".pl" || ext == ".sql") {
+    prefix = "-- ";
+  } else {
+    return std::string(code);
+  }
+
+  if (code.empty()) {
+    return {};
+  }
+
+  std::string result;
+  result.reserve(code.size() + code.size() / 4);  // rough estimate: +25% space
+
+  std::string_view remaining = code;
+  bool firstLine = true;
+
+  while (!remaining.empty()) {
+    size_t lineEnd = remaining.find('\n');
+    bool has_newline = (lineEnd != std::string_view::npos);
+
+    std::string_view line = has_newline
+      ? remaining.substr(0, lineEnd)
+      : remaining;
+
+    std::string_view trimmed = line;
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back()))) {
+      trimmed.remove_suffix(1);
+    }
+
+    if (!trimmed.empty()) {
+      if (!firstLine) {
+        result += '\n';
+      }
+      result += prefix;
+      result += line;           // original line including leading/trailing ws
+      result += suffix;
+    } else {
+      if (!firstLine) {
+        result += '\n';
+      }
+      result += line;
+    }
+
+    if (has_newline) {
+      remaining.remove_prefix(lineEnd + 1);
+    } else {
+      remaining.remove_prefix(line.size());
+    }
+
+    firstLine = false;
+  }
+
+  if (!code.empty() && code.back() == '\n') {
+    result += '\n';
+  }
+
+  return result;
+}
+
+std::string utils::stripMarkdownFromCodeBlock(std::string_view code)
+{
+  if (code.length() < 6) {  // too short for ```...\n```
+    return std::string(code);
+  }
+
+  if (!code.starts_with("```")) {
+    return std::string(code);
+  }
+
+  // Find the end of the opening fence line
+  size_t fence_end = code.find('\n', 3);
+  if (fence_end == std::string_view::npos) {
+    // No newline after opening ``` -> maybe single-line or malformed
+    if (code.ends_with("```")) {
+      // ```code```
+      return std::string(code.substr(3, code.length() - 6));
+    }
+    return std::string(code);  // not a proper fence
+  }
+
+  // Extract language tag if present (e.g. "cpp", "python", empty)
+  std::string_view lang = code.substr(3, fence_end - 3);
+  // Trim whitespace from lang (optional, but helps robustness)
+  while (!lang.empty() && std::isspace(static_cast<unsigned char>(lang.front()))) {
+    lang.remove_prefix(1);
+  }
+  while (!lang.empty() && std::isspace(static_cast<unsigned char>(lang.back()))) {
+    lang.remove_suffix(1);
+  }
+
+  // Now find closing fence
+  // We look for \n``` at the end, possibly followed by optional whitespace/newline
+  size_t closing_pos = code.rfind("\n```");
+  if (closing_pos == std::string_view::npos || closing_pos <= fence_end) {
+    // No matching closing fence found
+    return std::string(code);
+  }
+
+  // Check if the closing fence is at the end (or only whitespace after)
+  std::string_view tail = code.substr(closing_pos + 4);  // after \n```
+  bool tail_is_empty_or_ws = tail.empty() ||
+    std::all_of(tail.begin(), tail.end(),
+      [](unsigned char c) { return std::isspace(c); });
+
+  if (!tail_is_empty_or_ws) {
+    // There's content after closing fence -> treat as not fenced
+    return std::string(code);
+  }
+
+  // Extract content between opening fence newline and closing fence
+  size_t content_start = fence_end + 1;
+  size_t content_length = closing_pos - content_start;
+
+  std::string_view inner = code.substr(content_start, content_length);
+
+  // If the inner content ends with newline before closing fence, keep it consistent
+  return std::string(inner);
+}
+
 
 namespace {
 
@@ -782,8 +931,8 @@ void App::stats()
 void App::clear(bool noPrompt)
 {
   if (noPrompt) {
-      imp->db_->clear();
-      LOG_MSG << "Database cleared.";
+    imp->db_->clear();
+    LOG_MSG << "Database cleared.";
   } else {
     std::cout << "Are you sure you want to clear all data? [y/N]: ";
     std::string confirm;
@@ -878,7 +1027,7 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
     } else {
       LOG_MSG << "  Auto-update: disabled";
     }
-    
+
     serverThread = std::thread([this, suggestedPort, watch, interval, infoFile]() {
       const int newPort = imp->httpServer_->bindToPortIncremental(suggestedPort);
       if (!infoFile.empty()) {
@@ -888,15 +1037,15 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
           infoData["timestamp"] = static_cast<size_t>(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
           infoData["watch_enabled"] = watch;
           infoData["watch_interval"] = interval;
-          infoData["pid"] = 
+          infoData["pid"] =
 #ifdef _WIN32
-          GetCurrentProcessId();
+            GetCurrentProcessId();
 #else
-          getpid();
+            getpid();
 #endif
           ;
           infoData["exec"] = Impl::binaryName_;
-          
+
           std::ofstream outFile(infoFile);
           if (outFile.is_open()) {
             outFile << infoData.dump(2);
@@ -1459,7 +1608,7 @@ int App::run(int argc, char *argv[])
   SignalHandler::setup();
 
   CLI::App app{ "PhenixCode RAG System" };
-  app.set_version_flag("--version,-v", 
+  app.set_version_flag("--version,-v",
     fmt::format("PhenixCode RAG System\nAuthor: Arman Sahakyan\nVersion: {}\nBuild date: {} {}", EMBEDDER_VERSION, __DATE__, __TIME__));
   app.require_subcommand(0, 1); // Allow 0 or 1 subcommand (0 shows help)
 
@@ -1478,7 +1627,7 @@ int App::run(int argc, char *argv[])
   std::string newPassword;
   cmdResetPass->add_option("--pass", newPassword, "New password")
     ->required()
-    ->check(CLI::IsMember({ "admin" }, CLI::ignore_case).description("Cannot be 'admin'"));  
+    ->check(CLI::IsMember({ "admin" }, CLI::ignore_case).description("Cannot be 'admin'"));
   auto cmdResetInteractive = app.add_subcommand("reset-password-interactive", "Reset password interactively");
   auto cmdPasswordStatus = app.add_subcommand("password-status", "Check password status");
 
