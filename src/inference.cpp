@@ -202,15 +202,33 @@ namespace {
   Answer:
   )" };
 
+#if 0
   const std::string &_fimTemplate{ R"(
-    You are a helpful coding assistant. When asked to fill the missing middle between a prefix and a suffix, 
-    produce only the middle content - do not repeat the prefix or suffix, do not add explanation.
-    Prefix:
-    __PREFIX__
+  You are a helpful coding assistant. When asked to fill the missing middle between a prefix and a suffix, 
+  produce only the middle content - do not repeat the prefix or suffix, do not add explanation.
+  PREFIX:
+  __PREFIX__
 
-    Suffix:
-    __SUFFIX__
-    )" };
+  SUFFIX:
+  __SUFFIX__
+  )" };
+#else
+  const std::string _fimTemplate{ R"(
+  [CONTEXT]
+  __CONTEXT__
+
+  [INSTRUCTION]
+  Complete the code between the PREFIX and SUFFIX below. 
+  Output ONLY the missing code. No markdown blocks, no explanations.
+
+  [PREFIX]
+  __PREFIX__
+  [SUFFIX]
+  __SUFFIX__
+
+  [OUTPUT]
+  )" };
+#endif
 
   std::string processSSEData(const char *data, size_t len, std::function<void(const std::string &)> onStream) {
     std::string fullResponse;
@@ -294,51 +312,7 @@ std::string CompletionClient::generateCompletion(
     onStream("[meta]Working on the response");
   }
 
-
-  const auto labelFmt = app_.settings().generationPrependLabelFormat();
-  const auto maxContextTokens = cfg().contextLength;
-  size_t nofTokens = app_.tokenizer().countTokensWithVocab(_queryTemplate);
-  std::string context;
-  for (const auto &r : searchRes) {
-    std::string filename = std::filesystem::path(r.sourceId).filename().string();
-    if (filename.empty()) filename = r.sourceId.empty() ? "source" : r.sourceId;
-    // format label (fmt::vformat requires C++20)
-    std::string label = fmt::vformat(labelFmt, fmt::make_format_args(filename));
-    // avoid double-labeling
-    bool alreadyLabeled = (r.content.rfind(label, 0) == 0);
-
-    size_t contentTokens = app_.tokenizer().countTokensWithVocab(r.content);
-    size_t labelTokens = alreadyLabeled ? 0 : app_.tokenizer().countTokensWithVocab(label);
-
-    if (maxContextTokens < nofTokens + labelTokens + contentTokens) {
-      size_t remaining = (nofTokens < maxContextTokens) ? (maxContextTokens - nofTokens) : 0;
-      if (remaining <= labelTokens) {
-        // can't fit label + content excerpt -> stop
-        break;
-      }
-      size_t remainingContentTokens = remaining - labelTokens;
-      if (remainingContentTokens == 0) break;
-      
-      // approximate characters for remainingContentTokens
-      size_t approxCharCount = r.content.length();
-      if (0 < contentTokens) {
-        approxCharCount = r.content.length() * remainingContentTokens / contentTokens;
-      }
-
-      std::string excerpt = r.content.substr(0, approxCharCount);
-
-      std::string labeledExcerpt = alreadyLabeled ? excerpt : (label + excerpt);
-      context += labeledExcerpt + "\n\n";
-      nofTokens += app_.tokenizer().countTokensWithVocab(labeledExcerpt);
-      break;
-    }
-    // full add
-    std::string labeledFull = alreadyLabeled ? r.content : (label + r.content);
-    nofTokens += labelTokens + contentTokens;
-    context += labeledFull + "\n\n";
-  }
-
-  //std::cout << "Generating completions with context length of " << nofTokens << " tokens \n";
+  std::string context = buildContext(searchRes);
 
   std::string prompt = _queryTemplate;
   size_t pos = prompt.find("__CONTEXT__");
@@ -463,53 +437,72 @@ std::string CompletionClient::generateCompletion(
 std::string CompletionClient::generateFim(
   const std::string &prefix, 
   const std::string &suffix, 
+  const std::vector<std::string> &stops,
   float temperature, 
-  size_t maxTokens) const
+  size_t maxTokens,
+  const std::vector<SearchResult> &searchRes) const
 {
 #ifndef CPPHTTPLIB_OPENSSL_SUPPORT
   if (schemaHostPort().starts_with("https://")) {
     throw std::runtime_error("HTTPS not supported in this build");
   }
 #endif
+  const auto &cfg = this->cfg();
+  std::string fimPrefixName = utils::trimmed(cfg.fim.prefixName);
+  std::string fimSuffixName = utils::trimmed(cfg.fim.suffixName);
+  std::string fimFormat = utils::trimmed(cfg.fim.format);
+  std::vector<std::string> fimStopTokens = cfg.fim.stopTokens;
+  const bool bFimMode = !fimPrefixName.empty() || !fimFormat.empty();
+  std::string apiUrl = bFimMode ? cfg.fim.apiUrl : cfg.apiUrl;
 
-  std::string fimPrefixName = utils::trimmed(cfg().fim.prefixName);
-  std::string fimSuffixName = utils::trimmed(cfg().fim.suffixName);
-  std::vector<std::string> fimStopTokens = cfg().fim.stopTokens;
-  std::string apiUrl = fimPrefixName.empty() ? cfg().apiUrl : cfg().fim.apiUrl;
+  fimStopTokens.insert(fimStopTokens.end(), stops.begin(), stops.end());
 
   const auto [httpClient, path] = imp->httpClientForUrl(apiUrl);
   if (!httpClient) {
     throw std::runtime_error("Failed to initialize http client");
   }
 
-  nlohmann::json requestBody;
-  requestBody["model"] = cfg().model;
+  std::string context = buildContext(searchRes, true, cfg.fim.fileDivider);
 
-  if (!fimPrefixName.empty()) {
-    requestBody[fimPrefixName] = prefix;
+  nlohmann::json requestBody;
+  requestBody["model"] = cfg.model;
+  if (!fimPrefixName.empty()) {    
+    requestBody[fimPrefixName] = context + "\n\n" + prefix;
     requestBody[fimSuffixName] = suffix;
     if (!fimStopTokens.empty())
       requestBody["stop"] = fimStopTokens;
+  } else if (!fimFormat.empty() && fimFormat.find("{}") != std::string::npos) {
+    auto prompt = fmt::vformat(fimFormat, fmt::make_format_args(prefix, suffix));
+    requestBody["prompt"] = prompt;
+    if (!fimStopTokens.empty())
+      requestBody["stop"] = fimStopTokens;
   } else {
-    std::string prompt = _fimTemplate;
-    size_t pos = prompt.find("__PREFIX__");
+    auto prompt = _fimTemplate;
+    size_t pos = prompt.find("__CONTEXT__");
+    assert(pos != std::string::npos);
+    prompt.replace(pos, std::string("__CONTEXT__").length(), context);    
+    pos = prompt.find("__PREFIX__");
     assert(pos != std::string::npos);
     prompt.replace(pos, std::string("__PREFIX__").length(), prefix);
     pos = prompt.find("__SUFFIX__");
     assert(pos != std::string::npos);
     prompt.replace(pos, std::string("__SUFFIX__").length(), suffix);
     nlohmann::json messages = nlohmann::json::array();
+    messages.push_back({
+      {"role", "system"},
+      {"content", "You are a code completion assistant."}
+      });
     messages.push_back({ {"role", "user"}, {"content", prompt} });
     requestBody["messages"] = messages;
-    requestBody["stream"] = false;
   }
+  requestBody["stream"] = false;
 
-  if (cfg().temperatureSupport)
+  if (cfg.temperatureSupport)
     requestBody["temperature"] = temperature;
-  requestBody[cfg().maxTokensName] = maxTokens;
+  requestBody[cfg.maxTokensName] = maxTokens;
 
   httplib::Headers headers = {
-    {"Authorization", "Bearer " + cfg().apiKey},
+    {"Authorization", "Bearer " + cfg.apiKey},
     {"Connection", "keep-alive"},
     {"Accept", "application/json"}
   };
@@ -527,10 +520,13 @@ std::string CompletionClient::generateFim(
   if (res && res->status == 200) {
     try {
       nlohmann::json jsonRes = nlohmann::json::parse(res->body);
+      //LOG_MSG << "FIM Response:" << res->body;
       if (!jsonRes["choices"].empty()) {
         const auto &choice = jsonRes["choices"][0];
         if (choice.contains("message") && choice["message"].contains("content")) {
           fullResponse = choice["message"]["content"];
+        } else if (choice.contains("text")) {
+          fullResponse = choice["text"];
         }
       }
     } catch (...) {
@@ -539,6 +535,15 @@ std::string CompletionClient::generateFim(
         fullResponse = processSSEData(res->body.c_str(), res->body.length(), nullptr);
       } catch (const std::exception &ex) {
         LOG_MSG << "Error processing response: " << ex.what();
+      }
+    }
+    if (!fullResponse.empty()) {
+      fullResponse = utils::stripMarkdownFromCodeBlock(fullResponse);
+      for (const auto &stopToken : fimStopTokens) {
+        if (fullResponse.ends_with(stopToken)) {
+          fullResponse.erase(fullResponse.size() - stopToken.size());
+          break;
+        }
       }
     }
   }
@@ -551,6 +556,56 @@ std::string CompletionClient::generateFim(
     std::string msg = fmt::format("Server returned error: {} - {}", res->status, res->body);
     throw std::runtime_error(msg);
   }
-
   return fullResponse;
+}
+
+std::string CompletionClient::buildContext(const std::vector<SearchResult> &searchRes, bool commentOut, const std::string &fileDivider) const
+{
+  const auto labelFmt = app_.settings().generationPrependLabelFormat();
+  const auto maxContextTokens = cfg().contextLength;
+  size_t nofTokens = app_.tokenizer().countTokensWithVocab(_queryTemplate);
+  std::string context;
+  for (const auto &r : searchRes) {
+    std::string filename = std::filesystem::path(r.sourceId).filename().string();
+    if (filename.empty()) filename = r.sourceId.empty() ? "source" : r.sourceId;
+    std::string label = fmt::vformat(labelFmt, fmt::make_format_args(filename));
+    // avoid double-labeling
+    bool alreadyLabeled = (r.content.rfind(label, 0) == 0);
+
+    size_t contentTokens = app_.tokenizer().countTokensWithVocab(r.content);
+    size_t labelTokens = alreadyLabeled ? 0 : app_.tokenizer().countTokensWithVocab(label);
+
+    if (maxContextTokens < nofTokens + labelTokens + contentTokens) {
+      size_t remaining = (nofTokens < maxContextTokens) ? (maxContextTokens - nofTokens) : 0;
+      if (remaining <= labelTokens) {
+        // can't fit label + content excerpt -> stop
+        break;
+      }
+      size_t remainingContentTokens = remaining - labelTokens;
+      if (remainingContentTokens == 0) break;
+
+      // approximate characters for remainingContentTokens
+      size_t approxCharCount = r.content.length();
+      if (0 < contentTokens) {
+        approxCharCount = r.content.length() * remainingContentTokens / contentTokens;
+      }
+
+      std::string excerpt = r.content.substr(0, approxCharCount);
+
+      std::string labeledExcerpt = alreadyLabeled ? excerpt : (label + excerpt);
+      if (commentOut) 
+        labeledExcerpt = utils::addLineComments(labeledExcerpt, filename);
+      context += fileDivider + labeledExcerpt + "\n\n";
+      nofTokens += app_.tokenizer().countTokensWithVocab(labeledExcerpt);
+      break;
+    }
+    // full add
+    std::string labeledFull = alreadyLabeled ? r.content : (label + r.content);
+    if (commentOut) 
+      labeledFull = utils::addLineComments(labeledFull, filename);
+    nofTokens += labelTokens + contentTokens;
+    context += fileDivider + labeledFull + "\n\n";
+  }
+  LOG_MSG << "[context] Total tokens in context: " << nofTokens;
+  return context;
 }

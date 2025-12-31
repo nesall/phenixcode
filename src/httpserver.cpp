@@ -339,7 +339,7 @@ namespace {
     bool attachedOnly,
     std::function<void(std::string_view)> onInfo
   ) {
-    assert(onInfo);
+    if (!onInfo) onInfo = [](std::string_view) {};
     // Preferred order
     std::vector<SearchResult> attachmentResults;
     std::vector<SearchResult> fullSourceResults;
@@ -411,11 +411,16 @@ namespace {
 
     EmbeddingClient embeddingClient(app.settings().embeddingCurrentApi(), app.settings().embeddingTimeoutMs());
     const auto questionChunks = app.chunker().chunkText(question, "", false);
+    //for (const auto &qc : questionChunks) {
+    //  std::vector<float> embedding;
+    //  embeddingClient.generateEmbeddings(qc.text, embedding, EmbeddingClient::EncodeType::Query);
+    //  questionEmbeddingVectors.push_back(embedding);
+    //}
+    std::vector<std::string> questionTexts;
     for (const auto &qc : questionChunks) {
-      std::vector<float> embedding;
-      embeddingClient.generateEmbeddings(qc.text, embedding, EmbeddingClient::EncodeType::Query);
-      questionEmbeddingVectors.push_back(embedding);
+      questionTexts.push_back(qc.text);
     }
+    embeddingClient.generateEmbeddings(questionTexts, questionEmbeddingVectors, EmbeddingClient::EncodeType::Query);
 
     if (!attachedOnly) {
       std::unordered_map<std::string, float> sourcesRank;
@@ -973,17 +978,6 @@ bool HttpServer::startServer()
         }
       }
 
-      //ApiConfig apiConfig = imp->app_.settings().generationCurrentApi();
-      //if (request.contains("targetapi")) {
-      //  std::string targetApi = request["targetapi"];
-      //  if (targetApi != apiConfig.id) {
-      //    auto apis = imp->app_.settings().generationApis();
-      //    auto it = std::find_if(apis.begin(), apis.end(), [&targetApi](const ApiConfig &a) { return a.id == targetApi; });
-      //    if (it != apis.end()) {
-      //      apiConfig = *it;
-      //    }
-      //  }
-      //}
       auto apiConfig = getTargetApi(request, imp->app_);
 
       const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
@@ -1109,15 +1103,27 @@ bool HttpServer::startServer()
 
         std::string prefix = request["prefix"].get<std::string>();
         std::string suffix = request["suffix"].get<std::string>();
+        std::string filename = request.value("filename", std::string{});
+        //filename = std::filesystem::path(filename).filename().string();
+
+        if (request.value("encoding", "") == "base64") {
+          prefix = base64_decode(prefix);
+          suffix = base64_decode(suffix);
+        }
 
         auto apiConfig = getTargetApi(request, imp->app_);
 
         const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
         const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());
+        const float contextSizeRatio = request.value("ctxratio", 0.5f);
+        std::vector<std::string> stops = request.value("stop", std::vector<std::string>{});
 
+        const auto searchResults = processInputResults(imp->app_, apiConfig, prefix, {}, {filename}, contextSizeRatio, {}, nullptr);
+
+        LOG_MSG << "Generating FIM with prefix length " << prefix.size() << " and suffix length " << suffix.size();
         CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
-        std::string fullResponse = completionClient.generateFim(prefix, suffix, temperature, maxTokens);
-
+        std::string fullResponse = completionClient.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first);
+        LOG_MSG << "[FIM] Generated tokens: " << imp->app_.tokenizer().countTokensWithVocab(fullResponse);
         json response = { {"completion", fullResponse} };
         res.set_content(response.dump(), "application/json");
         Impl::requestCounter_++;

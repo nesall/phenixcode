@@ -52,9 +52,14 @@ public:
   std::string generateFim(
     const std::string &prefix, 
     const std::string &suffix, 
-    float temperature, size_t maxTokens) const;
+    const std::vector<std::string> &stops,
+    float temperature, 
+    size_t maxTokens,
+    const std::vector<SearchResult> &searchRes
+  ) const;
 
 private:
+  std::string buildContext(const std::vector<SearchResult> &searchRes, bool commentOut = false, const std::string &fileDivider = {}) const;
 };
 
 #endif // _INFERENCE_H_
