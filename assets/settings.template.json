@@ -59,6 +59,24 @@
         "context_length": 100000
       },
       {
+        "api_key": "",
+        "api_url": "http://127.0.0.1:8587/v1/chat/completions",
+        "enabled": true,
+        "id": "local-fim-gemma",
+        "model": "codegemma-2b-fim",
+        "name": "Local",
+        "pricing_tpm": {
+          "input": 0,
+          "output": 0
+        },
+        "fim": {
+          "api_url": "http://127.0.0.1:8587/v1/completions",
+          "format": "<|fim_prefix|>{}<|fim_suffix|>{}<|fim_middle|>",
+          "file_divider_token": "<|file_separator|>",
+          "stop_tokens": ["return", "<|fim_prefix|>", "<|fim_middle|>"]
+        }
+      },
+      {
         "api_key": "${MISTRAL_API_KEY}",
         "api_url": "https://api.mistral.ai/v1/chat/completions",
         "id": "mistral-devstral",
