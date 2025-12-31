@@ -103,7 +103,7 @@
         "api_key": "${XAI_API_KEY}",
         "api_url": "https://api.x.ai/v1/chat/completions",
         "id": "xai",
-        "model": "grok-4-fast-non-reasoning",
+        "model": "grok-4-1-fast-non-reasoning",
         "name": "X AI",
         "pricing_tpm": {
           "cached_input": 0.05,
