@@ -265,6 +265,7 @@ curl -X POST "http://localhost:8590/api/fim" \
     "suffix": "+\"!\"; }",
     "temperature": 0.0,
     "max_tokens": 64,
+    "filename": "inference.cpp",
     "targetapi": "xai"
   }'  
 
