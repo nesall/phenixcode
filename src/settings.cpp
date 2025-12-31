@@ -30,6 +30,8 @@ namespace {
       cfg.fim.apiUrl = fim.value("api_url", cfg.apiUrl);
       cfg.fim.prefixName = fim.value("prefix_name", "");
       cfg.fim.suffixName = fim.value("suffix_name", "");
+      cfg.fim.format = fim.value("format", std::string{});
+      cfg.fim.fileDivider = fim.value("file_divider_token", std::string{});
       if (fim.contains("stop_tokens") && fim["stop_tokens"].is_array()) {
         for (const auto &st : fim["stop_tokens"]) {
           if (st.is_string())

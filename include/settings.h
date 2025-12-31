@@ -30,6 +30,8 @@ struct ApiConfig {
     std::string apiUrl;
     std::string prefixName; // non-empty means model supports FIM mode.
     std::string suffixName;
+    std::string format; // either format or prefix/suffix. prefix/suffix takes precedance.
+    std::string fileDivider; // Valid if using format. e.g. <|file_separator|> 
     std::vector<std::string> stopTokens;
   } fim;
 
