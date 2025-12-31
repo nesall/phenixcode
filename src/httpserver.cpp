@@ -411,15 +411,8 @@ namespace {
 
     EmbeddingClient embeddingClient(app.settings().embeddingCurrentApi(), app.settings().embeddingTimeoutMs());
     const auto questionChunks = app.chunker().chunkText(question, "", false);
-    //for (const auto &qc : questionChunks) {
-    //  std::vector<float> embedding;
-    //  embeddingClient.generateEmbeddings(qc.text, embedding, EmbeddingClient::EncodeType::Query);
-    //  questionEmbeddingVectors.push_back(embedding);
-    //}
     std::vector<std::string> questionTexts;
-    for (const auto &qc : questionChunks) {
-      questionTexts.push_back(qc.text);
-    }
+    for (const auto &qc : questionChunks) questionTexts.push_back(qc.text);
     embeddingClient.generateEmbeddings(questionTexts, questionEmbeddingVectors, EmbeddingClient::EncodeType::Query);
 
     if (!attachedOnly) {
