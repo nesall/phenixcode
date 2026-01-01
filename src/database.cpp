@@ -67,7 +67,7 @@ struct HnswSqliteVectorDatabase::Impl {
 
 HnswSqliteVectorDatabase::HnswSqliteVectorDatabase(
   const std::string &dbPath, const std::string &indexPath, size_t vectorDim, size_t maxElements, VectorDatabase::DistanceMetric metric)
-  : imp(new Impl)
+  : imp(std::make_unique<Impl>())
 {
   imp->metric_ = metric;
   imp->dbPath_ = dbPath;
@@ -207,6 +207,7 @@ void HnswSqliteVectorDatabase::initializeDatabase()
 {
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    LOG_MSG << "Initializing database at" << std::filesystem::absolute(imp->dbPath_);
     int rc = sqlite3_open(imp->dbPath_.c_str(), &imp->db_);
     if (rc != SQLITE_OK) {
       throw std::runtime_error("Cannot open database: " + std::string(sqlite3_errmsg(imp->db_)));
