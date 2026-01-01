@@ -127,7 +127,7 @@ struct InstanceRegistry::Impl {
 
     int rc = sqlite3_open(registryPath_.c_str(), &db_);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "Failed to open registry database: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to open registry database: " << sqlite3_errmsg(db_);
       throw std::runtime_error("Failed to open registry database");
     }
 
@@ -164,7 +164,7 @@ struct InstanceRegistry::Impl {
     char *errMsg = nullptr;
     rc = sqlite3_exec(db_, createTableSQL, nullptr, nullptr, &errMsg);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "Failed to create tables: " << errMsg;
+      LOG_MSG << "[REGISTRY] Failed to create tables: " << errMsg;
       sqlite3_free(errMsg);
       throw std::runtime_error("Failed to create database tables");
     }
@@ -210,17 +210,17 @@ struct InstanceRegistry::Impl {
       utils::SqliteStmt stmt(db_);
       int rc = sqlite3_prepare_v2(db_, cleanOldSQL, -1, &stmt.ref(), nullptr);
       if (rc != SQLITE_OK) {
-        LOG_MSG << "Failed to prepare clean statement: " << sqlite3_errmsg(db_);
+        LOG_MSG << "[REGISTRY] Failed to prepare clean statement: " << sqlite3_errmsg(db_);
         return;
       }
 
       rc = sqlite3_step(stmt.ref());
       if (rc != SQLITE_DONE) {
-        LOG_MSG << "Failed to clean old instances: " << sqlite3_errmsg(db_);
+        LOG_MSG << "[REGISTRY] Failed to clean old instances: " << sqlite3_errmsg(db_);
       } else {
         int deletedCount = sqlite3_changes(db_);
         if (0 < deletedCount) {
-          LOG_MSG << "Deleted " << deletedCount << " stale instance(s) with old heartbeats";
+          LOG_MSG << "[REGISTRY] Deleted " << deletedCount << " stale instance(s) with old heartbeats";
         }
       }
     }
@@ -256,7 +256,7 @@ struct InstanceRegistry::Impl {
       sqlite3_step(stmt.ref());
 
       if (0 < sqlite3_changes(db_)) {
-        LOG_MSG << "Deleted stale instance with dead process: " << id;
+        LOG_MSG << "[REGISTRY] Deleted stale instance with dead process: " << id;
       }
     }
   }
@@ -278,7 +278,7 @@ struct InstanceRegistry::Impl {
     utils::SqliteStmt stmt(db_);
     int rc = sqlite3_prepare_v2(db_, insertSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "Failed to prepare insert statement: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to prepare insert statement: " << sqlite3_errmsg(db_);
       throw std::runtime_error("Failed to register instance");
     }
 
@@ -306,10 +306,10 @@ struct InstanceRegistry::Impl {
     sqlite3_bind_text(stmt.ref(), 14, paramsText.c_str(), -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt.ref());
     if (rc != SQLITE_DONE) {
-      LOG_MSG << "Failed to register instance: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to register instance: " << sqlite3_errmsg(db_);
       throw std::runtime_error("Failed to register instance");
     }
-    LOG_MSG << "Registered instance:" << instanceId_ << "on port" << port;
+    LOG_MSG << "[REGISTRY] Registered instance:" << instanceId_ << "on port" << port;
   }
 
   void unregister() {
@@ -320,7 +320,7 @@ struct InstanceRegistry::Impl {
 
     int rc = sqlite3_prepare_v2(db_, deleteSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "Failed to prepare delete statement: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to prepare delete statement: " << sqlite3_errmsg(db_);
       return;
     }
 
@@ -331,9 +331,9 @@ struct InstanceRegistry::Impl {
       return;
     }
     if (0 < sqlite3_changes(db_)) {
-      LOG_MSG << "Unregistered instance:" << instanceId_;
+      LOG_MSG << "[REGISTRY] Unregistered instance:" << instanceId_;
     } else {
-      LOG_MSG << "Instance not found for unregistration:" << instanceId_;
+      LOG_MSG << "[REGISTRY] Instance not found for unregistration:" << instanceId_;
     }
   }
 
@@ -371,7 +371,7 @@ struct InstanceRegistry::Impl {
             cleanStaleInstances();
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << "Heartbeat update failed: " << ex.what();
+          LOG_MSG << "[REGISTRY] Heartbeat update failed: " << ex.what();
         }
       }
       });
@@ -399,7 +399,7 @@ struct InstanceRegistry::Impl {
     utils::SqliteStmt stmt(db_);
     int rc = sqlite3_prepare_v2(db_, selectSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "Failed to prepare select statement: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to prepare select statement: " << sqlite3_errmsg(db_);
       return {};
     }
 
@@ -424,7 +424,7 @@ struct InstanceRegistry::Impl {
       try {
         instance["params"] = nlohmann::json::parse(params);
       } catch (const nlohmann::json::exception &e) {
-        LOG_MSG << "Failed to parse params JSON: " << e.what();
+        LOG_MSG << "[REGISTRY] Failed to parse params JSON: " << e.what();
         instance["params"] = nlohmann::json::object();
       }
       active.push_back(instance);
