@@ -71,13 +71,4 @@ private:
   static int handlePasswordStatus();
 };
 
-namespace utils {
-  std::string currentTimestamp();
-  time_t getFileModificationTime(const std::string &path);
-  int safeStoI(const std::string &s, int def = 0);
-  std::string trimmed(std::string_view sv);
-  std::string addLineComments(std::string_view code, std::string_view filename);
-  std::string stripMarkdownFromCodeBlock(std::string_view code);
-}
-
 #endif // _APP_H_

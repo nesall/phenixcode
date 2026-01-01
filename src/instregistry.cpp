@@ -1,7 +1,7 @@
 #include "instregistry.h"
 #include "settings.h"
+#include "utils.h"
 #include <sqlite3.h>
-#include <fstream>
 #include <filesystem>
 #include <thread>
 #include <atomic>
@@ -10,7 +10,6 @@
 #include <ctime>
 #include <sstream>
 #include <vector>
-#include <algorithm>
 #include <utility>
 
 #ifdef _WIN32
@@ -25,37 +24,6 @@
 #include <utils_log/logger.hpp>
 
 namespace {
-
-  struct SqliteStmt {
-    sqlite3 *sq_ = nullptr;
-    explicit SqliteStmt(sqlite3 *sq) : sq_(sq) {}
-    sqlite3_stmt *stmt_ = nullptr;
-    sqlite3_stmt *&ref() { return stmt_; }
-    sqlite3_stmt *ref() const { return stmt_; }
-    ~SqliteStmt() {
-      if (stmt_) {
-        auto rc = sqlite3_finalize(stmt_);
-        if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW) {
-          const char *msg = sq_ ? sqlite3_errmsg(sq_) : "'no handle'";
-          LOG_MSG << "SQLite finalize error: " << msg;
-        }
-      }
-    }
-    SqliteStmt() = default;
-    SqliteStmt(const SqliteStmt &) = delete;
-    SqliteStmt &operator=(const SqliteStmt &) = delete;
-
-    std::string getStr(int i) const {
-      auto p = reinterpret_cast<const char *>(sqlite3_column_text(ref(), i));
-      return p ? std::string{ p } : std::string{};
-    }
-    int getInt(int i) const {
-      return sqlite3_column_int(ref(), i);
-    }
-    sqlite3_int64 getInt64(int i) const {
-      return sqlite3_column_int64(ref(), i);
-    }
-  };
 
   std::string getRegistryPath() {
     // Priority:
@@ -239,7 +207,7 @@ struct InstanceRegistry::Impl {
     const char *cleanOldSQL = "DELETE FROM instances WHERE (strftime('%s', 'now') - last_heartbeat) > 60";
 
     {
-      SqliteStmt stmt(db_);
+      utils::SqliteStmt stmt(db_);
       int rc = sqlite3_prepare_v2(db_, cleanOldSQL, -1, &stmt.ref(), nullptr);
       if (rc != SQLITE_OK) {
         LOG_MSG << "Failed to prepare clean statement: " << sqlite3_errmsg(db_);
@@ -249,6 +217,11 @@ struct InstanceRegistry::Impl {
       rc = sqlite3_step(stmt.ref());
       if (rc != SQLITE_DONE) {
         LOG_MSG << "Failed to clean old instances: " << sqlite3_errmsg(db_);
+      } else {
+        int deletedCount = sqlite3_changes(db_);
+        if (0 < deletedCount) {
+          LOG_MSG << "Deleted " << deletedCount << " stale instance(s) with old heartbeats";
+        }
       }
     }
 
@@ -256,7 +229,7 @@ struct InstanceRegistry::Impl {
     {
       // Step 2: Remove instances with dead processes
       // We need to check each process individually
-      SqliteStmt stmt(db_);
+      utils::SqliteStmt stmt(db_);
       const char *selectPidsSQL = "SELECT id, pid FROM instances";
       int rc = sqlite3_prepare_v2(db_, selectPidsSQL, -1, &stmt.ref(), nullptr);
       if (rc != SQLITE_OK) {
@@ -275,12 +248,16 @@ struct InstanceRegistry::Impl {
     // Delete dead instances
     for (const auto &id : deadInstances) {
       const char *deleteSQL = "DELETE FROM instances WHERE id = ?";
-      SqliteStmt stmt(db_);
+      utils::SqliteStmt stmt(db_);
       int rc = sqlite3_prepare_v2(db_, deleteSQL, -1, &stmt.ref(), nullptr);
       if (rc != SQLITE_OK) continue;
 
       sqlite3_bind_text(stmt.ref(), 1, id.c_str(), -1, SQLITE_STATIC);
       sqlite3_step(stmt.ref());
+
+      if (0 < sqlite3_changes(db_)) {
+        LOG_MSG << "Deleted stale instance with dead process: " << id;
+      }
     }
   }
 
@@ -298,7 +275,7 @@ struct InstanceRegistry::Impl {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     )";
 
-    SqliteStmt stmt(db_);
+    utils::SqliteStmt stmt(db_);
     int rc = sqlite3_prepare_v2(db_, insertSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
       LOG_MSG << "Failed to prepare insert statement: " << sqlite3_errmsg(db_);
@@ -339,7 +316,7 @@ struct InstanceRegistry::Impl {
     std::lock_guard<std::mutex> lock(dbMutex_);
 
     const char *deleteSQL = "DELETE FROM instances WHERE id = ?";
-    SqliteStmt stmt(db_);
+    utils::SqliteStmt stmt(db_);
 
     int rc = sqlite3_prepare_v2(db_, deleteSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
@@ -366,7 +343,7 @@ struct InstanceRegistry::Impl {
 
     const char *updateSQL = "UPDATE instances SET last_heartbeat = ?, last_heartbeat_str = ?, status = 'healthy' WHERE id = ?";
 
-    SqliteStmt stmt(db_);
+    utils::SqliteStmt stmt(db_);
     int rc = sqlite3_prepare_v2(db_, updateSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
       return;
@@ -419,7 +396,7 @@ struct InstanceRegistry::Impl {
       ORDER BY last_heartbeat DESC
     )";
 
-    SqliteStmt stmt(db_);
+    utils::SqliteStmt stmt(db_);
     int rc = sqlite3_prepare_v2(db_, selectSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
       LOG_MSG << "Failed to prepare select statement: " << sqlite3_errmsg(db_);

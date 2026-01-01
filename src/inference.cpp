@@ -1,5 +1,6 @@
 #include "inference.h"
 #include "app.h"
+#include "utils.h"
 #include "database.h"
 #include "settings.h"
 #include "tokenizer.h"

@@ -1,5 +1,6 @@
 #include "auth.h"
 #include "app.h"
+#include "utils.h"
 
 #include <fstream>
 #include <iostream>
