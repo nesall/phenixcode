@@ -89,6 +89,17 @@ namespace {
     return kill(pid, 0) == 0;
 #endif
   }
+
+  namespace events {
+    const std::string Startup{"startup"};
+    const std::string Shutdown{"shutdown"};
+    const std::string Register{"register"};
+    const std::string Unregister{"unregister"};
+    const std::string Cleanup{"cleanup"};
+    const std::string HeartbeatStart{"heartbeat-start"};
+    const std::string HeartbeatStop{"heartbeat-stop"};
+    const std::string HeartbeatError{"heartbeat-error"};
+  }
 }
 
 struct InstanceRegistry::Impl {
@@ -114,6 +125,7 @@ struct InstanceRegistry::Impl {
     if (bRegistered_)
       unregister();
     if (db_) {
+      logAuditTrail(events::Shutdown, "Instance registry shutting down");
       sqlite3_close(db_);
     }
   }
@@ -127,9 +139,12 @@ struct InstanceRegistry::Impl {
 
     int rc = sqlite3_open(registryPath_.c_str(), &db_);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "[REGISTRY] Failed to open registry database: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to open registry database:" << sqlite3_errmsg(db_);
       throw std::runtime_error("Failed to open registry database");
     }
+
+    // Wait up to 5 seconds for locks to clear
+    sqlite3_busy_timeout(db_, 5000);
 
     // Enable Write-Ahead Logging for better concurrency
     sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
@@ -137,7 +152,7 @@ struct InstanceRegistry::Impl {
     // Enable foreign keys
     sqlite3_exec(db_, "PRAGMA foreign_keys=ON;", nullptr, nullptr, nullptr);
 
-    const char *createTableSQL = R"(
+    const char *sqlCreateTables = R"(
       CREATE TABLE IF NOT EXISTS instances (
         id TEXT PRIMARY KEY,
         pid INTEGER NOT NULL,
@@ -159,15 +174,29 @@ struct InstanceRegistry::Impl {
       CREATE INDEX IF NOT EXISTS idx_instances_heartbeat ON instances(last_heartbeat);
       CREATE INDEX IF NOT EXISTS idx_instances_pid ON instances(pid);
       CREATE INDEX IF NOT EXISTS idx_instances_project ON instances(project_id);
+
+      CREATE TABLE IF NOT EXISTS atrails (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        ts_str TEXT NOT NULL,
+        instance_id TEXT,
+        event TEXT NOT NULL,
+        message TEXT,
+        extra TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_atrails_instance ON atrails(instance_id);
+      CREATE INDEX IF NOT EXISTS idx_atrails_ts ON atrails(ts);
     )";
 
     char *errMsg = nullptr;
-    rc = sqlite3_exec(db_, createTableSQL, nullptr, nullptr, &errMsg);
+    rc = sqlite3_exec(db_, sqlCreateTables, nullptr, nullptr, &errMsg);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "[REGISTRY] Failed to create tables: " << errMsg;
+      LOG_MSG << "[REGISTRY] Failed to create tables:" << errMsg;
       sqlite3_free(errMsg);
       throw std::runtime_error("Failed to create database tables");
     }
+
+    logAuditTrail(events::Startup, "Instance registry initialized");
 
     // Clean up stale instances on startup
     cleanStaleInstances();
@@ -186,6 +215,24 @@ struct InstanceRegistry::Impl {
     return ss.str();
   }
 
+  void logAuditTrail(const std::string &event, const std::string &message, const nlohmann::json &extra = {}) {
+    const auto [now, nowStr] = curTimestamp();
+    const char *insertSQL = R"(
+      INSERT INTO atrails (ts, ts_str, instance_id, event, message, extra) VALUES (?, ?, ?, ?, ?, ?)
+    )";
+    utils::SqliteStmt stmt(db_);
+    int rc = sqlite3_prepare_v2(db_, insertSQL, -1, &stmt.ref(), nullptr);
+    if (rc != SQLITE_OK) return;
+    sqlite3_bind_int64(stmt.ref(), 1, now);
+    sqlite3_bind_text(stmt.ref(), 2, nowStr.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.ref(), 3, instanceId_.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.ref(), 4, event.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.ref(), 5, message.c_str(), -1, SQLITE_TRANSIENT);
+    std::string extraStr = extra.is_null() ? "" : extra.dump();
+    sqlite3_bind_text(stmt.ref(), 6, extraStr.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt.ref());
+  }
+
   std::string detectProjectName() const {
     auto path = std::filesystem::current_path();
     return path.filename().string();
@@ -194,33 +241,24 @@ struct InstanceRegistry::Impl {
   void cleanStaleInstances() {
     std::lock_guard<std::mutex> lock(dbMutex_);
 
-    const char *cleanSQL = R"(
-      DELETE FROM instances 
-      WHERE (strftime('%s', 'now') - last_heartbeat) > 60 
-         OR NOT is_process_alive(pid)
-    )";
-
-    // Note: We'll implement is_process_alive as an application-defined function
-    // For now, we'll clean in two steps
-
-    // Step 1: Remove instances with old heartbeats
-    const char *cleanOldSQL = "DELETE FROM instances WHERE (strftime('%s', 'now') - last_heartbeat) > 60";
-
     {
+      // Step 1: Remove instances with old heartbeats
+      const char *cleanOldSQL = "DELETE FROM instances WHERE id != ? AND(strftime('%s', 'now') - last_heartbeat) > 120";
       utils::SqliteStmt stmt(db_);
       int rc = sqlite3_prepare_v2(db_, cleanOldSQL, -1, &stmt.ref(), nullptr);
       if (rc != SQLITE_OK) {
-        LOG_MSG << "[REGISTRY] Failed to prepare clean statement: " << sqlite3_errmsg(db_);
+        LOG_MSG << "[REGISTRY] Failed to prepare clean statement:" << sqlite3_errmsg(db_);
         return;
       }
-
+      sqlite3_bind_text(stmt.ref(), 1, instanceId_.c_str(), -1, SQLITE_STATIC);
       rc = sqlite3_step(stmt.ref());
       if (rc != SQLITE_DONE) {
-        LOG_MSG << "[REGISTRY] Failed to clean old instances: " << sqlite3_errmsg(db_);
+        LOG_MSG << "[REGISTRY] Failed to clean old instances:" << sqlite3_errmsg(db_);
       } else {
         int deletedCount = sqlite3_changes(db_);
         if (0 < deletedCount) {
-          LOG_MSG << "[REGISTRY] Deleted " << deletedCount << " stale instance(s) with old heartbeats";
+          LOG_MSG << "[REGISTRY] Deleted" << deletedCount << "stale instance(s) with old heartbeats";
+          logAuditTrail(events::Cleanup, "Deleted " + std::to_string(deletedCount) + " stale instance(s) with old heartbeats");
         }
       }
     }
@@ -230,21 +268,21 @@ struct InstanceRegistry::Impl {
       // Step 2: Remove instances with dead processes
       // We need to check each process individually
       utils::SqliteStmt stmt(db_);
-      const char *selectPidsSQL = "SELECT id, pid FROM instances";
+      const char *selectPidsSQL = "SELECT id, pid FROM instances WHERE id != ?";
       int rc = sqlite3_prepare_v2(db_, selectPidsSQL, -1, &stmt.ref(), nullptr);
       if (rc != SQLITE_OK) {
         return;
       }
-
+      sqlite3_bind_text(stmt.ref(), 1, instanceId_.c_str(), -1, SQLITE_STATIC);
       while (sqlite3_step(stmt.ref()) == SQLITE_ROW) {
         const char *id = reinterpret_cast<const char *>(sqlite3_column_text(stmt.ref(), 0));
         int pid = sqlite3_column_int(stmt.ref(), 1);
-
         if (!isProcessRunning(pid)) {
           deadInstances.push_back(id);
         }
       }
     }
+
     // Delete dead instances
     for (const auto &id : deadInstances) {
       const char *deleteSQL = "DELETE FROM instances WHERE id = ?";
@@ -256,7 +294,8 @@ struct InstanceRegistry::Impl {
       sqlite3_step(stmt.ref());
 
       if (0 < sqlite3_changes(db_)) {
-        LOG_MSG << "[REGISTRY] Deleted stale instance with dead process: " << id;
+        LOG_MSG << "[REGISTRY] Deleted stale instance with dead process:" << id;
+        logAuditTrail(events::Cleanup, "Deleted stale instance with dead process: " + id);
       }
     }
   }
@@ -278,10 +317,9 @@ struct InstanceRegistry::Impl {
     utils::SqliteStmt stmt(db_);
     int rc = sqlite3_prepare_v2(db_, insertSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "[REGISTRY] Failed to prepare insert statement: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to prepare insert statement:" << sqlite3_errmsg(db_);
       throw std::runtime_error("Failed to register instance");
     }
-
 
     // Bind parameters
     sqlite3_bind_text(stmt.ref(), 1, instanceId_.c_str(), -1, SQLITE_STATIC);
@@ -310,6 +348,7 @@ struct InstanceRegistry::Impl {
       throw std::runtime_error("Failed to register instance");
     }
     LOG_MSG << "[REGISTRY] Registered instance:" << instanceId_ << "on port" << port;
+    logAuditTrail(events::Register, "Registered instance on port " + std::to_string(port));
   }
 
   void unregister() {
@@ -320,18 +359,19 @@ struct InstanceRegistry::Impl {
 
     int rc = sqlite3_prepare_v2(db_, deleteSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "[REGISTRY] Failed to prepare delete statement: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to prepare delete statement:" << sqlite3_errmsg(db_);
       return;
     }
 
     sqlite3_bind_text(stmt.ref(), 1, instanceId_.c_str(), -1, SQLITE_STATIC);
     rc = sqlite3_step(stmt.ref());
     if (rc != SQLITE_DONE) {
-      LOG_MSG << "Failed to unregister instance: " << sqlite3_errmsg(db_);
+      LOG_MSG << "Failed to unregister instance:" << sqlite3_errmsg(db_);
       return;
     }
     if (0 < sqlite3_changes(db_)) {
       LOG_MSG << "[REGISTRY] Unregistered instance:" << instanceId_;
+      logAuditTrail(events::Unregister, "Unregistered instance");
     } else {
       LOG_MSG << "[REGISTRY] Instance not found for unregistration:" << instanceId_;
     }
@@ -346,6 +386,8 @@ struct InstanceRegistry::Impl {
     utils::SqliteStmt stmt(db_);
     int rc = sqlite3_prepare_v2(db_, updateSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
+      LOG_MSG << "[REGISTRY] Failed to prepare heartbeat update statement:" << sqlite3_errmsg(db_);
+      logAuditTrail(events::HeartbeatError, "Failed to prepare heartbeat update statement");
       return;
     }
 
@@ -353,7 +395,11 @@ struct InstanceRegistry::Impl {
     sqlite3_bind_text(stmt.ref(), 2, nowStr.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt.ref(), 3, instanceId_.c_str(), -1, SQLITE_STATIC);
 
-    sqlite3_step(stmt.ref());
+    rc = sqlite3_step(stmt.ref());
+    if (rc != SQLITE_DONE) {
+      LOG_MSG << "[REGISTRY] Failed to update heartbeat:" << sqlite3_errmsg(db_);
+      logAuditTrail(events::HeartbeatError, std::string("Failed to update heartbeat: ") + sqlite3_errmsg(db_));
+    }
   }
   
   void startHeartbeat() {
@@ -362,16 +408,21 @@ struct InstanceRegistry::Impl {
     }
     running_ = true;
     heartbeatThread_ = std::thread([this]() {
+      logAuditTrail(events::HeartbeatStart, "Heartbeat started");
+      int cleanupCounter = 0;
       while (running_) {
         std::this_thread::sleep_for(std::chrono::seconds(10));
         try {
           {
             if (!running_) return;
             updateHeartbeat();
-            cleanStaleInstances();
+            if (3 <= ++cleanupCounter) {
+              cleanupCounter = 0;
+              cleanStaleInstances();
+            }
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << "[REGISTRY] Heartbeat update failed: " << ex.what();
+          LOG_MSG << "[REGISTRY] Heartbeat update failed:" << ex.what();
         }
       }
       });
@@ -379,6 +430,7 @@ struct InstanceRegistry::Impl {
 
   void stopHeartbeat() {
     running_ = false;
+    logAuditTrail(events::HeartbeatStop, "Heartbeat stopped");
     if (heartbeatThread_.joinable()) {
       heartbeatThread_.join();
     }
@@ -399,7 +451,7 @@ struct InstanceRegistry::Impl {
     utils::SqliteStmt stmt(db_);
     int rc = sqlite3_prepare_v2(db_, selectSQL, -1, &stmt.ref(), nullptr);
     if (rc != SQLITE_OK) {
-      LOG_MSG << "[REGISTRY] Failed to prepare select statement: " << sqlite3_errmsg(db_);
+      LOG_MSG << "[REGISTRY] Failed to prepare select statement:" << sqlite3_errmsg(db_);
       return {};
     }
 
@@ -424,7 +476,7 @@ struct InstanceRegistry::Impl {
       try {
         instance["params"] = nlohmann::json::parse(params);
       } catch (const nlohmann::json::exception &e) {
-        LOG_MSG << "[REGISTRY] Failed to parse params JSON: " << e.what();
+        LOG_MSG << "[REGISTRY] Failed to parse params JSON:" << e.what();
         instance["params"] = nlohmann::json::object();
       }
       active.push_back(instance);
