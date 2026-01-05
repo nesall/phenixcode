@@ -2,6 +2,7 @@
 #define _PHENIXCODE_UTILS_H_
 
 #include <string>
+#include <string_view>
 #include <sqlite3.h>
 
 namespace utils {
