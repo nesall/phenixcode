@@ -198,9 +198,7 @@
     "paths":[
       {
         "exclude": [
-          "*/dist/*",
-          "*/test/*",
-          "*/3rdparty/*"
+
         ],
         "extensions": [],
         "path": "./",
@@ -215,7 +213,7 @@
       "*/debug/*", "*/release/*", "*/lib/*", "*/docker/*",
       "*/fonts/*", "*/images/*", "*/test/*","*/tests/*",
       "*/example/*", "*/examples/*", "*/obj/*", "*/build_dbg/*", "*/build_rel/*",
-      "*/bin/*"
+      "*/bin/*", "*/dist/*", "*/test/*", "*/3rdparty/*"
     ],
     "encoding": "utf-8",
     "max_file_size_mb": 10
