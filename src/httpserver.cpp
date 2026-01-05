@@ -416,12 +416,15 @@ namespace {
     embeddingClient.generateEmbeddings(questionTexts, questionEmbeddingVectors, EmbeddingClient::EncodeType::Query);
 
     if (!attachedOnly) {
+      std::set<size_t> uniqueChunkResults;
       std::unordered_map<std::string, float> sourcesRank;
       for (const auto &embedding : questionEmbeddingVectors) {
         auto res = app.db().search(embedding, app.settings().embeddingTopK());
-        filteredChunkResults.insert(filteredChunkResults.end(), res.begin(), res.end());
         for (const auto &r : res) {
           sourcesRank[r.sourceId] += r.similarityScore;
+          if (uniqueChunkResults.insert(r.chunkId).second) {
+            filteredChunkResults.push_back(r);
+          }
         }
       }
       std::sort(filteredChunkResults.begin(), filteredChunkResults.end(), [&sourcesRank](const SearchResult &a, const SearchResult &b) {
@@ -1097,7 +1100,7 @@ bool HttpServer::startServer()
         std::string prefix = request["prefix"].get<std::string>();
         std::string suffix = request["suffix"].get<std::string>();
         std::string filename = request.value("filename", std::string{});
-        //filename = std::filesystem::path(filename).filename().string();
+        filename = std::filesystem::path(filename).lexically_normal().string();
 
         if (request.value("encoding", "") == "base64") {
           prefix = base64_decode(prefix);
