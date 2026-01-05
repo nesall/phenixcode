@@ -96,6 +96,7 @@ set(SOURCES
   "${ROOT_DIR}/ui/shared/procmngr.h"
   "${ROOT_DIR}/src/settings.cpp"
   "${ROOT_DIR}/src/instregistry.cpp"
+  "${ROOT_DIR}/src/cutils.cpp"
   admconfig.json  
 )
 if (WIN32)

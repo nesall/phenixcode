@@ -1,6 +1,6 @@
 #include "instregistry.h"
 #include "settings.h"
-#include "utils.h"
+#include "cutils.h"
 #include <sqlite3.h>
 #include <filesystem>
 #include <thread>

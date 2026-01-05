@@ -82,7 +82,7 @@ add_executable(${PROJECT_NAME}
   include/app.h
   include/auth.h
   include/instregistry.h
-  include/utils.h
+  include/cutils.h
   src/main.cpp
   src/tokenizer.cpp
   src/settings.cpp
@@ -94,7 +94,7 @@ add_executable(${PROJECT_NAME}
   src/app.cpp
   src/auth.cpp
   src/instregistry.cpp
-  src/utils.cpp
+  src/cutils.cpp
 )
 
 # Link libraries
