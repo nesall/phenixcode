@@ -43,6 +43,12 @@ namespace utils {
   {
     return sqlite3_column_int64(ref(), i);
   }
+#if 0
+  double SqliteStmt::getDouble(int i) const
+  {
+    
+  }
+#endif
 }
 
 std::string utils::currentTimestamp()
