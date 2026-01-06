@@ -44,9 +44,27 @@
         }
       },
       {
+        "api_key": "",
+        "api_url": "http://127.0.0.1:8587/v1/chat/completions",
+        "enabled": true,
+        "id": "local-fim-gemma",
+        "model": "codegemma-2b-fim",
+        "name": "Local",
+        "pricing_tpm": {
+          "input": 0,
+          "output": 0
+        },
+        "fim": {
+          "api_url": "http://127.0.0.1:8587/v1/completions",
+          "format": "<|fim_prefix|>{}<|fim_suffix|>{}<|fim_middle|>",
+          "file_divider_token": "<|file_separator|>",
+          "stop_tokens": ["return", "<|fim_prefix|>", "<|fim_middle|>"]
+        }
+      },      
+      {
         "api_key": "${MISTRAL_API_KEY}",
         "api_url": "https://api.mistral.ai/v1/chat/completions",
-        "id": "mistral-devstral",
+        "id": "mistral-devstral-small",
         "model": "devstral-small-latest",
         "name": "Mistral",
         "pricing_tpm": {
@@ -77,8 +95,8 @@
       {
         "api_key": "${GEMINI_API_KEY}",
         "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "id": "gemini-2.0-flash",
-        "model": "gemini-2.0-flash",
+        "id": "gemini-2.5-flash",
+        "model": "gemini-2.5-flash",
         "name": "Gemini",
         "pricing_tpm": {
           "input": 0.1,
@@ -125,7 +143,21 @@
           "output": 0.6
         },
         "context_length": 128000
-      }
+      },
+      {
+        "api_key": "${MINIMAX_API_KEY}",
+        "api_url": "https://api.x.ai/v1/chat/completions",
+        "context_length": 204000,
+        "enabled": true,
+        "id": "minimax-m2.1",
+        "model": "MiniMax-M2.1",
+        "name": "Minimax",
+        "pricing_tpm": {
+          "cached_input": 0.03,
+          "input": 0.3,
+          "output": 1.2
+        }
+      },      
     ],
     "current_api": "mistral-devstral",
     "timeout_ms": 120000,
@@ -166,9 +198,7 @@
     "paths":[
       {
         "exclude": [
-          "*/dist/*",
-          "*/test/*",
-          "*/3rdparty/*"
+
         ],
         "extensions": [],
         "path": "./",
@@ -183,7 +213,7 @@
       "*/debug/*", "*/release/*", "*/lib/*", "*/docker/*",
       "*/fonts/*", "*/images/*", "*/test/*","*/tests/*",
       "*/example/*", "*/examples/*", "*/obj/*", "*/build_dbg/*", "*/build_rel/*",
-      "*/bin/*"
+      "*/bin/*", "*/dist/*", "*/test/*", "*/3rdparty/*"
     ],
     "encoding": "utf-8",
     "max_file_size_mb": 10
