@@ -447,8 +447,14 @@ namespace {
       allFullSources = sources;
       for (const auto &src : sources) {
         auto relations = app.sourceProcessor().filterRelatedSources(trackedSources, src);
-        vecAddIfUnique(relSources, relations);
-        vecAddIfUnique(allFullSources, relations);
+        //vecAddIfUnique(relSources, relations);
+        //vecAddIfUnique(allFullSources, relations);
+        for (const auto &rel : relations) {
+          if (!vecContains(sources, rel)) {
+            vecAddIfUnique(relSources, rel);
+            vecAddIfUnique(allFullSources, rel);
+          }
+        }
       }
 
       for (const auto &rel : relSources) {
@@ -1100,7 +1106,7 @@ bool HttpServer::startServer()
         std::string prefix = request["prefix"].get<std::string>();
         std::string suffix = request["suffix"].get<std::string>();
         std::string filename = request.value("filename", std::string{});
-        filename = std::filesystem::path(filename).lexically_normal().string();
+        filename = std::filesystem::path(filename).lexically_normal().generic_string();
 
         if (request.value("encoding", "") == "base64") {
           prefix = base64_decode(prefix);
@@ -1116,10 +1122,10 @@ bool HttpServer::startServer()
 
         const auto searchResults = processInputResults(imp->app_, apiConfig, prefix, {}, {filename}, contextSizeRatio, {}, nullptr);
 
-        LOG_MSG << "Generating FIM with prefix length " << prefix.size() << " and suffix length " << suffix.size();
+        LOG_MSG << "Generating FIM with prefix length" << prefix.size() << "and suffix length" << suffix.size();
         CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
         std::string fullResponse = completionClient.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first);
-        LOG_MSG << "[FIM] Generated tokens: " << imp->app_.tokenizer().countTokensWithVocab(fullResponse);
+        LOG_MSG << "[FIM] Generated tokens:" << imp->app_.tokenizer().countTokensWithVocab(fullResponse);
         json response = { {"completion", fullResponse} };
         res.set_content(response.dump(), "application/json");
         Impl::requestCounter_++;
