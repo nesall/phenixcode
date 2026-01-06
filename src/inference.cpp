@@ -46,7 +46,7 @@ std::pair<httplib::Client *, std::string> InferenceClient::Impl::httpClientForUr
       urlToClient_.emplace(schemaHostPort, std::move(client));
       return { ptr, path };
     } catch (const std::exception &e) {
-      LOG_MSG << "Error initializing http client for " << schemaHostPort << ": " << e.what();
+      LOG_MSG << "Error initializing http client for" << schemaHostPort << ":" << e.what();
       return { nullptr, "" };
     }
   }
@@ -112,7 +112,7 @@ void EmbeddingClient::generateEmbeddings(const std::vector<std::string> &texts, 
     for (size_t j = 0; j < texts.size(); j ++) {
       assert(j < response.size());
       if (response.size() <= j) {
-        LOG_MSG << "Not enough entries in the embedding response (asked for" << texts.size() << " but got" << response.size() << "). Skipped";
+        LOG_MSG << "Not enough entries in the embedding response (asked for" << texts.size() << "but got" << response.size() << "). Skipped";
         break;
       }
       const auto &item = response[j];
@@ -138,10 +138,9 @@ void EmbeddingClient::generateEmbeddings(const std::vector<std::string> &texts, 
     //float l2Norm = calculateL2Norm(embedding);
     //std::cout << "[l2norm] " << l2Norm << std::endl;
   } catch (const nlohmann::json::exception &e) {
-    LOG_MSG << "JSON parsing error: " << e.what();
+    LOG_MSG << "JSON parsing error:" << e.what();
     throw std::runtime_error("Failed to parse server response");
   } catch (const std::exception &e) {
-    //LOG_MSG << "Error generating embeddings: " << e.what();
     throw;
   }
 }
@@ -262,7 +261,7 @@ namespace {
             }
           }
         } catch (const std::exception &e) {
-          LOG_MSG << "Error parsing chunk: " << e.what() << " in: " << jsonStr;
+          LOG_MSG << "Error parsing chunk" << e.what() << " in" << jsonStr;
         }
       }
     }
@@ -387,7 +386,7 @@ std::string CompletionClient::generateCompletion(
                 }
               }
             } catch (const std::exception &e) {
-              LOG_MSG << "Error parsing chunk: " << e.what() << " in: " << jsonStr;
+              LOG_MSG << "Error parsing chunk" << e.what() << "in" << jsonStr;
             }
           }
         }
@@ -535,7 +534,7 @@ std::string CompletionClient::generateFim(
         // fallback, assuming the response is SSE stream
         fullResponse = processSSEData(res->body.c_str(), res->body.length(), nullptr);
       } catch (const std::exception &ex) {
-        LOG_MSG << "Error processing response: " << ex.what();
+        LOG_MSG << "Error processing response:" << ex.what();
       }
     }
     if (!fullResponse.empty()) {
@@ -607,6 +606,6 @@ std::string CompletionClient::buildContext(const std::vector<SearchResult> &sear
     nofTokens += labelTokens + contentTokens;
     context += fileDivider + labeledFull + "\n\n";
   }
-  LOG_MSG << "[context] Total tokens in context: " << nofTokens;
+  LOG_MSG << "[context] Total tokens in context:" << nofTokens;
   return context;
 }
