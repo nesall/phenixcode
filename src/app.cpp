@@ -837,7 +837,6 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
       if (0 < newPort) {
         imp->registry_ = std::make_unique<InstanceRegistry>(newPort, watch ? interval : 0, settings());
         try {
-          imp->registry_->startHeartbeat();
           LOG_MSG << "\nStarting HTTP API server on port " << newPort << "...";
           imp->httpServer_->startServer();
         } catch (const std::exception &e) {

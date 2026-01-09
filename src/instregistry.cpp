@@ -8,6 +8,7 @@
 #include <mutex>
 #include <chrono>
 #include <ctime>
+#include <memory>
 #include <sstream>
 #include <vector>
 #include <utility>
@@ -109,23 +110,33 @@ struct InstanceRegistry::Impl {
   std::atomic_bool running_{ false };
   sqlite3 *db_{ nullptr };
   mutable std::mutex dbMutex_;
-  bool bRegistered_ = false;
 
-  explicit Impl(const std::string &path)
-    : registryPath_(path) {
+  explicit Impl(const std::string &path) : registryPath_(path) 
+  {
     if (path.empty()) {
       registryPath_ = getRegistryPath();
     }
-    instanceId_ = generateInstanceId();
     initializeDatabase();
   }
 
-  ~Impl() {
-    stopHeartbeat();
-    if (bRegistered_)
-      unregister();
+  Impl(const std::string &path, int port, int watchInterval, const Settings &settings) : Impl(path)
+  {
     if (db_) {
-      logAuditTrail(events::Shutdown, "Instance registry shutting down");
+      instanceId_ = generateInstanceId();
+      cleanStaleInstances();
+      logAuditTrail(events::Startup, "Instance registry-tracking started");
+      registerInstance(port, watchInterval, settings);
+      startHeartbeat();
+    }
+  }
+
+  ~Impl() {
+    if (db_) {
+      if (!instanceId_.empty()) {
+        stopHeartbeat();
+        unregister();
+        logAuditTrail(events::Shutdown, "Instance registry-tracking ended");
+      }
       sqlite3_close(db_);
     }
   }
@@ -140,6 +151,7 @@ struct InstanceRegistry::Impl {
     int rc = sqlite3_open(registryPath_.c_str(), &db_);
     if (rc != SQLITE_OK) {
       LOG_MSG << "[REGISTRY] Failed to open registry database:" << sqlite3_errmsg(db_);
+      db_ = nullptr;
       throw std::runtime_error("Failed to open registry database");
     }
 
@@ -195,11 +207,6 @@ struct InstanceRegistry::Impl {
       sqlite3_free(errMsg);
       throw std::runtime_error("Failed to create database tables");
     }
-
-    logAuditTrail(events::Startup, "Instance registry initialized");
-
-    // Clean up stale instances on startup
-    cleanStaleInstances();
   }
 
   static std::string generateInstanceId() {
@@ -242,10 +249,35 @@ struct InstanceRegistry::Impl {
     std::lock_guard<std::mutex> lock(dbMutex_);
 
     {
+      // Step 0: Identify and log instances with old heartbeats before deletion
+      const char *selectOldSQL = "SELECT id, pid, name, last_heartbeat FROM instances WHERE id != ? AND(strftime('%s', 'now') - last_heartbeat) > 120";
+      utils::SqliteStmt selectStmt(db_);
+      int rc = sqlite3_prepare_v2(db_, selectOldSQL, -1, &selectStmt.ref(), nullptr);
+      if (rc != SQLITE_OK) {
+        LOG_MSG << "[REGISTRY] Failed to prepare select statement for stale instances:" << sqlite3_errmsg(db_);
+        return;
+      }
+      sqlite3_bind_text(selectStmt.ref(), 1, instanceId_.c_str(), -1, SQLITE_STATIC);
+
+      std::vector<nlohmann::json> staleInstances;
+      while (sqlite3_step(selectStmt.ref()) == SQLITE_ROW) {
+        nlohmann::json instance;
+        instance["id"] = reinterpret_cast<const char *>(sqlite3_column_text(selectStmt.ref(), 0));
+        instance["pid"] = sqlite3_column_int(selectStmt.ref(), 1);
+        instance["name"] = reinterpret_cast<const char *>(sqlite3_column_text(selectStmt.ref(), 2));
+        instance["last_heartbeat"] = sqlite3_column_int64(selectStmt.ref(), 3);
+        staleInstances.push_back(instance);
+      }
+
+      for (const auto &inst : staleInstances) {
+        LOG_MSG << "[REGISTRY] Stale instance to be deleted: id=" << inst["id"] << ", pid=" << inst["pid"] << ", name=" << inst["name"];
+        logAuditTrail(events::Cleanup, "Stale instance to be deleted", inst);
+      }
+
       // Step 1: Remove instances with old heartbeats
       const char *cleanOldSQL = "DELETE FROM instances WHERE id != ? AND(strftime('%s', 'now') - last_heartbeat) > 120";
       utils::SqliteStmt stmt(db_);
-      int rc = sqlite3_prepare_v2(db_, cleanOldSQL, -1, &stmt.ref(), nullptr);
+      rc = sqlite3_prepare_v2(db_, cleanOldSQL, -1, &stmt.ref(), nullptr);
       if (rc != SQLITE_OK) {
         LOG_MSG << "[REGISTRY] Failed to prepare clean statement:" << sqlite3_errmsg(db_);
         return;
@@ -295,7 +327,7 @@ struct InstanceRegistry::Impl {
 
       if (0 < sqlite3_changes(db_)) {
         LOG_MSG << "[REGISTRY] Deleted stale instance with dead process:" << id;
-        logAuditTrail(events::Cleanup, "Deleted stale instance with dead process: " + id);
+        logAuditTrail(events::Cleanup, "Deleted stale instance with dead process", { id });
       }
     }
   }
@@ -371,7 +403,7 @@ struct InstanceRegistry::Impl {
     }
     if (0 < sqlite3_changes(db_)) {
       LOG_MSG << "[REGISTRY] Unregistered instance:" << instanceId_;
-      logAuditTrail(events::Unregister, "Unregistered instance");
+      logAuditTrail(events::Unregister, "Unregistered instance", { instanceId_ });
     } else {
       LOG_MSG << "[REGISTRY] Instance not found for unregistration:" << instanceId_;
     }
@@ -491,33 +523,11 @@ InstanceRegistry::InstanceRegistry(const std::string &registryPath)
 }
 
 InstanceRegistry::InstanceRegistry(int port, int watchInterval, const Settings &settings, const std::string &registryPath)
-  : imp(std::make_unique<Impl>(registryPath))
+  : imp(std::make_unique<Impl>(registryPath, port, watchInterval, settings))
 {
-  imp->bRegistered_ = true;
-  registerInstance(port, watchInterval, settings);
 }
 
 InstanceRegistry::~InstanceRegistry() = default;
-
-void InstanceRegistry::registerInstance(int port, int watchInterval, const Settings &settings)
-{
-  imp->registerInstance(port, watchInterval, settings);
-}
-
-void InstanceRegistry::unregister()
-{
-  imp->unregister();
-}
-
-void InstanceRegistry::startHeartbeat()
-{
-  imp->startHeartbeat();
-}
-
-void InstanceRegistry::stopHeartbeat()
-{
-  imp->stopHeartbeat();
-}
 
 std::vector<nlohmann::json> InstanceRegistry::getActiveInstances() const
 {

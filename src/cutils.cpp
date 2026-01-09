@@ -16,6 +16,26 @@
 #include <sys/stat.h>
 #endif
 
+namespace {
+  void trimmedViewLeading(std::string_view &v) {
+    size_t start = 0;
+    size_t end = v.size();
+    while (start < end && std::isspace(static_cast<unsigned char>(v[start]))) ++start;
+    v = v.substr(start, end - start);
+  }
+
+  void trimmedViewTrailing(std::string_view &v) {
+    size_t end = v.size();
+    while (end > 0 && std::isspace(static_cast<unsigned char>(v[end - 1]))) --end;
+    v = v.substr(0, end);
+  }
+
+  void trimmedView(std::string_view &v) {
+    trimmedViewLeading(v);
+    trimmedViewTrailing(v);
+  }
+} // anonymous namespace
+
 namespace utils {
   SqliteStmt::~SqliteStmt()
   {
@@ -217,17 +237,16 @@ std::string utils::addLineComments(std::string_view code, std::string_view filen
 
 std::string utils::stripMarkdownFromCodeBlock(std::string_view code)
 {
-  if (code.length() < 6) {  // too short for ```...\n```
+  auto codeTrimmed = code;
+  trimmedView(codeTrimmed);
+  if (codeTrimmed.length() < 6) {
     return std::string(code);
   }
-
-  if (!code.starts_with("```")) {
+  if (!codeTrimmed.starts_with("```")) {
     return std::string(code);
   }
-
-  // Find the end of the opening fence line
-  size_t fence_end = code.find('\n', 3);
-  if (fence_end == std::string_view::npos) {
+  size_t fenceEnd = code.find('\n', 3);
+  if (fenceEnd == std::string_view::npos) {
     // No newline after opening ``` -> maybe single-line or malformed
     if (code.ends_with("```")) {
       // ```code```
@@ -237,25 +256,17 @@ std::string utils::stripMarkdownFromCodeBlock(std::string_view code)
   }
 
   // Extract language tag if present (e.g. "cpp", "python", empty)
-  std::string_view lang = code.substr(3, fence_end - 3);
-  // Trim whitespace from lang (optional, but helps robustness)
-  while (!lang.empty() && std::isspace(static_cast<unsigned char>(lang.front()))) {
-    lang.remove_prefix(1);
-  }
-  while (!lang.empty() && std::isspace(static_cast<unsigned char>(lang.back()))) {
-    lang.remove_suffix(1);
-  }
+  std::string_view lang = code.substr(3, fenceEnd - 3);
+  trimmedView(lang);
 
-  // Now find closing fence
   // We look for \n``` at the end, possibly followed by optional whitespace/newline
-  size_t closing_pos = code.rfind("\n```");
-  if (closing_pos == std::string_view::npos || closing_pos <= fence_end) {
-    // No matching closing fence found
+  size_t closingPos = code.rfind("\n```");
+  if (closingPos == std::string_view::npos || closingPos <= fenceEnd) {
     return std::string(code);
   }
 
   // Check if the closing fence is at the end (or only whitespace after)
-  std::string_view tail = code.substr(closing_pos + 4);  // after \n```
+  std::string_view tail = code.substr(closingPos + 4);  // after \n```
   bool tail_is_empty_or_ws = tail.empty() ||
     std::all_of(tail.begin(), tail.end(),
       [](unsigned char c) { return std::isspace(c); });
@@ -265,12 +276,10 @@ std::string utils::stripMarkdownFromCodeBlock(std::string_view code)
     return std::string(code);
   }
 
-  // Extract content between opening fence newline and closing fence
-  size_t content_start = fence_end + 1;
-  size_t content_length = closing_pos - content_start;
+  size_t contentStart = fenceEnd + 1;
+  size_t contentLength = closingPos - contentStart;
 
-  std::string_view inner = code.substr(content_start, content_length);
+  std::string_view inner = code.substr(contentStart, contentLength);
 
-  // If the inner content ends with newline before closing fence, keep it consistent
   return std::string(inner);
 }

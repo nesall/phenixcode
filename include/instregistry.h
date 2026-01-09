@@ -22,14 +22,8 @@ public:
   InstanceRegistry(InstanceRegistry &&) = default;
   InstanceRegistry &operator=(InstanceRegistry &&) = default;
 
-  void startHeartbeat();
-  void stopHeartbeat();
   std::vector<json> getActiveInstances() const;
   std::string getInstanceId() const;
-
-private:
-  void registerInstance(int port, int watchInterval, const Settings &settings);
-  void unregister();
 
 private:
   struct Impl;
