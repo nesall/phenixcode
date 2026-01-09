@@ -1,6 +1,10 @@
 #include "app.h"
 #include <utils_log/logger.hpp>
 
+#ifdef _DEBUG
+extern void runUnitTests();
+#endif
+
 //#define TEST_CHUNKING
 
 #ifdef TEST_CHUNKING
@@ -58,6 +62,10 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+#endif
+
+#ifdef _DEBUG
+  runUnitTests();
 #endif
 
   return App::run(argc, argv);
