@@ -95,6 +95,7 @@ add_executable(${PROJECT_NAME}
   src/auth.cpp
   src/instregistry.cpp
   src/cutils.cpp
+  src/tests.cpp
 )
 
 # Link libraries
