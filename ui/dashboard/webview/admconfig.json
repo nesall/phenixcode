@@ -1,20 +1,20 @@
 {
   "uiPrefs": [
     {
-      "key": "WatchForChanges",
-      "value": "0"
-    },
-    {
       "key": "darkOrLight",
       "value": "light"
     },
     {
-      "key": "EmbedderExecutablePath",
-      "value": "../../../../build_dbg/Debug/phenixcode-core.exe"
+      "key": "WatchForChanges",
+      "value": "0"
     },
     {
       "key": "theme",
       "value": "hamlindigo"
+    },
+    {
+      "key": "EmbedderExecutablePath",
+      "value": "../../../../build_dbg/Debug/phenixcode-core.exe"
     },
     {
       "key": "EmbedderSettingsFilePaths",
