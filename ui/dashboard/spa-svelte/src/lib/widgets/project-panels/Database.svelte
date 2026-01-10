@@ -3,7 +3,7 @@
   import * as icons from "@lucide/svelte";
   import { selectedProject } from "../../store";
   import type { DatabaseSettings } from "../../../app";
-  import { helper_checkPathExists, helper_saveProjectSettings, isParentDirValid } from "../../utils";
+  import { helper_saveProjectSettings, isParentDirValid } from "../../utils";
 
   const projectTitle = $derived($selectedProject?.jsonData.source.project_title);
 

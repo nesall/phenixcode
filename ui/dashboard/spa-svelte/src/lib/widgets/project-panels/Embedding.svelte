@@ -87,6 +87,7 @@
 
   function onChange() {
     if ($selectedProject) {
+      $selectedProject = $selectedProject;
       helper_saveProjectSettings($selectedProject);
     }
   }
