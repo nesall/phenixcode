@@ -197,9 +197,7 @@
     "project_description": "",
     "paths":[
       {
-        "exclude": [
-
-        ],
+        "exclude": [],
         "extensions": [],
         "path": "./",
         "recursive": true,
@@ -213,7 +211,7 @@
       "*/debug/*", "*/release/*", "*/lib/*", "*/docker/*",
       "*/fonts/*", "*/images/*", "*/test/*","*/tests/*",
       "*/example/*", "*/examples/*", "*/obj/*", "*/build_dbg/*", "*/build_rel/*",
-      "*/bin/*", "*/dist/*", "*/test/*", "*/3rdparty/*"
+      "*/bin/*", "*/dist/*", "*/test/*", "*/3rdparty/*", "*/cmake-build/*"
     ],
     "encoding": "utf-8",
     "max_file_size_mb": 10
