@@ -10,6 +10,15 @@ if(CMAKE_VERSION VERSION_GREATER "4.00")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
+if(MSVC)
+  message(STATUS "Using MSVC compiler")
+  set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /GS")
+  if(debug)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /RTC1")
+  endif()  
+endif()
+
 include(FetchContent)
 
 set(HTTPLIB_USE_ZSTD_IF_AVAILABLE OFF)
