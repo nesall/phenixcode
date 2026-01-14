@@ -3,7 +3,7 @@
 
 #include <memory>
 #include <string>
-#include <nlohmann/json.hpp>
+#include "json_shim.h"
 
 class Chunker;
 class Settings;

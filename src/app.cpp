@@ -28,7 +28,7 @@
 #include <cctype>
 #include <cassert>
 #include <csignal>
-#include <nlohmann/json.hpp>
+#include <json_shim.h>
 #include <utils_log/logger.hpp>
 #include "3rdparty/CLI11.hpp"
 #include "3rdparty/fmt/core.h"

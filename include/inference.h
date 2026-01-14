@@ -5,7 +5,7 @@
 #include <string>
 #include <memory>
 #include <functional>
-#include <nlohmann/json.hpp>
+#include "json_shim.h"
 
 
 class App;

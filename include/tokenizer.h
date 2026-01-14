@@ -5,7 +5,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <mutex>
-#include "nlohmann/json.hpp"
+#include "json_shim.h"
 
 class SimpleTokenizer {
   mutable std::mutex mutex_;

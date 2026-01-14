@@ -9,8 +9,8 @@
 #include "instregistry.h"
 #include "auth.h"
 #include "3rdparty/base64.h"
+#include "json_shim.h"
 #include <httplib.h>
-#include <nlohmann/json.hpp>
 #include <utils_log/logger.hpp>
 #include <hnswlib/hnswlib.h>
 #include <chrono>

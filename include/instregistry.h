@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <nlohmann/json.hpp>
+#include "json_shim.h"
 
 using json = nlohmann::json;
 

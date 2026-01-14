@@ -34,12 +34,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sqlite3)
 
-FetchContent_Declare(
-  nlohmann_json
-  GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG v3.11.3
-)
-FetchContent_MakeAvailable(nlohmann_json)
+#FetchContent_Declare(
+#  nlohmann_json
+#  GIT_REPOSITORY https://github.com/nlohmann/json.git
+#  GIT_TAG v3.11.3
+#)
+#FetchContent_MakeAvailable(nlohmann_json)
 
 FetchContent_Declare(
   utils_log
@@ -83,6 +83,7 @@ add_executable(${PROJECT_NAME}
   include/auth.h
   include/instregistry.h
   include/cutils.h
+  include/json_shim.h
   src/main.cpp
   src/tokenizer.cpp
   src/settings.cpp
@@ -102,7 +103,7 @@ add_executable(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME} PRIVATE 
   httplib::httplib
   sqlite3_lib
-  nlohmann_json::nlohmann_json
+  #nlohmann_json::nlohmann_json
   utils_log
   jwt-cpp::jwt-cpp
 )

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 #include <map>
-#include "nlohmann/json.hpp"
+#include "json_shim.h"
 
 struct ApiConfig {
   std::string id;
