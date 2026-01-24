@@ -2,7 +2,7 @@
 #include <memory>
 #include <functional>
 #include <unordered_map>
-#include <nlohmann/json.hpp>
+#include "json_shim.h"
 
 class ProcessManager;
 

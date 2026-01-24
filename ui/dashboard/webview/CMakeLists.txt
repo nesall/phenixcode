@@ -51,18 +51,12 @@ if(WIN32)
 endif()
 
 FetchContent_Declare(
-  nlohmann_json
-  GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG v3.11.3
-)
-
-FetchContent_Declare(
   sqlite3
   URL https://www.sqlite.org/2024/sqlite-amalgamation-3450300.zip
 )
 FetchContent_MakeAvailable(sqlite3)
 
-FetchContent_MakeAvailable(httplib utils_log nlohmann_json)
+FetchContent_MakeAvailable(httplib utils_log)
 
 # Create SQLite3 library
 add_library(sqlite3_lib ${sqlite3_SOURCE_DIR}/sqlite3.c)
@@ -136,7 +130,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   httplib::httplib 
   sqlite3_lib
   utils_log 
-  nlohmann_json::nlohmann_json
 )
 
 # Platform-specific libraries

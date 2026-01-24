@@ -50,13 +50,7 @@ if(WIN32)
   FetchContent_MakeAvailable(win_dark)
 endif()
 
-FetchContent_Declare(
-  nlohmann_json
-  GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG v3.11.3
-)
-
-FetchContent_MakeAvailable(httplib utils_log nlohmann_json)
+FetchContent_MakeAvailable(httplib utils_log)
 
 # logging
 add_library(utils_log INTERFACE)
@@ -97,7 +91,7 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../../version.cmake")
 
 
-#target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/include/3rdparty")
+target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/include")
 target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/ui/shared")
 
 set(WEB_ASSETS "ui_assets_c")
@@ -121,7 +115,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   webview::core 
   httplib::httplib 
   utils_log 
-  nlohmann_json::nlohmann_json
 )
 
 # Platform-specific libraries

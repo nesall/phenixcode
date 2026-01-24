@@ -1,5 +1,4 @@
 #include <httplib.h>
-#include <nlohmann/json.hpp>
 #include <utils_log/logger.hpp>
 #include "wb.h"
 #include "procmngr.h"
@@ -7,6 +6,7 @@
 #include "instregistry.h"
 #include "settings.h"
 #include "3rdparty/portable-file-dialogs.h"
+#include "json_shim.h"
 #include <filesystem>
 #include <string>
 #include <cassert>
