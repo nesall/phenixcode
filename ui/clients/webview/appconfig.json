@@ -31,6 +31,10 @@
     {
       "key": "ApiOptionsSortedKey",
       "value": "1"
+    },
+    {
+      "key": "api",
+      "value": "ministral-3b-latest"
     }
   ],
   "window": {

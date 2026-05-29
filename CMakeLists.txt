@@ -137,6 +137,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads )
 
 set(OPENSSL_PATH $ENV{OPENSSL_PATH})
+message("OPENSSL_PATH -> ${OPENSSL_PATH}")
 
 if(WIN32)
   set(OPENSSL_INCLUDE_DIR "${OPENSSL_PATH}/include")

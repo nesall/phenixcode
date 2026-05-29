@@ -34,8 +34,8 @@
     ],
     "batch_size": 4,
     "current_api": "remote-coder",
-    "retry_attempts": 3,
     "prepend_label_format": "[Source: {}]\n",
+    "retry_attempts": 3,
     "timeout_ms": 30000,
     "top_k": 5
   },
@@ -44,184 +44,170 @@
       {
         "api_key": "",
         "api_url": "http://127.0.0.1:8585/v1/chat/completions",
+        "enabled": true,
         "id": "local-qwen",
         "model": "qwen2.5-coder-1.5b",
         "name": "Local",
-        "enabled": true,
         "pricing_tpm": {
           "input": 0,
           "output": 0
         }
       },
       {
-        "api_key": "${GEMINI_API_KEY}",
-        "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "id": "gemma3",
-        "model": "gemma-3-27b-it",
-        "name": "Gemini",
-        "enabled": true,
-        "pricing_tpm": {
-          "input": 0,
-          "output": 0
-        },
-        "context_length": 60000
-      },
-      {
         "api_key": "${COMET_API_KEY}",
         "api_url": "https://api.cometapi.com/v1/chat/completions",
+        "context_length": 204000,
+        "enabled": true,
         "id": "minimax-m2",
         "model": "minimax-m2",
         "name": "MiniMax",
-        "enabled": true,
         "pricing_tpm": {
           "input": 0.24,
           "output": 0.96
-        },
-        "context_length": 204000
+        }
       },
       {
         "api_key": "${OPENROUTER_API_KEY}",
         "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "context_length": 262000,
+        "enabled": true,
         "id": "qwen3-coder-free",
         "model": "qwen/qwen3-coder:free",
         "name": "Qwen",
-        "enabled": true,
         "pricing_tpm": {
           "input": 0.22,
           "output": 0.95
-        },
-        "context_length": 262000
+        }
       },
       {
         "api_key": "${OPENROUTER_API_KEY}",
         "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "context_length": 131000,
+        "enabled": true,
         "id": "llama-3.3-70b-instruct",
         "model": "meta-llama/llama-3.3-70b-instruct:free",
         "name": "Meta",
-        "enabled": true,
         "pricing_tpm": {
           "input": 0.13,
           "output": 0.38
-        },
-        "context_length": 131000
+        }
       },
       {
         "api_key": "${MISTRAL_API_KEY}",
         "api_url": "https://api.mistral.ai/v1/chat/completions",
+        "context_length": 128000,
+        "enabled": true,
+        "id": "ministral-3b-latest",
+        "model": "ministral-3b-latest",
+        "name": "Mistral",
+        "pricing_tpm": {
+          "input": 0.1,
+          "output": 0.1
+        }
+      },
+      {
+        "api_key": "${MISTRAL_API_KEY}",
+        "api_url": "https://api.mistral.ai/v1/chat/completions",
+        "context_length": 128000,
+        "enabled": true,
         "id": "mistral-nemo",
         "model": "open-mistral-nemo",
         "name": "Mistral",
-        "enabled": true,
         "pricing_tpm": {
           "input": 0.15,
           "output": 0.15
-        },
-        "context_length": 128000
+        }
       },
       {
         "api_key": "${MISTRAL_API_KEY}",
         "api_url": "https://api.mistral.ai/v1/chat/completions",
-        "id": "mistral-devstral",
-        "model": "devstral-small-latest",
-        "name": "Mistral",
+        "context_length": 128000,
         "enabled": true,
+        "id": "devstral-latest",
+        "model": "devstral-latest",
+        "name": "Mistral",
         "pricing_tpm": {
-          "input": 0.1,
-          "output": 0.3
-        },
-        "context_length": 128000
+          "input": 0.4,
+          "output": 2.0
+        }
       },
       {
         "api_key": "${GEMINI_API_KEY}",
         "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "id": "gemini-2.0-flash",
-        "model": "gemini-2.0-flash",
-        "name": "Gemini",
+        "context_length": 1000000,
         "enabled": true,
+        "id": "gemini-3.1-flash-lite",
+        "model": "gemini-3.1-flash-lite",
+        "name": "Gemini",
         "pricing_tpm": {
-          "cached_input": 0.025,
-          "input": 0.1,
-          "output": 0.4
-        },
-        "context_length": 1000000
+          "cached_input": 0.25,
+          "input": 0.0025,
+          "output": 1.5
+        }
       },
       {
         "api_key": "${DEEPSEEK_API_KEY}",
         "api_url": "https://api.deepseek.com/chat/completions",
+        "context_length": 128000,
+        "enabled": true,
         "id": "deepseek",
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-flash",
         "name": "DeepSeek",
-        "enabled": true,
         "pricing_tpm": {
-          "cached_input": 0.028,
-          "input": 0.28,
-          "output": 0.42
-        },
-        "context_length": 128000
-      },
-      {
-        "api_key": "${XAI_API_KEY}",
-        "api_url": "https://api.x.ai/v1/chat/completions",
-        "id": "xai",
-        "model": "grok-4-fast-non-reasoning",
-        "name": "X AI",
-        "enabled": true,
-        "pricing_tpm": {
-          "cached_input": 0.05,
-          "input": 0.2,
-          "output": 0.5
-        },
-        "context_length": 128000
+          "cached_input": 0.0028,
+          "input": 0.18,
+          "output": 0.28
+        }
       },
       {
         "api_key": "${OPENAI_API_KEY}",
         "api_url": "https://api.openai.com/v1/chat/completions",
+        "context_length": 128000,
+        "enabled": true,
         "id": "openai-4o-mini",
         "model": "gpt-4o-mini",
         "name": "OpenAI",
-        "enabled": true,
         "pricing_tpm": {
           "cached_input": 0.075,
           "input": 0.15,
           "output": 0.6
-        },
-        "context_length": 128000
+        }
       },
       {
         "api_key": "${CODESTRAL_API_KEY}",
         "api_url": "https://codestral.mistral.ai/v1/chat/completions",
+        "context_length": 256000,
+        "enabled": true,
         "id": "mistral-codestral",
         "model": "codestral-latest",
         "name": "Mistral",
-        "enabled": true,
         "pricing_tpm": {
           "input": 0.3,
           "output": 0.9
-        },
-        "context_length": 256000
+        }
       },
       {
         "api_key": "${XAI_API_KEY}",
         "api_url": "https://api.x.ai/v1/chat/completions",
-        "id": "grok-4-coder",
-        "model": "grok-code-fast-1",
-        "name": "X AI",
+        "context_length": 200000,
         "enabled": true,
+        "id": "grok-latest",
+        "model": "grok-latest",
+        "name": "X AI",
         "pricing_tpm": {
-          "cached_input": 0.02,
+          "cached_input": 1.25,
           "input": 0.2,
-          "output": 1.5
-        },
-        "context_length": 256000
+          "output": 2.5
+        }
       },
       {
         "api_key": "${OPENAI_API_KEY}",
         "api_url": "https://api.openai.com/v1/chat/completions",
+        "enabled": true,
         "id": "openai-4.1-mini",
         "max_tokens_name": "max_completion_tokens",
         "model": "gpt-4.1-mini",
         "name": "OpenAI",
-        "enabled": true,
         "pricing_tpm": {
           "cached_input": 0.1,
           "input": 0.4,
@@ -231,65 +217,51 @@
       {
         "api_key": "${OPENAI_API_KEY}",
         "api_url": "https://api.openai.com/v1/chat/completions",
+        "context_length": 256000,
+        "enabled": true,
         "id": "openai-5-mini",
         "max_tokens_name": "max_completion_tokens",
         "model": "gpt-5-mini",
         "name": "OpenAI",
-        "enabled": true,
         "pricing_tpm": {
           "cached_input": 0.025,
           "input": 0.25,
           "output": 2.0
         },
-        "context_length": 256000,
         "stream": false,
         "temperature_support": false
       },
       {
         "api_key": "${GEMINI_API_KEY}",
         "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "id": "gemini-2.5-flash",
-        "model": "gemini-2.5-flash",
-        "name": "Gemini",
+        "context_length": 1000000,
         "enabled": true,
-        "pricing_tpm": {
-          "cached_input": 0.03,
-          "input": 0.3,
-          "output": 2.5
-        },
-        "context_length": 1000000
-      },
-      {
-        "api_key": "${GEMINI_API_KEY}",
-        "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "id": "gemini-2.5-pro",
-        "model": "gemini-2.5-pro",
+        "id": "gemini-3.5-flash",
+        "model": "gemini-3.5-flash",
         "name": "Gemini",
-        "enabled": true,
         "pricing_tpm": {
-          "cached_input": 0.125,
-          "input": 1.5,
-          "output": 10.0
-        },
-        "context_length": 1000000
+          "cached_input": 1.5,
+          "input": 0.15,
+          "output": 9.0
+        }
       }
     ],
     "current_api": "remote-hosted",
     "default_max_tokens": 4096,
     "default_max_tokens_name": "max_tokens",
     "default_temperature": 0.5,
+    "excerpt": {
+      "enabled": true,
+      "max_chunks": 11,
+      "min_chunks": 3,
+      "threshold_ratio": 0.75
+    },
     "max_chunks": 7,
     "max_context_tokens": 96000,
     "max_full_sources": 2,
     "max_related_per_source": 3,
-    "timeout_ms": 120000,
     "prepend_label_format": "[Source: {}]\n",
-    "excerpt": {
-      "enabled": true,
-      "min_chunks": 3,
-      "max_chunks": 11,
-      "threshold_ratio": 0.75
-    }
+    "timeout_ms": 120000
   },
   "logging": {
     "diagnostics_file": "embedder_diag.log",
@@ -299,8 +271,6 @@
     "logging_file": "embedder.log"
   },
   "source": {
-    "project_title": "phenixcode",
-    "project_id":  "",
     "default_extensions": [
       ".cpp",
       ".h",
@@ -365,7 +335,9 @@
         "type": "url",
         "url": "https://docs.example.com/api"
       }
-    ]
+    ],
+    "project_id": "phenixcode-97ecf67f",
+    "project_title": "phenixcode"
   },
   "tokenizer": {
     "config_path": "../assets/bge_tokenizer.json"
