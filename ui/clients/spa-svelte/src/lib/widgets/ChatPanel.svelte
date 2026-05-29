@@ -5,7 +5,13 @@
   import { onMount, tick } from "svelte";
   import DOMPurify from "dompurify";
   import { renderMarkdown } from "../markdown";
-  import { apiUrl, clog, isGoodArray, stripCommonPrefix, toaster } from "../utils";
+  import {
+    apiUrl,
+    clog,
+    isGoodArray,
+    stripCommonPrefix,
+    toaster,
+  } from "../utils";
   import { contextSizeRatio, messages, settings, temperature } from "../store";
 
   export function resetUi() {
@@ -30,7 +36,11 @@
         role: "assistant",
         content: "Hello! How can I assist you today?",
         _html: await renderMarkdown("Hello! How can I assist you today?"),
-        _metaInfoArray: ["Searching for relevant content", "Processing attachment(s)", "Working on the response"],
+        _metaInfoArray: [
+          "Searching for relevant content",
+          "Processing attachment(s)",
+          "Working on the response",
+        ],
       },
       {
         role: "user",
@@ -39,8 +49,11 @@
       },
       {
         role: "assistant",
-        content: "Sure! Why don't scientists trust atoms? Because they make up everything!",
-        _html: await renderMarkdown("Sure! Why don't scientists trust atoms? Because they make up everything!"),
+        content:
+          "Sure! Why don't scientists trust atoms? Because they make up everything!",
+        _html: await renderMarkdown(
+          "Sure! Why don't scientists trust atoms? Because they make up everything!",
+        ),
       },
       {
         role: "user",
@@ -49,8 +62,11 @@
       },
       {
         role: "assistant",
-        content: "Sure! Why don't scientists trust atoms? Because they make up everything!",
-        _html: await renderMarkdown("Sure! Why don't scientists trust atoms? Because they make up everything!"),
+        content:
+          "Sure! Why don't scientists trust atoms? Because they make up everything!",
+        _html: await renderMarkdown(
+          "Sure! Why don't scientists trust atoms? Because they make up everything!",
+        ),
       },
       {
         role: "user",
@@ -59,8 +75,11 @@
       },
       {
         role: "assistant",
-        content: "Sure! Why don't scientists trust atoms? Because they make up everything!",
-        _html: await renderMarkdown("Sure! Why don't scientists trust atoms? Because they make up everything!"),
+        content:
+          "Sure! Why don't scientists trust atoms? Because they make up everything!",
+        _html: await renderMarkdown(
+          "Sure! Why don't scientists trust atoms? Because they make up everything!",
+        ),
       },
     ];
   }
@@ -83,9 +102,13 @@
 
   let attachedFilesOnly = $state(false);
 
-  const metaInfo = $derived(0 < metaInfoArray.length ? metaInfoArray[metaInfoArray.length - 1] : "");
+  const metaInfo = $derived(
+    0 < metaInfoArray.length ? metaInfoArray[metaInfoArray.length - 1] : "",
+  );
 
-  const hasAttachedFiles = $derived(isGoodArray(sourceids) || isGoodArray(attachments));
+  const hasAttachedFiles = $derived(
+    isGoodArray(sourceids) || isGoodArray(attachments),
+  );
 
   function checkMessagesEndVisibility() {
     if (!messagesEndDiv) return;
@@ -97,12 +120,16 @@
   onMount(() => {
     //insertTestMessages();
 
-    const wrapper = document.querySelector(".chat-panel") as HTMLDivElement | null | undefined;
+    const wrapper = document.querySelector(".chat-panel") as
+      | HTMLDivElement
+      | null
+      | undefined;
     if (wrapper) wrapper.addEventListener("scroll", checkMessagesEndVisibility);
     window.addEventListener("resize", checkMessagesEndVisibility);
     tick().then(checkMessagesEndVisibility);
     return () => {
-      if (wrapper) wrapper.removeEventListener("scroll", checkMessagesEndVisibility);
+      if (wrapper)
+        wrapper.removeEventListener("scroll", checkMessagesEndVisibility);
       window.removeEventListener("resize", checkMessagesEndVisibility);
     };
   });
@@ -120,7 +147,9 @@
       let loaded = attachmentsLoaded.length === attachments.length;
       if (loaded) {
         for (const file of attachments) {
-          const match = attachmentsLoaded.find((att) => att.filename === file.name);
+          const match = attachmentsLoaded.find(
+            (att) => att.filename === file.name,
+          );
           if (!match) {
             loaded = false;
             break;
@@ -135,7 +164,8 @@
       const loadFile = (file: File) =>
         new Promise<Attachment>((resolve, reject) => {
           const r = new FileReader();
-          r.onload = () => resolve({ filename: file.name, content: r.result as string });
+          r.onload = () =>
+            resolve({ filename: file.name, content: r.result as string });
           r.onerror = reject;
           r.readAsText(file);
         });
@@ -146,7 +176,10 @@
           sendMessage(message, atts, sourceids, true);
         })
         .catch((err) => {
-          toaster.error({ title: "Error reading attachment files", description: err.message || err });
+          toaster.error({
+            title: "Error reading attachment files",
+            description: err.message || err,
+          });
           clog("Error reading attachment files:", err);
         });
     }
@@ -212,8 +245,14 @@
     return { parsed: fullResponse, remainder: buffer };
   }
 
-  async function sendMessage(input: string, attachments: Attachment[], sourceids: string[], appendQ = true) {
+  async function sendMessage(
+    input: string,
+    attachments: Attachment[],
+    sourceids: string[],
+    appendQ = true,
+  ) {
     if (loading) return;
+    let pendingRenderCounter = 0;
     loading = true;
     started = false;
     if (appendQ) {
@@ -280,7 +319,9 @@
           if (appended) {
             let lm = $messages[$messages.length - 1];
             lm.content += chunk;
-            lm._html = normalizeHeaders(await renderMarkdown(lm.content));
+            if (pendingRenderCounter++ % 3 === 0) {
+              lm._html = normalizeHeaders(await renderMarkdown(lm.content));
+            }
             $messages = $messages;
             tick().then(checkMessagesEndVisibility);
           } else {
@@ -319,7 +360,8 @@
       //   window.PR.prettyPrint();
       // }
       setTimeout(() => {
-        if (window.HLJS_CUSTOM && window.HLJS_CUSTOM.initHljs) window.HLJS_CUSTOM.initHljs();
+        if (window.HLJS_CUSTOM && window.HLJS_CUSTOM.initHljs)
+          window.HLJS_CUSTOM.initHljs();
       }, 250);
     }
   }
@@ -344,7 +386,9 @@
   function onEditMsg(index: number) {
     const msg = $messages[index];
     if (msg.role !== "user") return;
-    const div = document.querySelector(`#user-message-${index}`) as HTMLElement | null;
+    const div = document.querySelector(
+      `#user-message-${index}`,
+    ) as HTMLElement | null;
     if (div) {
       div.contentEditable = "plaintext-only";
       div.focus();
@@ -394,14 +438,21 @@
   }
 </script>
 
-<div class="chat-panel p-3 w-full h-full flex flex-col space-y-8 overflow-y-auto">
+<div
+  class="chat-panel p-3 w-full h-full flex flex-col space-y-8 overflow-y-auto"
+>
   <div class="flex flex-col space-y-6 mb-4 grow p-4" id="chat-messages">
     {#if $messages.length === 0}
-      <p class="text text-center text-surface-500">No messages yet. Start the conversation!</p>
+      <p class="text text-center text-surface-500">
+        No messages yet. Start the conversation!
+      </p>
     {/if}
     {#each $messages as msg, i}
       {#if msg.role === "user"}
-        <div class="flex flex-col items-end overflow-y-hidden box-border message" data-role="user">
+        <div
+          class="flex flex-col items-end overflow-y-hidden box-border message"
+          data-role="user"
+        >
           <div
             class="bg-primary-50-950 shadow2 rounded-xl whitespace-pre-wrap p-4 m-1 break-normal text-left message-content"
             id="user-message-{i}"
@@ -429,13 +480,17 @@
           </div>
         </div>
       {:else}
-        <div class="flex flex-col overflow-y-hidden box-border pb-4 space-y-1 message" data-role="assistant">
+        <div
+          class="flex flex-col overflow-y-hidden box-border pb-4 space-y-1 message"
+          data-role="assistant"
+        >
           {#if isGoodArray(msg._metaInfoArray) && msg._metaInfoArray}
             <div class="text-xs flex flex-col space-y-0 self-end text-right">
               <button
                 type="button"
                 class="btn btn-sm text-surface-500 border-surface-500 flex text-right justify-end"
-                onclick={() => ($messages[i]._metaVisible = !$messages[i]._metaVisible)}
+                onclick={() =>
+                  ($messages[i]._metaVisible = !$messages[i]._metaVisible)}
               >
                 <span>Ready</span>
                 {#if msg._metaVisible}
@@ -447,7 +502,9 @@
               {#if msg._metaVisible}
                 <div class="flex flex-col" transition:slide>
                   {#each msg._metaInfoArray as info, i}
-                    <span>{msg._metaInfoArray[msg._metaInfoArray?.length - 1 - i]} ✓</span>
+                    <span
+                      >{msg._metaInfoArray[msg._metaInfoArray?.length - 1 - i]} ✓</span
+                    >
                   {/each}
                 </div>
               {/if}
@@ -515,7 +572,9 @@
     <div bind:this={messagesEndDiv}></div>
   </div>
 
-  <div class="sticky bottom-0 flex items-end pb-0 pt-4 relative gradient-to-t from-surface-50-950">
+  <div
+    class="sticky bottom-0 flex items-end pb-0 pt-4 relative gradient-to-t from-surface-50-950"
+  >
     {#if showScrollBtn}
       <div class="absolute top-[-1.5rem] w-full flex" transition:fade>
         <button
@@ -544,7 +603,10 @@
           attachedFilesOnly = (ev.target as HTMLInputElement)?.checked;
         }}
       />
-      <label class="text-xs {hasAttachedFiles ? '' : 'text-surface-500'}" for="checkbox-attached-files-only">
+      <label
+        class="text-xs {hasAttachedFiles ? '' : 'text-surface-500'}"
+        for="checkbox-attached-files-only"
+      >
         Use attached files only
       </label>
     </div>
