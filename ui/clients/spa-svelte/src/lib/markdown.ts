@@ -12,18 +12,33 @@ const renderer: RendererObject = {
       <h${depth}${className}>${text}</h${depth}>`;
   },
 
-  list(token: Tokens.List) {
-    const listItems = token.items.map(item => {
-      // Render each list item using the default listitem renderer
-      // or a custom one if defined
-      return this.listitem(item);
-    }).join('');
-    if (token.ordered) {
-      const startAttr = token.start !== 1 ? ` start="${token.start}"` : '';
-      return `<ol class="list-inside list-decimal space-y-1 py-2 pl-4"${startAttr}>\n${listItems}\n</ol>\n`;
+  // list(token: Tokens.List) {
+  //   const listItems = token.items.map(item => {
+  //     // Render each list item using the default listitem renderer
+  //     // or a custom one if defined
+  //     return this.listitem(item);
+  //   }).join('');
+  //   if (token.ordered) {
+  //     const startAttr = token.start !== 1 ? ` start="${token.start}"` : '';
+  //     return `<ol class="list-inside list-decimal space-y-1 py-2 pl-4"${startAttr}>\n${listItems}\n</ol>\n`;
+  //   }
+  //   return `<ul class="list-inside list-disc space-y-1 pl-4">
+  //     ${listItems}</ul>\n`;
+  // },
+
+  listitem(item: Tokens.ListItem): string {
+    const first = item.tokens[0];
+    if (first?.type === 'text' || first?.type === 'paragraph') {
+      const tokens = (first as any).tokens ?? [];
+      const body = tokens.length
+        ? this.parser.parseInline(tokens) as string
+        : (first as any).text as string;
+      const rest = item.tokens.length > 1
+        ? this.parser.parse(item.tokens.slice(1)) as string
+        : '';
+      return `<li>${body}${rest}</li>\n`;
     }
-    return `<ul class="list-inside list-disc space-y-1 pl-4">
-      ${listItems}</ul>\n`;
+    return `<li>${this.parser.parse(item.tokens)}</li>\n`;
   },
 
   link(token: Tokens.Link): string {

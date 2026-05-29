@@ -32,6 +32,7 @@
     onclick={() => {
       document.getElementById("file-input")?.click();
     }}
+    title="Attach file"
   >
     <icons.Paperclip size={12} />
   </button>
@@ -44,7 +45,7 @@
           class="flex items-center space-x-1 border border-surface-200-800 rounded px-1 py-0 pr-0"
           title={file.name}
         >
-          <span class="max-w-[5rem] overflow-hidden text-ellipsis">
+          <span class="max-w-20 overflow-hidden text-ellipsis">
             {file.name}
           </span>
           <button

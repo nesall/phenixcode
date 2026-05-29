@@ -98,7 +98,7 @@
   }
 </script>
 
-<div class="flex space-x-1 w-full flex flex-wrap gap-0.5 mb-0">
+<div class="space-x-1 w-full flex flex-wrap gap-0.5 mb-0">
   <div class="flex items-center space-x-0">
     <button
       type="button"
@@ -169,7 +169,7 @@
 
             <input type="text" class="input text-sm my-1" placeholder="Type to filter" bind:value={filterValue} />
             <div
-              class="h-96 max-h-96 overflow-auto scrollbar-hide text-sm
+              class="h-96 max-h-96 overflow-auto scrollbar-hide
                   p-4 border border-surface-200-800 rounded text-xs"
             >
               {#each filteredDocs as doc, i (doc.path)}
