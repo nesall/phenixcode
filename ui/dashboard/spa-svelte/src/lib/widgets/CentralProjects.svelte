@@ -26,11 +26,14 @@
 
   async function onAddProject() {
     try {
-      selectedProject.set(await helper_createProject());
+      const res = await helper_createProject();
+      if (res.status === "error") throw { message: res.message };
+      selectedProject.set(res);
       fetchProjects();
       toaster.success({ title: "Project created successfully." });
-    } catch (error) {
-      toaster.error({ title: "Failed to create project." });
+    } catch (error: any) {
+      console.log("onAddProject", error);
+      toaster.error({ title: "Failed to create project. " + error.message });
     }
   }
 
@@ -64,7 +67,11 @@
                   description: `Project ${config.project_id} imported into Projects.`,
                 });
               } else {
-                console.log("Failed to import project", config.project_id, res.message);
+                console.log(
+                  "Failed to import project",
+                  config.project_id,
+                  res.message,
+                );
                 toaster.error({
                   title: "Failed to import project.",
                   description: `Project ${config.project_id} failed with error ${res.message}`,
@@ -74,7 +81,10 @@
           }
         })
         .catch((err) => {
-          toaster.error({ title: "Unable to pick a settings file.", description: err.message || err });
+          toaster.error({
+            title: "Unable to pick a settings file.",
+            description: err.message || err,
+          });
         });
     } else {
       toaster.info({ title: "Import not available in web mode." });
@@ -83,7 +93,10 @@
   }
 
   $effect(() => {
-    if ($projectList) console.log(`CentralProjects.svelte - nof projects available: ${$projectList.length}`);
+    if ($projectList)
+      console.log(
+        `CentralProjects.svelte - nof projects available: ${$projectList.length}`,
+      );
   });
 </script>
 
@@ -111,13 +124,16 @@
           type="button"
           class="btn-icon btn-sm preset-filled-error-500 ml-auto"
           title="Delete selected project"
-          disabled={!$selectedProject || !!mapProjectToInstance($selectedProject, $instances)}
+          disabled={!$selectedProject ||
+            !!mapProjectToInstance($selectedProject, $instances)}
           onclick={onDeleteProject}
         >
           <icons.Trash2 />
         </button>
       </div>
-      <ul class="w-full h-full p-1 shadow overflow-y-auto border border-surface-200-800 rounded min-w-64">
+      <ul
+        class="w-full h-full p-1 shadow overflow-y-auto border border-surface-200-800 rounded min-w-64"
+      >
         <div class="bg-surface-100-900 rounded p-2 mb-2 flex items-center">
           Available Projects
           <button
@@ -137,14 +153,23 @@
             <button
               type="button"
               class="btn btn p-1 w-full flex items-center space-x-2 justify-start text-sm
-              {item.jsonData.source.project_id === $selectedProject?.jsonData.source.project_id ? 'font-bold' : ''}
+              {item.jsonData.source.project_id ===
+              $selectedProject?.jsonData.source.project_id
+                ? 'font-bold'
+                : ''}
               "
               onclick={() => onItemClick(item)}
             >
               {#if mapProjectToInstance(item, $instances)}
-                <span class="font-monospace text-xs bg-success-300-700 rounded px-2 w-8 font-bold">on</span>
+                <span
+                  class="font-monospace text-xs bg-success-300-700 rounded px-2 w-8 font-bold"
+                  >on</span
+                >
               {:else}
-                <span class="font-monospace text-xs bg-surface-100-900 rounded text-surface-800-200 px-2 w-8">off</span>
+                <span
+                  class="font-monospace text-xs bg-surface-100-900 rounded text-surface-800-200 px-2 w-8"
+                  >off</span
+                >
               {/if}
               <span class="">{item.jsonData.source.project_title}</span>
               {#if item.jsonData.source.project_id === $selectedProject?.jsonData.source.project_id}

@@ -215,7 +215,8 @@ let mockProjects: ProjectItem[] = [
         project_id: "alpha-316e366b",
         project_title: "phenixcode",
       }
-    }
+    },
+    status: 'success'
   },
   {
     settingsFilePath: "C:/Users/Arman/workspace/projects/alpha/settings-vsix.json",
@@ -226,7 +227,8 @@ let mockProjects: ProjectItem[] = [
         project_id: "project2",
         project_title: "ChatAssistantVSIX",
       }
-    }
+    },
+    status: 'success'
   }
 ];
 
@@ -313,7 +315,8 @@ async function test_importProject(projectId: string, configPath: string): Promis
         project_id: projectId,
         project_title: `Imported Project ${projectId}`,
       }
-    }
+    }, 
+    status: 'success'
   };
   mockProjects = [importedProject, ...mockProjects];
   console.log("[mock] imported project", importedProject);

@@ -160,6 +160,8 @@ export interface SettingsJsonType {
 export interface ProjectItem {
   settingsFilePath: string; // for informational purposes
   jsonData: SettingsJsonType;
+  status: string;
+  message?: string;
 }
 
 export interface InstanceItem {
