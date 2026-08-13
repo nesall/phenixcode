@@ -157,7 +157,7 @@
           "input": 0.3,
           "output": 1.2
         }
-      },      
+      }
     ],
     "current_api": "mistral-devstral",
     "timeout_ms": 120000,
