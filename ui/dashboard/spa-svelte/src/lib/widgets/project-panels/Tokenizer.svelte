@@ -4,13 +4,21 @@
   import { selectedProject } from "../../store";
   import { helper_saveProjectSettings } from "../../utils";
 
-  const projectTitle = $derived($selectedProject?.jsonData.source.project_title);
+  interface Props {
+    onChanged: any;
+  }
+  let { onChanged }: Props = $props();
+  
+  const projectTitle = $derived(
+    $selectedProject?.jsonData.source.project_title,
+  );
 
   onMount(() => {});
 
   function onChange() {
     if ($selectedProject) {
       helper_saveProjectSettings($selectedProject);
+      onChanged($selectedProject);
     }
   }
 </script>
@@ -29,7 +37,9 @@
           </div>
 
           <!-- Configuration Path -->
-          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2">Model Configuration</h3>
+          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2">
+            Model Configuration
+          </h3>
           <label class="label">
             <span class="label-text">Tokenizer Config Path</span>
             <input
@@ -40,7 +50,8 @@
               onchange={onChange}
             />
             <p class="text-sm text-surface-500 mt-1">
-              The local file path to the tokenizer configuration (e.g., HuggingFace `tokenizer.json`).
+              The local file path to the tokenizer configuration (e.g.,
+              HuggingFace `tokenizer.json`).
             </p>
           </label>
         </div>

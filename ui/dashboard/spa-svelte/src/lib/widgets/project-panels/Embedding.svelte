@@ -7,7 +7,14 @@
   import { helper_saveProjectSettings } from "../../utils";
 
   const jsonData = $derived($selectedProject?.jsonData);
-  const projectTitle = $derived($selectedProject?.jsonData.source.project_title);
+  const projectTitle = $derived(
+    $selectedProject?.jsonData.source.project_title,
+  );
+
+  interface Props {
+    onChanged: any;
+  }
+  let { onChanged }: Props = $props();
 
   onMount(() => {});
 
@@ -24,7 +31,8 @@
       model: "",
       name: "New API",
       document_format: "{}",
-      query_format: "Represent this sentence for searching relevant passages: {}",
+      query_format:
+        "Represent this sentence for searching relevant passages: {}",
     });
     jsonData.embedding.current_api = newId;
     // selectedJsonSettings.set(jsonData);
@@ -39,7 +47,9 @@
     if (1 < jsonData.embedding.apis.length) {
       jsonData.embedding.apis.splice(index, 1);
       // If we removed the current API, switch to the first one
-      if (jsonData.embedding.current_api === jsonData.embedding.apis[index]?.id) {
+      if (
+        jsonData.embedding.current_api === jsonData.embedding.apis[index]?.id
+      ) {
         jsonData.embedding.current_api = jsonData.embedding.apis[0]?.id || "";
       }
       // selectedJsonSettings.set(jsonData);
@@ -89,6 +99,7 @@
     if ($selectedProject) {
       $selectedProject = $selectedProject;
       helper_saveProjectSettings($selectedProject);
+      onChanged($selectedProject);
     }
   }
 
@@ -185,11 +196,15 @@
                 type="text"
                 id="prepend-label-format"
                 class="input"
-                bind:value={$selectedProject.jsonData.embedding.prepend_label_format}
+                bind:value={
+                  $selectedProject.jsonData.embedding.prepend_label_format
+                }
                 placeholder="[Source: &#123;&#125;]\n"
                 onchange={onChange}
               />
-              <p class="text-sm text-surface-500 mt-1">Use &#123;&#125; as placeholder for the source name</p>
+              <p class="text-sm text-surface-500 mt-1">
+                Use &#123;&#125; as placeholder for the source name
+              </p>
             </label>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -211,14 +226,25 @@
 
         <div class="rounded-md shadow p-4 flex flex-col gap-4">
           <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-bold">Embedding APIs ({$selectedProject.jsonData.embedding.apis.length})</h2>
-            <button type="button" class="btn px-3 py-1 preset-filled-primary-500 rounded-md" onclick={addApi}>
+            <h2 class="text-xl font-bold">
+              Embedding APIs ({$selectedProject.jsonData.embedding.apis.length})
+            </h2>
+            <button
+              type="button"
+              class="btn px-3 py-1 preset-filled-primary-500 rounded-md"
+              onclick={addApi}
+            >
               Add API
             </button>
           </div>
           <div>
-            <button type="button" class="btn btn-sm" onclick={onCollapseAll}>collapse all</button> |
-            <button type="button" class="btn btn-sm" onclick={onExpandAll}>expand all</button>
+            <button type="button" class="btn btn-sm" onclick={onCollapseAll}
+              >collapse all</button
+            >
+            |
+            <button type="button" class="btn btn-sm" onclick={onExpandAll}
+              >expand all</button
+            >
           </div>
 
           {#each $selectedProject.jsonData.embedding.apis as api, i}
@@ -236,12 +262,24 @@
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label class="label">
                       <span class="label-text">API Name</span>
-                      <input type="text" id="api-name-{i}" class="input" bind:value={api.name} onchange={onChange} />
+                      <input
+                        type="text"
+                        id="api-name-{i}"
+                        class="input"
+                        bind:value={api.name}
+                        onchange={onChange}
+                      />
                     </label>
 
                     <label class="label">
                       <span class="label-text">API ID</span>
-                      <input type="text" id="api-id-{i}" class="input" bind:value={api.id} onchange={onChange} />
+                      <input
+                        type="text"
+                        id="api-id-{i}"
+                        class="input"
+                        bind:value={api.id}
+                        onchange={onChange}
+                      />
                     </label>
                   </div>
 
@@ -294,7 +332,9 @@
                         placeholder="&#123;&#125;"
                         onchange={onChange}
                       />
-                      <p class="text-sm text-surface-500 mt-1">Use &#123;&#125; as placeholder for the document text</p>
+                      <p class="text-sm text-surface-500 mt-1">
+                        Use &#123;&#125; as placeholder for the document text
+                      </p>
                     </label>
 
                     <label class="label">
@@ -307,7 +347,9 @@
                         placeholder="Represent this sentence for searching relevant passages: &#123;&#125;"
                         onchange={onChange}
                       />
-                      <p class="text-sm text-surface-500 mt-1">Use &#123;&#125; as placeholder for the query text</p>
+                      <p class="text-sm text-surface-500 mt-1">
+                        Use &#123;&#125; as placeholder for the query text
+                      </p>
                     </label>
                   </div>
 
@@ -325,7 +367,8 @@
                         type="button"
                         class="preset-tonal-primary btn btn-sm"
                         onclick={() => moveApiDown(i)}
-                        disabled={i === $selectedProject.jsonData.embedding.apis.length - 1}
+                        disabled={i ===
+                          $selectedProject.jsonData.embedding.apis.length - 1}
                       >
                         ↓ Down
                       </button>
@@ -334,7 +377,8 @@
                       type="button"
                       class="btn btn-sm preset-filled-error-500"
                       onclick={() => removeApi(i)}
-                      disabled={$selectedProject.jsonData.embedding.apis.length === 1}
+                      disabled={$selectedProject.jsonData.embedding.apis
+                        .length === 1}
                     >
                       Remove API
                     </button>

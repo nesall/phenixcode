@@ -4,13 +4,21 @@
   import { selectedProject } from "../../store";
   import { helper_saveProjectSettings } from "../../utils";
 
-  const projectTitle = $derived($selectedProject?.jsonData.source.project_title);
+  interface Props {
+    onChanged: any;
+  }
+  let { onChanged }: Props = $props();
+
+  const projectTitle = $derived(
+    $selectedProject?.jsonData.source.project_title,
+  );
 
   onMount(() => {});
 
   function onChange() {
     if ($selectedProject) {
       helper_saveProjectSettings($selectedProject);
+      onChanged($selectedProject);
     }
   }
 </script>
@@ -29,8 +37,12 @@
           </div>
 
           <!-- Semantic Chunking Toggle -->
-          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2">Chunking Strategy</h3>
-          <div class="flex items-center space-x-3 p-3 bg-surface-50-900 rounded-lg">
+          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2">
+            Chunking Strategy
+          </h3>
+          <div
+            class="flex items-center space-x-3 p-3 bg-surface-50-900 rounded-lg"
+          >
             <input
               type="checkbox"
               class="checkbox checkbox-lg preset-filled-primary-500"
@@ -39,15 +51,22 @@
               onchange={onChange}
             />
             <label for="semantic-toggle" class="flex flex-col cursor-pointer">
-              <span class="font-medium text-left text-surface-900-50">Enable Semantic Chunking</span>
+              <span class="font-medium text-left text-surface-900-50"
+                >Enable Semantic Chunking</span
+              >
               <span class="text-xs text-surface-500-400"
-                >Use sentence boundaries and embedding distances to intelligently split documents.</span
+                >Use sentence boundaries and embedding distances to
+                intelligently split documents.</span
               >
             </label>
           </div>
 
           <!-- Chunk Size Parameters -->
-          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2 pt-2">Chunk Size Limits</h3>
+          <h3
+            class="font-semibold text-lg border-b border-surface-500 pb-2 pt-2"
+          >
+            Chunk Size Limits
+          </h3>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label class="label">
               <span class="label-text">Min Tokens per Chunk</span>
@@ -59,7 +78,9 @@
                 max={$selectedProject.jsonData.chunking.nof_max_tokens}
                 onchange={onChange}
               />
-              <p class="text-sm text-surface-500 mt-1">Minimum required token count for a valid chunk.</p>
+              <p class="text-sm text-surface-500 mt-1">
+                Minimum required token count for a valid chunk.
+              </p>
             </label>
 
             <label class="label">
@@ -71,12 +92,18 @@
                 min={$selectedProject.jsonData.chunking.nof_min_tokens}
                 onchange={onChange}
               />
-              <p class="text-sm text-surface-500 mt-1">Maximum token count before a chunk is forced to split.</p>
+              <p class="text-sm text-surface-500 mt-1">
+                Maximum token count before a chunk is forced to split.
+              </p>
             </label>
           </div>
 
           <!-- Overlap -->
-          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2 pt-2">Overlap</h3>
+          <h3
+            class="font-semibold text-lg border-b border-surface-500 pb-2 pt-2"
+          >
+            Overlap
+          </h3>
           <label class="label md:w-1/2">
             <span class="label-text">Overlap Percentage</span>
             <input
@@ -89,8 +116,8 @@
               onchange={onChange}
             />
             <p class="text-sm text-surface-500 mt-1">
-              The ratio (0.0 to 1.0) of previous content to include in the start of the next chunk for context
-              preservation.
+              The ratio (0.0 to 1.0) of previous content to include in the start
+              of the next chunk for context preservation.
             </p>
           </label>
         </div>

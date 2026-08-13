@@ -152,7 +152,7 @@
           >
             <button
               type="button"
-              class="btn btn p-1 w-full flex items-center space-x-2 justify-start text-sm
+              class="btn p-1 w-full flex items-center space-x-2 justify-start text-sm
               {item.jsonData.source.project_id ===
               $selectedProject?.jsonData.source.project_id
                 ? 'font-bold'
@@ -180,7 +180,7 @@
         {/each}
       </ul>
     </div>
-    <div class="flex-grow h-full pl-4">
+    <div class="grow h-full pl-4">
       <ProjectPanel />
     </div>
   </div>

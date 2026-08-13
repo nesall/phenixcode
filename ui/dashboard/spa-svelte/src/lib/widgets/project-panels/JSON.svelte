@@ -1,9 +1,22 @@
 <script lang="ts">
   import * as icons from "@lucide/svelte";
   import { selectedProject } from "../../store";
+  import type { ProjectItem } from "../../../app";
 
-  const jsonData = $derived($selectedProject?.jsonData);
-  const projectTitle = $derived($selectedProject?.jsonData.source.project_title);
+  interface Props {
+    projectItem: ProjectItem | null;
+  }
+  let { projectItem }: Props = $props();
+
+  let copied = $state(false);
+  async function onCopy() {
+    await navigator.clipboard.writeText(jsonSettingsStr);
+    copied = true;
+    setTimeout(() => (copied = false), 1500);
+  }
+
+  const jsonData = $derived(projectItem?.jsonData);
+  const projectTitle = $derived(projectItem?.jsonData.source.project_title);
 
   const jsonSettingsStr = $derived(JSON.stringify(jsonData || {}, null, 2));
 </script>
@@ -22,7 +35,16 @@
         <span class="font-semibold">File location:</span>
         <span class="font-semibold2">{$selectedProject?.settingsFilePath}</span>
       </div>
-      <pre class="pre text-left min-h-40 overflow-x-auto">{jsonSettingsStr}</pre>
+      <div class="relative">
+        <pre
+          class="pre text-left min-h-40 overflow-x-auto">{jsonSettingsStr}</pre>
+        <button
+          class="absolute top-2 right-2 px-2 py-1 text-xs rounded bg-gray-700 text-white hover:bg-gray-600"
+          onclick={onCopy}
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+      </div>
     </div>
   </div>
 {:else}

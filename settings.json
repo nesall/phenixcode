@@ -1,39 +1,35 @@
 {
+  "_comment": "PhenixCode RAG minimal configuration",
+  "_docs": "https://github.com/nesall/embedder_cpp/wiki/configuration",
+  "_version": "1.0.0",
   "chunking": {
     "nof_max_tokens": 450,
     "nof_min_tokens": 50,
-    "overlap_percentage": 0.1,
+    "overlap_percentage": 0.2,
     "semantic": true
   },
   "database": {
+    "_comment": "For distance_metric use either cosine (default) or l2",
     "distance_metric": "cosine",
-    "distance_metric_": "l2",
-    "index_path": "db_embeddings.index",
+    "index_path": "./db_embeddings.index",
     "max_elements": 100000,
-    "sqlite_path": "db_metadata.db",
+    "sqlite_path": "./db_metadata.db",
     "vector_dim": 768
   },
   "embedding": {
     "apis": [
       {
         "api_key": "",
-        "api_url": "http://127.0.0.1:8583/embedding",
-        "id": "local",
-        "model": "bge-base-v1.5",
-        "name": "llamacpp-server",
+        "api_url": "",
+        "document_format": "{}",
+        "id": "api_1786608360534",
+        "model": "",
+        "name": "bge_base",
         "query_format": "Represent this sentence for searching relevant passages: {}"
-      },
-      {
-        "api_key": "",
-        "api_url": "http://127.0.0.1:8584/embedding",
-        "id": "local-coder",
-        "model": "nomic-ai/CodeRankEmbed",
-        "name": "local coder",
-        "query_format": "{}"
       }
     ],
     "batch_size": 4,
-    "current_api": "remote-coder",
+    "current_api": "api_1786608360534",
     "prepend_label_format": "[Source: {}]\n",
     "retry_attempts": 3,
     "timeout_ms": 30000,
@@ -42,6 +38,9 @@
   "generation": {
     "apis": [
       {
+        "_comment0": "You can run an llm model locally (no GPU required), for example:",
+        "_comment1": "./llama-server -m ./qwen2.5-coder-1.5b-instruct-q4_k_m.gguf -c 32768 --port 8585 -np 1",
+        "_hidden": true,
         "api_key": "",
         "api_url": "http://127.0.0.1:8585/v1/chat/completions",
         "enabled": true,
@@ -54,130 +53,53 @@
         }
       },
       {
-        "api_key": "${COMET_API_KEY}",
-        "api_url": "https://api.cometapi.com/v1/chat/completions",
-        "context_length": 204000,
+        "_hidden": true,
+        "api_key": "",
+        "api_url": "http://127.0.0.1:8587/v1/chat/completions",
         "enabled": true,
-        "id": "minimax-m2",
-        "model": "minimax-m2",
-        "name": "MiniMax",
+        "fim": {
+          "api_url": "http://127.0.0.1:8587/v1/completions",
+          "file_divider_token": "<|file_separator|>",
+          "format": "<|fim_prefix|>{}<|fim_suffix|>{}<|fim_middle|>",
+          "stop_tokens": [
+            "return",
+            "<|fim_prefix|>",
+            "<|fim_middle|>"
+          ]
+        },
+        "id": "local-fim-gemma",
+        "model": "codegemma-2b-fim",
+        "name": "Local",
         "pricing_tpm": {
-          "input": 0.24,
-          "output": 0.96
+          "input": 0,
+          "output": 0
         }
       },
       {
-        "api_key": "${OPENROUTER_API_KEY}",
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "context_length": 262000,
-        "enabled": true,
-        "id": "qwen3-coder-free",
-        "model": "qwen/qwen3-coder:free",
-        "name": "Qwen",
-        "pricing_tpm": {
-          "input": 0.22,
-          "output": 0.95
-        }
-      },
-      {
-        "api_key": "${OPENROUTER_API_KEY}",
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "context_length": 131000,
-        "enabled": true,
-        "id": "llama-3.3-70b-instruct",
-        "model": "meta-llama/llama-3.3-70b-instruct:free",
-        "name": "Meta",
-        "pricing_tpm": {
-          "input": 0.13,
-          "output": 0.38
-        }
-      },
-      {
+        "_hidden": false,
         "api_key": "${MISTRAL_API_KEY}",
         "api_url": "https://api.mistral.ai/v1/chat/completions",
         "context_length": 128000,
-        "enabled": true,
-        "id": "ministral-3b-latest",
-        "model": "ministral-3b-latest",
+        "id": "mistral-devstral-small",
+        "model": "devstral-small-latest",
         "name": "Mistral",
         "pricing_tpm": {
           "input": 0.1,
-          "output": 0.1
+          "output": 0.3
         }
       },
       {
-        "api_key": "${MISTRAL_API_KEY}",
-        "api_url": "https://api.mistral.ai/v1/chat/completions",
-        "context_length": 128000,
-        "enabled": true,
-        "id": "mistral-nemo",
-        "model": "open-mistral-nemo",
-        "name": "Mistral",
-        "pricing_tpm": {
-          "input": 0.15,
-          "output": 0.15
-        }
-      },
-      {
-        "api_key": "${MISTRAL_API_KEY}",
-        "api_url": "https://api.mistral.ai/v1/chat/completions",
-        "context_length": 128000,
-        "enabled": true,
-        "id": "devstral-latest",
-        "model": "devstral-latest",
-        "name": "Mistral",
-        "pricing_tpm": {
-          "input": 0.4,
-          "output": 2.0
-        }
-      },
-      {
-        "api_key": "${GEMINI_API_KEY}",
-        "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "context_length": 1000000,
-        "enabled": true,
-        "id": "gemini-3.1-flash-lite",
-        "model": "gemini-3.1-flash-lite",
-        "name": "Gemini",
-        "pricing_tpm": {
-          "cached_input": 0.25,
-          "input": 0.0025,
-          "output": 1.5
-        }
-      },
-      {
-        "api_key": "${DEEPSEEK_API_KEY}",
-        "api_url": "https://api.deepseek.com/chat/completions",
-        "context_length": 128000,
-        "enabled": true,
-        "id": "deepseek",
-        "model": "deepseek-v4-flash",
-        "name": "DeepSeek",
-        "pricing_tpm": {
-          "cached_input": 0.0028,
-          "input": 0.18,
-          "output": 0.28
-        }
-      },
-      {
-        "api_key": "${OPENAI_API_KEY}",
-        "api_url": "https://api.openai.com/v1/chat/completions",
-        "context_length": 128000,
-        "enabled": true,
-        "id": "openai-4o-mini",
-        "model": "gpt-4o-mini",
-        "name": "OpenAI",
-        "pricing_tpm": {
-          "cached_input": 0.075,
-          "input": 0.15,
-          "output": 0.6
-        }
-      },
-      {
+        "_hidden": true,
         "api_key": "${CODESTRAL_API_KEY}",
         "api_url": "https://codestral.mistral.ai/v1/chat/completions",
         "context_length": 256000,
         "enabled": true,
+        "fim": {
+          "api_url": "https://codestral.mistral.ai/v1/fim/completions",
+          "prefix_name": "prompt",
+          "stop_tokens": [],
+          "suffix_name": "suffix"
+        },
         "id": "mistral-codestral",
         "model": "codestral-latest",
         "name": "Mistral",
@@ -187,95 +109,118 @@
         }
       },
       {
-        "api_key": "${XAI_API_KEY}",
-        "api_url": "https://api.x.ai/v1/chat/completions",
-        "context_length": 200000,
-        "enabled": true,
-        "id": "grok-latest",
-        "model": "grok-latest",
-        "name": "X AI",
-        "pricing_tpm": {
-          "cached_input": 1.25,
-          "input": 0.2,
-          "output": 2.5
-        }
-      },
-      {
-        "api_key": "${OPENAI_API_KEY}",
-        "api_url": "https://api.openai.com/v1/chat/completions",
-        "enabled": true,
-        "id": "openai-4.1-mini",
-        "max_tokens_name": "max_completion_tokens",
-        "model": "gpt-4.1-mini",
-        "name": "OpenAI",
-        "pricing_tpm": {
-          "cached_input": 0.1,
-          "input": 0.4,
-          "output": 1.6
-        }
-      },
-      {
-        "api_key": "${OPENAI_API_KEY}",
-        "api_url": "https://api.openai.com/v1/chat/completions",
-        "context_length": 256000,
-        "enabled": true,
-        "id": "openai-5-mini",
-        "max_tokens_name": "max_completion_tokens",
-        "model": "gpt-5-mini",
-        "name": "OpenAI",
-        "pricing_tpm": {
-          "cached_input": 0.025,
-          "input": 0.25,
-          "output": 2.0
-        },
-        "stream": false,
-        "temperature_support": false
-      },
-      {
+        "_hidden": true,
         "api_key": "${GEMINI_API_KEY}",
         "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "context_length": 1000000,
-        "enabled": true,
-        "id": "gemini-3.5-flash",
-        "model": "gemini-3.5-flash",
+        "id": "gemini-2.5-flash",
+        "model": "gemini-2.5-flash",
         "name": "Gemini",
         "pricing_tpm": {
-          "cached_input": 1.5,
+          "input": 0.1,
+          "output": 0.4
+        }
+      },
+      {
+        "_hidden": true,
+        "api_key": "${DEEPSEEK_API_KEY}",
+        "api_url": "https://api.deepseek.com/chat/completions",
+        "context_length": 128000,
+        "id": "deepseek",
+        "model": "deepseek-chat",
+        "name": "DeepSeek",
+        "pricing_tpm": {
+          "cached_input": 0.028,
+          "input": 0.28,
+          "output": 0.42
+        }
+      },
+      {
+        "_hidden": true,
+        "api_key": "${XAI_API_KEY}",
+        "api_url": "https://api.x.ai/v1/chat/completions",
+        "context_length": 2000000,
+        "id": "xai",
+        "model": "grok-4-1-fast-non-reasoning",
+        "name": "X AI",
+        "pricing_tpm": {
+          "cached_input": 0.05,
+          "input": 0.2,
+          "output": 0.5
+        }
+      },
+      {
+        "_hidden": true,
+        "api_key": "${OPENAI_API_KEY}",
+        "api_url": "https://api.openai.com/v1/chat/completions",
+        "context_length": 128000,
+        "id": "openai-4o-mini",
+        "max_tokens_name": "max_completion_tokens",
+        "model": "gpt-4o-mini",
+        "name": "OpenAI",
+        "pricing_tpm": {
+          "cached_input": 0.075,
           "input": 0.15,
-          "output": 9.0
+          "output": 0.6
+        }
+      },
+      {
+        "_hidden": true,
+        "api_key": "${MINIMAX_API_KEY}",
+        "api_url": "https://api.x.ai/v1/chat/completions",
+        "context_length": 204000,
+        "enabled": true,
+        "id": "minimax-m2.1",
+        "model": "MiniMax-M2.1",
+        "name": "Minimax",
+        "pricing_tpm": {
+          "cached_input": 0.03,
+          "input": 0.3,
+          "output": 1.2
         }
       }
     ],
-    "current_api": "remote-hosted",
-    "default_max_tokens": 4096,
+    "current_api": "mistral-devstral-small",
+    "default_max_tokens": 2048,
     "default_max_tokens_name": "max_tokens",
-    "default_temperature": 0.5,
+    "default_temperature": 0.1,
     "excerpt": {
       "enabled": true,
-      "max_chunks": 11,
+      "max_chunks": 15,
       "min_chunks": 3,
       "threshold_ratio": 0.75
     },
     "max_chunks": 7,
-    "max_context_tokens": 96000,
+    "max_context_tokens": 64000,
     "max_full_sources": 2,
     "max_related_per_source": 3,
     "prepend_label_format": "[Source: {}]\n",
     "timeout_ms": 120000
   },
   "logging": {
-    "diagnostics_file": "embedder_diag.log",
-    "level": "info",
+    "diagnostics_file": "embedder_d.log",
     "log_to_console": true,
     "log_to_file": true,
     "logging_file": "embedder.log"
   },
   "source": {
+    "_comment_project_id": "Leave empty to auto-generate from config path, or set a custom stable project_id",
     "default_extensions": [
+      ".c",
       ".cpp",
       ".h",
+      ".hpp",
       ".py",
       ".js",
+      ".ts",
+      ".java",
+      ".rs",
+      ".cs",
+      ".xaml",
+      ".php",
+      ".jsp",
+      ".html",
+      ".css",
       ".md"
     ],
     "encoding": "utf-8",
@@ -283,6 +228,7 @@
       "*/node_modules/*",
       "*.min.js",
       "*.log",
+      "*/build/*",
       "*/.git/*",
       ".gitignore",
       "*/CVS/*",
@@ -298,48 +244,32 @@
       "*/examples/*",
       "*/obj/*",
       "*/build_dbg/*",
-      "*/build_rel/*"
+      "*/build_rel/*",
+      "*/bin/*",
+      "*/dist/*",
+      "*/test/*",
+      "*/3rdparty/*",
+      "*/cmake-build/*"
     ],
     "max_file_size_mb": 10,
     "paths": [
       {
         "exclude": [
-          "*/build/*",
-          "*/build_rel/*",
-          "*/dist/*",
-          "*/test/*",
-          "*/3rdparty/*"
+          "*/assets/*",
+          "*/.vs/*",
+          ".gitignore"
         ],
-        "extensions": [
-          ".cpp",
-          ".h",
-          ".hpp"
-        ],
-        "path": "../../phenixcode/",
+        "extensions": [],
+        "path": "F:/workspace/projects/logviewer/",
         "recursive": true,
         "type": "directory"
-      },
-      {
-        "path": "../../settings.json_",
-        "type": "file"
-      },
-      {
-        "headers": {
-          "Authorization": "Bearer ${GITHUB_TOKEN}"
-        },
-        "type": "url",
-        "url": "https://raw.githubusercontent.com/user/repo/main/docs/api.md"
-      },
-      {
-        "timeout_ms": 10000,
-        "type": "url",
-        "url": "https://docs.example.com/api"
       }
     ],
-    "project_id": "phenixcode-97ecf67f",
-    "project_title": "phenixcode"
+    "project_description": "",
+    "project_id": "phenixcode_projects-50fc83bb-logviewer",
+    "project_title": "logviewer"
   },
   "tokenizer": {
-    "config_path": "../assets/bge_tokenizer.json"
+    "config_path": "./bge_tokenizer.json"
   }
 }

@@ -5,6 +5,11 @@
   import { onMount } from "svelte";
   import { helper_saveProjectSettings } from "../../utils";
 
+  interface Props {
+    onChanged: any;
+  }
+  let { onChanged }: Props = $props();
+
   const jsonData = $derived($selectedProject?.jsonData);
   const projectTitle = $derived($selectedProject?.jsonData.source.project_title);
 
@@ -19,6 +24,7 @@
     if ($selectedProject) {
       $selectedProject = $selectedProject;
       helper_saveProjectSettings($selectedProject);
+      onChanged($selectedProject);
     }
   }
 
@@ -237,7 +243,7 @@
         <div class="flex">
           <input
             type="text"
-            class="flex-grow px-2 py-0 border border-dashed border-surface-300-700 rounded-l w-24 bg-surface-50-950"
+            class="grow px-2 py-0 border border-dashed border-surface-300-700 rounded-l w-24 bg-surface-50-950"
             bind:value={newExtension}
             placeholder="+ .tsx"
             onkeydown={(e) => e.key === "Enter" && addExtension()}
@@ -273,7 +279,7 @@
         <div class="flex">
           <input
             type="text"
-            class="flex-grow px-2 py-0 border border-dashed border-surface-300-700 rounded-l w-24 bg-surface-50-950"
+            class="grow px-2 py-0 border border-dashed border-surface-300-700 rounded-l w-24 bg-surface-50-950"
             bind:value={newGlobalExclude}
             placeholder="+ */temp/*"
             onkeydown={(e) => e.key === "Enter" && addGlobalExclude()}
@@ -387,7 +393,7 @@
                   id="extension-{i}"
                   class="px-2 py-1 border border-dashed border-surface-300-700 rounded-l w-36 bg-surface-50-950"
                   bind:value={newPathExtension}
-                  placeholder="+ exclude pattern"
+                  placeholder="+ .ext"
                   onkeydown={(e) => e.key === "Enter" && addPathExtension(i)}
                   onchange={onChange}
                 />
