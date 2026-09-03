@@ -349,12 +349,14 @@ std::string CompletionClient::generateCompletion(
   if (cfg().stream) {
     headers.insert({ "Accept", "text/event-stream" });
 
+    auto requestStr = requestBody.dump();
+
     std::string buffer; // holds leftover partial data
 
     res = httpClient->Post(
       path.c_str(),
       headers,
-      requestBody.dump(),
+      std::move(requestStr),
       "application/json",
       [&fullResponse, &onStream, &buffer](const char *data, size_t len) {
         // llama-server sends SSE format: "data: {...}\n\n"
