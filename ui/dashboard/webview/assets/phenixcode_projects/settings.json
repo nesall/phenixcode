@@ -64,14 +64,14 @@
       {
         "api_key": "${MISTRAL_API_KEY}",
         "api_url": "https://api.mistral.ai/v1/chat/completions",
-        "id": "mistral-devstral-small",
-        "model": "devstral-small-latest",
+        "id": "mistral-small",
+        "model": "mistral-small-latest",
         "name": "Mistral",
         "pricing_tpm": {
-          "input": 0.1,
-          "output": 0.3
+          "input": 0.15,
+          "output": 0.6
         },
-        "context_length": 128000
+        "context_length": 256000
       },
       {
         "api_key": "${CODESTRAL_API_KEY}",
@@ -107,56 +107,15 @@
       {
         "api_key": "${DEEPSEEK_API_KEY}",
         "api_url": "https://api.deepseek.com/chat/completions",
-        "id": "deepseek",
-        "model": "deepseek-chat",
+        "id": "deepseek-flash",
+        "model": "deepseek-v4-flash",
         "name": "DeepSeek",
         "pricing_tpm": {
-          "cached_input": 0.028,
-          "input": 0.28,
-          "output": 0.42
+          "cached_input": 0.0028,
+          "input": 0.14,
+          "output": 0.28
         },
-        "context_length": 128000
-      },      
-      {
-        "api_key": "${XAI_API_KEY}",
-        "api_url": "https://api.x.ai/v1/chat/completions",
-        "id": "xai",
-        "model": "grok-4-1-fast-non-reasoning",
-        "name": "X AI",
-        "pricing_tpm": {
-          "cached_input": 0.05,
-          "input": 0.2,
-          "output": 0.5
-        },
-        "context_length": 2000000
-      },
-      {
-        "api_key": "${OPENAI_API_KEY}",
-        "api_url": "https://api.openai.com/v1/chat/completions",
-        "id": "openai-4o-mini",
-        "model": "gpt-4o-mini",
-        "name": "OpenAI",
-        "max_tokens_name": "max_completion_tokens",
-        "pricing_tpm": {
-          "cached_input": 0.075,
-          "input": 0.15,
-          "output": 0.6
-        },
-        "context_length": 128000
-      },
-      {
-        "api_key": "${MINIMAX_API_KEY}",
-        "api_url": "https://api.x.ai/v1/chat/completions",
-        "context_length": 204000,
-        "enabled": true,
-        "id": "minimax-m2.1",
-        "model": "MiniMax-M2.1",
-        "name": "Minimax",
-        "pricing_tpm": {
-          "cached_input": 0.03,
-          "input": 0.3,
-          "output": 1.2
-        }
+        "context_length": 1000000
       }
     ],
     "current_api": "mistral-devstral",
