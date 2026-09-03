@@ -79,14 +79,14 @@
         "_hidden": false,
         "api_key": "${MISTRAL_API_KEY}",
         "api_url": "https://api.mistral.ai/v1/chat/completions",
-        "context_length": 128000,
-        "id": "mistral-devstral-small",
-        "model": "devstral-small-latest",
+        "id": "mistral-small",
+        "model": "mistral-small-latest",
         "name": "Mistral",
         "pricing_tpm": {
-          "input": 0.1,
-          "output": 0.3
-        }
+          "input": 0.15,
+          "output": 0.6
+        },
+        "context_length": 256000
       },
       {
         "_hidden": true,
@@ -125,15 +125,15 @@
         "_hidden": true,
         "api_key": "${DEEPSEEK_API_KEY}",
         "api_url": "https://api.deepseek.com/chat/completions",
-        "context_length": 128000,
-        "id": "deepseek",
-        "model": "deepseek-chat",
+        "id": "deepseek-flash",
+        "model": "deepseek-v4-flash",
         "name": "DeepSeek",
         "pricing_tpm": {
-          "cached_input": 0.028,
-          "input": 0.28,
-          "output": 0.42
-        }
+          "cached_input": 0.0028,
+          "input": 0.14,
+          "output": 0.28
+        },
+        "context_length": 1000000
       },
       {
         "_hidden": true,
@@ -141,13 +141,14 @@
         "api_url": "https://api.x.ai/v1/chat/completions",
         "context_length": 2000000,
         "id": "xai",
-        "model": "grok-4-1-fast-non-reasoning",
+        "model": "grok-4.3-latest",
         "name": "X AI",
         "pricing_tpm": {
-          "cached_input": 0.05,
-          "input": 0.2,
-          "output": 0.5
-        }
+          "cached_input": 0.2,
+          "input": 1.25,
+          "output": 2.5
+        },
+        "context_length": 200000
       },
       {
         "_hidden": true,
