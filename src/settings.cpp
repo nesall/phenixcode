@@ -23,7 +23,10 @@ namespace {
     cfg.apiUrl = item.value("api_url", item.value("apiUrl", ""));
     cfg.apiKey = expandEnvVar(item.value("api_key", item.value("apiKey", "")));
     cfg.model = item.value("model", "");
-    cfg.maxTokensName = item.value("max_tokens_name", section.value("default_max_tokens_name", "max_tokens"));
+    cfg.maxTokensName = item.value("max_tokens_name", "");
+    if (cfg.maxTokensName.empty()) {
+      cfg.maxTokensName = section.value("default_max_tokens_name", "max_tokens");
+    }
 
     if (item.contains("fim") && item["fim"].is_object()) {
       auto fim = item["fim"];
@@ -51,7 +54,11 @@ namespace {
       if (pricing.is_object()) {
         cfg.pricing.input = pricing.value("input", 0.f);
         cfg.pricing.output = pricing.value("output", 0.f);
-        cfg.pricing.cachedInput = pricing.value("cached_input", 0.f);
+        if (pricing.contains("cached_input") && pricing["cached_input"].is_number()) {
+          cfg.pricing.cachedInput = (std::max)(pricing.value("cached_input", 0.f), 0.f);
+        } else {
+          cfg.pricing.cachedInput = 0.f;
+        }
       }
     }
   }

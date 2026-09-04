@@ -392,7 +392,10 @@ std::string CompletionClient::generateCompletion(
             }
           }
         }
-        if (buffer.find("Unauthorized") != std::string::npos) {
+        if (utils::strFindIn(buffer, "unauthorized", false) != std::string::npos 
+          || utils::strFindIn(buffer, "invalid", false) != std::string::npos
+          || utils::strFindIn(buffer, "error", false) != std::string::npos
+          ) {
           if (onStream) onStream(buffer);
         }
         return true; // Continue receiving

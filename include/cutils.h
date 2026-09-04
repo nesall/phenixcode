@@ -30,6 +30,7 @@ namespace utils {
   std::string trimmed(std::string_view sv);
   std::string addLineComments(std::string_view code, std::string_view filename);
   std::string stripMarkdownFromCodeBlock(std::string_view code);
+  std::size_t strFindIn(std::string_view in, std::string_view t, bool caseSensitive);
 
 } // namespace utils
 

@@ -283,3 +283,23 @@ std::string utils::stripMarkdownFromCodeBlock(std::string_view code)
 
   return std::string(inner);
 }
+
+std::size_t utils::strFindIn(std::string_view in, std::string_view t, bool caseSensitive)
+{
+  if (t.empty()) return 0;
+  if (caseSensitive) {
+    size_t pos = in.find(t);
+    return pos;
+  } else {
+    auto it = std::search(
+      in.begin(), in.end(),
+      t.begin(), t.end(),
+      [](char ch1, char ch2) { return std::tolower(static_cast<unsigned char>(ch1)) == std::tolower(static_cast<unsigned char>(ch2)); }
+    );
+    if (it != in.end()) {
+      return static_cast<size_t>(std::distance(in.begin(), it));
+    } else {
+      return std::string_view::npos;
+    }
+  }
+}
