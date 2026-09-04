@@ -16,7 +16,7 @@ if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /GS")
   if(debug)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /RTC1")
-  endif()  
+  endif()
 endif()
 
 include(FetchContent)
