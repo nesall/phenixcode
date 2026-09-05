@@ -13,6 +13,88 @@
 #include <utils_log/logger.hpp>
 #include "3rdparty/fmt/core.h"
 
+namespace {
+
+  bool jsonStrFromSSEEvent(const std::string &event, std::string &jsonStr) {
+    size_t dataPos = event.find("data: ");
+    if (dataPos != std::string::npos) {
+      size_t lineStart = dataPos + 6; // length of "data: "
+      size_t lineEnd = event.find('\n', lineStart);
+      jsonStr = (lineEnd == std::string::npos)
+        ? event.substr(lineStart)
+        : event.substr(lineStart, lineEnd - lineStart);
+      return true;
+    }
+    return false;
+  }
+
+  bool isAnthropic(const ApiConfig &cfg) {
+    return cfg.apiStyle == ApiConfig::ApiStyle::Anthropic;
+  }
+
+  httplib::Headers buildHeaders(const ApiConfig &cfg, bool streaming) {
+    httplib::Headers h = isAnthropic(cfg)
+      ? httplib::Headers{ {"x-api-key", cfg.apiKey}, {"anthropic-version", "2023-06-01"}, {"Connection", "keep-alive"} }
+    : httplib::Headers{ {"Authorization", "Bearer " + cfg.apiKey}, {"Connection", "keep-alive"} };
+    h.insert({ "Accept", streaming ? "text/event-stream" : "application/json" });
+    return h;
+  }
+
+  nlohmann::json buildRequestBody(const ApiConfig &cfg, const nlohmann::json &messages, float temperature, size_t maxTokens, bool skipMessagesIfEmpty = false) {
+    nlohmann::json body;
+    body["model"] = cfg.model;
+    if (isAnthropic(cfg)) {
+      std::string system;
+      nlohmann::json rest = nlohmann::json::array();
+      for (const auto &m : messages) {
+        if (m.value("role", "") == "system") system += (system.empty() ? "" : "\n") + m.value("content", "");
+        else rest.push_back(m);
+      }
+      if (!system.empty()) body["system"] = system;
+      body["messages"] = rest;
+      body["max_tokens"] = maxTokens; // Anthropic requires this, always
+      if (cfg.temperatureSupport) body["temperature"] = temperature;
+    } else {
+      if (!skipMessagesIfEmpty && 0 != messages.size())
+        body["messages"] = messages;
+      if (cfg.temperatureSupport) body["temperature"] = temperature;
+      body[cfg.maxTokensName] = maxTokens;
+    }
+    body["stream"] = cfg.stream;
+    return body;
+  }
+
+  std::string extractDeltaContent(const ApiConfig &cfg, const nlohmann::json &chunk) {
+    if (isAnthropic(cfg)) {
+      if (chunk.value("type", "") == "content_block_delta") {
+        const auto &delta = chunk["delta"];
+        if (delta.value("type", "") == "text_delta") return delta.value("text", "");
+      }
+      return {};
+    }
+    if (chunk.contains("choices") && !chunk["choices"].empty()) {
+      const auto &d = chunk["choices"][0].value("delta", nlohmann::json::object());
+      if (d.contains("content") && !d["content"].is_null()) return d["content"].get<std::string>();
+      // We do not propagate reasoning to the client. Maybe a future feature.
+      // if (d.contains("reasoning_content") && !d["reasoning_content"].is_null()) return d["reasoning_content"].get<std::string>();
+    }
+    return {};
+  }
+
+  std::string extractFullContent(const ApiConfig &cfg, const nlohmann::json &res) {
+    if (isAnthropic(cfg)) {
+      if (res.contains("content") && res["content"].is_array() && !res["content"].empty())
+        return res["content"][0].value("text", "");
+      return {};
+    }
+    if (!res["choices"].empty()) {
+      const auto &c = res["choices"][0];
+      if (c.contains("message") && c["message"].contains("content")) return c["message"]["content"].get<std::string>();
+    }
+    return {};
+  }
+} // anonymous namespace
+
 
 struct InferenceClient::Impl {
   ApiConfig apiCfg_;
@@ -238,7 +320,8 @@ namespace {
     while ((pos = buffer.find("\n\n")) != std::string::npos) {
       std::string event = buffer.substr(0, pos); // one SSE event
       buffer.erase(0, pos + 2);
-      if (event.find("data: ", 0) == 0) {
+      std::string jsonStr;
+      if (jsonStrFromSSEEvent(event, jsonStr)) {
         std::string jsonStr = event.substr(6);
         if (jsonStr == "[DONE]") {
           break;
@@ -252,8 +335,10 @@ namespace {
               std::string content;
               if (!choice["delta"]["content"].is_null())
                 content = choice["delta"]["content"];
-              else if (choice["delta"].contains("reasoning_content") && !choice["delta"]["reasoning_content"].is_null())
-                content = choice["delta"]["reasoning_content"];
+              else if (choice["delta"].contains("reasoning_content") && !choice["delta"]["reasoning_content"].is_null()) {
+                // We do not propagate reasinging replies.
+                //content = choice["delta"]["reasoning_content"];
+              }
               fullResponse += content;
               if (onStream) {
                 onStream(content);
@@ -329,26 +414,14 @@ std::string CompletionClient::generateCompletion(
   modifiedMessages.back()["content"] = prompt;
 
   //std::cout << "Full context: " << modifiedMessages.dump() << "\n";
-
-  nlohmann::json requestBody;
-  requestBody["model"] = cfg().model;
-  requestBody["messages"] = modifiedMessages;
-  if (cfg().temperatureSupport)
-    requestBody["temperature"] = temperature;
-  requestBody[cfg().maxTokensName] = maxTokens;
-  requestBody["stream"] = cfg().stream;
-
-  httplib::Headers headers = {
-    {"Authorization", "Bearer " + cfg().apiKey},
-    {"Connection", "keep-alive"}
-  };
+  
+  nlohmann::json requestBody = buildRequestBody(cfg(), modifiedMessages, temperature, maxTokens);
+  httplib::Headers headers = buildHeaders(cfg(), cfg().stream);
 
   std::string fullResponse;
   httplib::Result res;
 
   if (cfg().stream) {
-    headers.insert({ "Accept", "text/event-stream" });
-
     auto requestStr = requestBody.dump();
 
     std::string buffer; // holds leftover partial data
@@ -358,34 +431,24 @@ std::string CompletionClient::generateCompletion(
       headers,
       std::move(requestStr),
       "application/json",
-      [&fullResponse, &onStream, &buffer](const char *data, size_t len) {
+      [&fullResponse, &onStream, &buffer, this](const char *data, size_t len) {
         // llama-server sends SSE format: "data: {...}\n\n"
         buffer.append(data, len);
         size_t pos;
         while ((pos = buffer.find("\n\n")) != std::string::npos) {
           std::string event = buffer.substr(0, pos); // one SSE event
           buffer.erase(0, pos + 2);
-          if (event.find("data: ", 0) == 0) {
-            std::string jsonStr = event.substr(6);
+          std::string jsonStr;
+          if (jsonStrFromSSEEvent(event, jsonStr)) {
             if (jsonStr == "[DONE]") {
               break;
             }
             try {
               nlohmann::json chunkJson = nlohmann::json::parse(jsonStr);
-              if (chunkJson.contains("choices") && !chunkJson["choices"].empty()) {
-                const auto &choice = chunkJson["choices"][0];
-                if (choice.contains("delta") && choice["delta"].contains("content")) {
-                  // Either choice["delta"]["content"] or choice["delta"]["reasoning_content"]
-                  std::string content;
-                  if (!choice["delta"]["content"].is_null())
-                    content = choice["delta"]["content"];
-                  else if (choice["delta"].contains("reasoning_content") && !choice["delta"]["reasoning_content"].is_null())
-                    content = choice["delta"]["reasoning_content"];
-                  fullResponse += content;
-                  if (onStream) {
-                    onStream(content);
-                  }
-                }
+              std::string content = extractDeltaContent(cfg(), chunkJson);
+              if (!content.empty()) {
+                fullResponse += content;
+                if (onStream) onStream(content);
               }
             } catch (const std::exception &e) {
               LOG_MSG << "Error parsing chunk" << e.what() << "in" << jsonStr;
@@ -403,8 +466,6 @@ std::string CompletionClient::generateCompletion(
     );
 
   } else {
-    headers.insert({ "Accept", "application/json" });
-
     res = httpClient->Post(
       path.c_str(),
       headers,
@@ -415,13 +476,8 @@ std::string CompletionClient::generateCompletion(
     if (res && res->status == 200) {
       try {
         nlohmann::json jsonRes = nlohmann::json::parse(res->body);
-        if (!jsonRes["choices"].empty()) {
-          const auto &choice = jsonRes["choices"][0];
-          if (choice.contains("message") && choice["message"].contains("content")) {
-            fullResponse = choice["message"]["content"];
-            if (onStream) onStream(fullResponse); // optional callback for consistency
-          }
-        }
+        fullResponse = extractFullContent(cfg(), jsonRes);
+        if (onStream) onStream(fullResponse);
       } catch (...) { /* ignore parse errors */ }
     }
   }
@@ -469,56 +525,55 @@ std::string CompletionClient::generateFim(
 
   std::string context = buildContext(searchRes, true, cfg.fim.fileDivider);
 
-  nlohmann::json requestBody;
-  requestBody["model"] = cfg.model;
-  if (!fimPrefixName.empty()) {    
-    requestBody[fimPrefixName] = context + "\n\n" + prefix;
-    requestBody[fimSuffixName] = suffix;
-    if (!fimStopTokens.empty())
-      requestBody["stop"] = fimStopTokens;
-  } else if (!fimFormat.empty() && fimFormat.find("{}") != std::string::npos) {
-    auto prompt = fmt::vformat(fimFormat, fmt::make_format_args(prefix, suffix));
-    requestBody["prompt"] = prompt;
-    if (!fimStopTokens.empty())
-      requestBody["stop"] = fimStopTokens;
-  } else {
+  bool genericFim = false;
+  nlohmann::json messages = nlohmann::json::array();
+  if (fimPrefixName.empty() && fimFormat.empty()) {
     auto prompt = _fimTemplate;
     size_t pos = prompt.find("__CONTEXT__");
     assert(pos != std::string::npos);
-    prompt.replace(pos, std::string("__CONTEXT__").length(), context);    
+    prompt.replace(pos, std::string("__CONTEXT__").length(), context);
     pos = prompt.find("__PREFIX__");
     assert(pos != std::string::npos);
     prompt.replace(pos, std::string("__PREFIX__").length(), prefix);
     pos = prompt.find("__SUFFIX__");
     assert(pos != std::string::npos);
     prompt.replace(pos, std::string("__SUFFIX__").length(), suffix);
-    nlohmann::json messages = nlohmann::json::array();
     messages.push_back({
       {"role", "system"},
       {"content", "You are a code completion assistant."}
       });
     messages.push_back({ {"role", "user"}, {"content", prompt} });
-    requestBody["messages"] = messages;
+    genericFim = true;
   }
-  requestBody["stream"] = false;
 
-  if (cfg.temperatureSupport)
-    requestBody["temperature"] = temperature;
-  requestBody[cfg.maxTokensName] = maxTokens;
+  nlohmann::json requestBody = buildRequestBody(cfg, messages, temperature, maxTokens, true);
 
-  httplib::Headers headers = {
-    {"Authorization", "Bearer " + cfg.apiKey},
-    {"Connection", "keep-alive"},
-    {"Accept", "application/json"}
-  };
+  if (!genericFim) {
+    if (!fimPrefixName.empty()) {
+      requestBody[fimPrefixName] = context + "\n\n" + prefix;
+      requestBody[fimSuffixName] = suffix;
+      if (!fimStopTokens.empty())
+        requestBody["stop"] = fimStopTokens;
+    } else if (!fimFormat.empty() && fimFormat.find("{}") != std::string::npos) {
+      auto prompt = fmt::vformat(fimFormat, fmt::make_format_args(prefix, suffix));
+      requestBody["prompt"] = prompt;
+      if (!fimStopTokens.empty())
+        requestBody["stop"] = fimStopTokens;
+    } else {
+      assert(!"Should not be here.");
+    }
+  }
+  httplib::Headers headers = buildHeaders(cfg, false);
 
   std::string fullResponse;
   httplib::Result res;
 
+  std::string requestStr = requestBody.dump();
+
   res = httpClient->Post(
     path.c_str(),
     headers,
-    requestBody.dump(),
+    requestStr,
     "application/json"
   );
 

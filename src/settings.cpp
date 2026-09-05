@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "cutils.h"
 #include <fstream>
 #include <stdexcept>
 #include <filesystem>
@@ -15,6 +16,21 @@ namespace {
       }
     }
     return var;
+  }
+
+  ApiConfig::ApiStyle detectApiStyle(std::string_view url, const nlohmann::json &item) {
+    if (item.contains("api_style")) {
+      std::string s = item.value("api_style", "");
+      if (s == "anthropic") return ApiConfig::ApiStyle::Anthropic;
+      if (s == "openai")    return ApiConfig::ApiStyle::OpenAI;
+    }
+    if (utils::strFindIn(url, "anthropic.com", false) != std::string::npos
+      || utils::strFindIn(url, "/anthropic", false) != std::string::npos
+      || utils::strFindIn(url, "/v1/messages", false) != std::string::npos
+      ) {
+      return ApiConfig::ApiStyle::Anthropic;
+    }
+    return ApiConfig::ApiStyle::OpenAI;
   }
 
   void fetchApiConfigFromItem(const nlohmann::json &item, ApiConfig &cfg, const nlohmann::json &section) {
@@ -61,6 +77,7 @@ namespace {
         }
       }
     }
+    cfg.apiStyle = detectApiStyle(cfg.apiUrl, item);
   }
 
   std::vector<ApiConfig> getApiConfigList(const nlohmann::json &section) {

@@ -34,6 +34,8 @@ struct ApiConfig {
     std::string fileDivider; // Valid if using format. e.g. <|file_separator|> 
     std::vector<std::string> stopTokens;
   } fim;
+  enum class ApiStyle { OpenAI, Anthropic };
+  ApiStyle apiStyle = ApiStyle::OpenAI;
 
   // Compute an effective "combined" price per million tokens.
   // hitRatio = fraction of input tokens served from cache (0.0–1.0)
