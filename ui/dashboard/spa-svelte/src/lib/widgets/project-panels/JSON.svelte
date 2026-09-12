@@ -33,7 +33,10 @@
       </div>
       <div class="flex items-center space-x-1">
         <span class="font-semibold">File location:</span>
-        <span class="font-semibold2">{$selectedProject?.settingsFilePath}</span>
+        <span class="font-mono">{$selectedProject?.settingsFilePath}</span>
+      </div>
+      <div class="flex items-center space-x-1">
+        <span class="italic text-xs">Projects folder location can be overridden with <code class="code">PHENIXCODE_PROJECTS_FOLDER</code> environment variable</span>
       </div>
       <div class="relative">
         <pre

@@ -928,6 +928,7 @@ bool HttpServer::startServer()
     const auto start = std::chrono::steady_clock::now();
     try {
       LOG_MSG << "POST /api/chat";
+
       // format for messages field in request
       /*
       {
@@ -981,6 +982,8 @@ bool HttpServer::startServer()
       }
 
       auto apiConfig = getTargetApi(request, imp->app_);
+
+      LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
 
       const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
       const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());
@@ -1048,6 +1051,20 @@ bool HttpServer::startServer()
             else
               onInfo(fmt::format("Approx. cost incurred: ${:.4f} (input: {:.4f}, output: {:.4f})", costTotal, costReq, costRes));
 
+            // If generation produced no content, surface a visible fallback so the
+            // client doesn't render a blank reply. Sources still go out below.
+            bool emptyResult = fullResponse.empty();
+            if (emptyResult) {
+              std::string fallback =
+                "The model returned an empty response. "
+                "This can happen when it hits the token limit, produces only internal "
+                "reasoning, or refuses the request. Try rephrasing, increasing max_tokens, "
+                "or selecting a different model.";
+              std::string sse = packPayload(fallback);
+              sink.write(sse.data(), sse.size());
+            }
+
+
             // Add sources information
             nlohmann::json sourcesJson;
             std::set<std::string> distinctSources;
@@ -1060,7 +1077,8 @@ bool HttpServer::startServer()
             // Send sources information as a separate SSE message
             nlohmann::json sourcesPayload = {
               {"sources", sourcesJson},
-              {"type", "context_sources"}
+              {"type", "context_sources"},
+              {"empty_result", emptyResult}
             };
             std::string sourcesSse = "data: " + sourcesPayload.dump() + "\n\n";
             sink.write(sourcesSse.data(), sourcesSse.size());
@@ -1114,6 +1132,8 @@ bool HttpServer::startServer()
         }
 
         auto apiConfig = getTargetApi(request, imp->app_);
+
+        LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
 
         const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
         const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());

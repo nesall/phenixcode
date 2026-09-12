@@ -17,7 +17,7 @@ struct ApiConfig {
   std::string queryFormat;
   std::string documentFormat;
   std::string maxTokensName; // e.g. max_tokens or max_completion_tokens
-  bool temperatureSupport = true;
+  bool temperatureSupport = false;
   bool enabled = true;
   bool stream = true;
   size_t contextLength = 0;

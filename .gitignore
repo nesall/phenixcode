@@ -81,3 +81,6 @@ benchmarks/results/
 *.index
 *.log
 *.bin
+
+combined_src.txt
+

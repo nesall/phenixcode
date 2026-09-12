@@ -61,7 +61,7 @@ namespace {
     
     cfg.documentFormat = item.value("document_format", "");
     cfg.queryFormat = item.value("query_format", "");
-    cfg.temperatureSupport = item.value("temperature_support", true);
+    cfg.temperatureSupport = item.value("temperature_support", false);
     cfg.enabled = item.value("enabled", true);
     cfg.stream = item.value("stream", true);
     cfg.contextLength = item.value("context_length", section.value("max_context_tokens", 32000));

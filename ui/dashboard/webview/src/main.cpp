@@ -33,10 +33,19 @@ namespace fs = std::filesystem;
 namespace {
 
   const std::string CONFIG_FNAME = "admconfig.json";
-  //const std::string PROJECTS_FOLDER_NAME = "phenixcode_projects";
   const std::string PROJECT_REFS_FNAME = "proj-refs.json";
+  // Compile-time default set by CMake (option PROJECTS_FOLDER)
+#ifndef PROJECTS_FOLDER_DEFAULT
+#define PROJECTS_FOLDER_DEFAULT "phenixcode_projects"
+#endif
+  const std::string projectsFolderName() {
+    if (const char *env = std::getenv("PHENIXCODE_PROJECTS_FOLDER")) {
+      if (*env) return std::string(env);
+    }
+    return PROJECTS_FOLDER_DEFAULT;
+  }
   const fs::path projectsFolderPath() {
-    return (fs::path(shared::getExecutableDir()) / fs::path(PROJECTS_FOLDER_NAME));
+    return fs::path(shared::getExecutableDir()) / projectsFolderName();
   }
   const fs::path defaultSettingsJsonPath() {
     return (fs::path(shared::getExecutableDir()) / fs::path("settings.default.json"));

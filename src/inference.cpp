@@ -61,6 +61,19 @@ namespace {
       body[cfg.maxTokensName] = maxTokens;
     }
     body["stream"] = cfg.stream;
+
+    // LOG_MSG body but skip messages for brevity.
+    nlohmann::json bodyForLog = body;
+    if (bodyForLog.contains("messages")) {
+      bodyForLog["messages"] = nlohmann::json::array();
+      for (const auto &m : messages) {
+        nlohmann::json mForLog = m;
+        if (mForLog.contains("content")) mForLog["content"] = "<omitted>";
+        bodyForLog["messages"].push_back(mForLog);
+      }
+      LOG_MSG << "Request body: " << bodyForLog.dump();
+    }
+
     return body;
   }
 
@@ -77,6 +90,21 @@ namespace {
       if (d.contains("content") && !d["content"].is_null()) return d["content"].get<std::string>();
       // We do not propagate reasoning to the client. Maybe a future feature.
       // if (d.contains("reasoning_content") && !d["reasoning_content"].is_null()) return d["reasoning_content"].get<std::string>();
+    }
+    return {};
+  }
+
+  std::string extractStopReason(const ApiConfig &cfg, const nlohmann::json &chunk) {
+    if (isAnthropic(cfg)) {
+      if (chunk.value("type", "") == "message_delta") {
+        return chunk["delta"].value("stop_reason", "");
+      }
+      return {};
+    }
+    if (chunk.contains("choices") && !chunk["choices"].empty()) {
+      const auto &c = chunk["choices"][0];
+      if (c.contains("finish_reason") && !c["finish_reason"].is_null())
+        return c["finish_reason"].get<std::string>();
     }
     return {};
   }
@@ -424,14 +452,16 @@ std::string CompletionClient::generateCompletion(
   if (cfg().stream) {
     auto requestStr = requestBody.dump();
 
-    std::string buffer; // holds leftover partial data
+    std::string buffer;     // holds leftover partial data
+    std::string stopReason; // terminal stop/finish reason reported by the API
+    std::string lastChunk;  // raw last parsed chunk, for diagnostics
 
     res = httpClient->Post(
       path.c_str(),
       headers,
       std::move(requestStr),
       "application/json",
-      [&fullResponse, &onStream, &buffer, this](const char *data, size_t len) {
+      [&fullResponse, &onStream, &buffer, &stopReason, &lastChunk, this](const char *data, size_t len) {
         // llama-server sends SSE format: "data: {...}\n\n"
         buffer.append(data, len);
         size_t pos;
@@ -445,6 +475,11 @@ std::string CompletionClient::generateCompletion(
             }
             try {
               nlohmann::json chunkJson = nlohmann::json::parse(jsonStr);
+              lastChunk = jsonStr;
+
+              std::string reason = extractStopReason(cfg(), chunkJson);
+              if (!reason.empty()) stopReason = reason;
+
               std::string content = extractDeltaContent(cfg(), chunkJson);
               if (!content.empty()) {
                 fullResponse += content;
@@ -465,6 +500,15 @@ std::string CompletionClient::generateCompletion(
       }
     );
 
+    if (fullResponse.empty()) {
+      LOG_MSG << "[completion] Empty response from" << cfg().model
+        << "| stop_reason:" << (stopReason.empty() ? "<none>" : stopReason)
+        << "| last chunk:" << (lastChunk.empty() ? "<none>" : lastChunk);
+      if (!stopReason.empty() && onStream) {
+        onStream(fmt::format("[meta]Model stopped with reason: {}", stopReason));
+      }
+    }
+
   } else {
     res = httpClient->Post(
       path.c_str(),
@@ -477,6 +521,15 @@ std::string CompletionClient::generateCompletion(
       try {
         nlohmann::json jsonRes = nlohmann::json::parse(res->body);
         fullResponse = extractFullContent(cfg(), jsonRes);
+        if (fullResponse.empty()) {
+          std::string reason = isAnthropic(cfg())
+            ? jsonRes.value("stop_reason", std::string{})
+            : (jsonRes.contains("choices") && !jsonRes["choices"].empty()
+              ? jsonRes["choices"][0].value("finish_reason", std::string{}) : std::string{});
+          LOG_MSG << "[completion] Empty response from" << cfg().model
+            << "| stop_reason:" << (reason.empty() ? "<none>" : reason)
+            << "| body:" << res->body.substr(0, 500);
+        }
         if (onStream) onStream(fullResponse);
       } catch (...) { /* ignore parse errors */ }
     }

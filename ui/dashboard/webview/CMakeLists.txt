@@ -104,7 +104,8 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 #target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/include/3rdparty")
 target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/ui/shared" "${ROOT_DIR}/include")
 
-set(PROJECTS_FOLDER "phenixcode_projects")
+option(PROJECTS_FOLDER "Default folder name for user projects" "phenixcode_projects")
+
 set(WEB_ASSETS "ui_assets_a")
 
 include("${ROOT_DIR}/version.cmake")
@@ -114,7 +115,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
   FMT_HEADER_ONLY
   FMT_USE_LOCALE=0
   EMBEDDER_VERSION="${EMBEDDER_VERSION}"
-  PROJECTS_FOLDER_NAME="${PROJECTS_FOLDER}"
+  PROJECTS_FOLDER_DEFAULT="${PROJECTS_FOLDER}"
   WEB_ASSETS_BASE="${WEB_ASSETS}"
 )
 
