@@ -439,7 +439,6 @@ App::~App()
 void App::initialize(/*const std::string &configPath*/)
 {
   assert(imp->settings_);
-  //imp->settings_ = std::make_unique<Settings>(configPath);
   imp->appStartTime_ = std::chrono::system_clock::now();
 
   auto &ss = *imp->settings_;
@@ -930,7 +929,7 @@ size_t App::update()
   }
 
   try {
-    Settings settingsNew{ imp->settings_->configPath() };
+    Settings settingsNew{ imp->settings_->configPath(), imp->settings_->providersConfigPath()};
     imp->processor_->setSettings(settingsNew);
     LOG_MSG << "Read settings from" << settingsNew.configPath();
   } catch (const std::exception &ex) {
@@ -1100,6 +1099,7 @@ void App::printUsage()
   std::cout << "  --port <port>      - Server port (default: 8081)\n";
   std::cout << "  --watch [--interval seconds]  - Enable auto-update (default: 60s)\n";
   std::cout << "\nGeneral options:\n";
+  std::cout << "  --providers-config <path> - Config file path for API proviers (default: ./providers.json)\n";
   std::cout << "  --config <path>    - Config file path (default: settings.json)\n";
   std::cout << "  --top <k>          - Number of results for search (default: 5)\n";
   std::cout << "\nPassword Management:\n";
@@ -1178,26 +1178,7 @@ json App::sourceStats() const
   return imp->statsCache_.getStats(*imp->db_);
 }
 
-//std::string App::describeProjectTitle() const
-//{
-//  if (imp->projectTitle_.empty()) {
-//    //auto api = settings().generationCurrentApi();
-//    //CompletionClient cl{ api, settings().generationTimeoutMs(), *this };
-//    //std::vector<json> messages;
-//    //messages.push_back({ {"role", "system"}, {"content", "You are a helpful assistant."} });
-//    //messages.push_back({ {"role", "user"}, {"content", "Give a 2 to 5 word description title based on sources being tracked."} });
-//    //std::string fullResponse = cl.generateCompletion(
-//    //  messages, {}, 0.0f, settings().generationDefaultMaxTokens(),
-//    //  [](const std::string &chunk) {
-//    //    //std::cout << chunk << std::flush;
-//    //  }
-//    //);
-//    //imp->projectTitle_ = fullResponse;
-//    imp->projectTitle_ = settings().getProjectTitle();
-//  }
-//  return imp->projectTitle_;
-//}
-
+#if 0
 std::string App::runSetupWizard(AdminAuth &auth)
 {
   std::cout << "\n";
@@ -1299,6 +1280,7 @@ std::string App::runSetupWizard(AdminAuth &auth)
 
   return path.string();
 }
+#endif
 
 std::string App::findConfigFile(const std::string &filename)
 {
@@ -1319,8 +1301,9 @@ std::string App::findConfigFile(const std::string &filename)
 
   // Not found, run wizard
   LOG_MSG << "Config file not found, running setup wizard...";
-  AdminAuth auth;
-  return runSetupWizard(auth);
+  //AdminAuth auth;
+  //return runSetupWizard(auth);
+  return {};
 }
 
 int App::handleInteractivePasswordReset()
@@ -1388,7 +1371,10 @@ int App::run(int argc, char *argv[])
   app.require_subcommand(0, 1); // Allow 0 or 1 subcommand (0 shows help)
 
   std::string configPath = "settings.json";
-  app.add_option("-c,--config", configPath, "Config file path")->envname("EMBEDDER_CONFIG")->check(CLI::ExistingFile);
+  app.add_option("-c,--config", configPath, "Config file path")->envname("PHENIXCODE_PROJECT_CONFIG")->check(CLI::ExistingFile);
+
+  std::string providersPath = "providers.json";
+  app.add_option("-w,--providers-config", providersPath, "Providers file path")->envname("PHENIXCODE_PROVIDERS_CONFIG")->check(CLI::ExistingFile);
 
   bool noStartupTests = false;
   app.add_flag("--no-startup-tests", noStartupTests, "Skip startup model test calls");
@@ -1450,7 +1436,7 @@ int App::run(int argc, char *argv[])
   std::string infoFile;
   cmdServe->add_option("-p,--port", servePort, "Server port")
     ->default_val(8590)
-    ->envname("EMBEDDER_PORT")
+    ->envname("PHENIXCODE_SERVER_PORT")
     ->check(CLI::Range(0, 65535));
   cmdServe->add_flag("--watch", serveWatch, "Enable auto-update");
   cmdServe->add_option("--interval", serveWatchInterval, "Watch interval in seconds")->default_val(60);
@@ -1465,14 +1451,17 @@ int App::run(int argc, char *argv[])
     app.parse(argc, argv);
 
     configPath = findConfigFile(configPath);
+    if (configPath.empty()) {
+      LOG_MSG << "No config file found. Exiting.";
+      return 1;
+    }
     std::unique_ptr<Settings> settings;
     try {
-      settings = std::make_unique<Settings>(configPath);
+      settings = std::make_unique<Settings>(configPath, providersPath);
       settings->initProjectIdIfMissing(true);
       settings->initProjectTitleIfMissing(true);
     } catch (const std::exception &ex) {
       LOG_MSG << ex.what();
-      std::cerr << "Unable to read settings file " << configPath << "\n";
       throw;
     }
     SET_LOG_OUTPUT_FILE_PATH(settings->loggingLoggingFile());

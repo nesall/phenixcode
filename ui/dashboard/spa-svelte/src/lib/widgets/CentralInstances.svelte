@@ -7,11 +7,6 @@
   import type { InstanceItem, ProjectItem } from "../../app";
   import { slide } from "svelte/transition";
 
-  // interface Props {
-  //   fetchInstances: () => void;
-  // }
-  // let { fetchInstances }: Props = $props();
-
   const fetchInstances: () => void = getContext("FetchInstances");
   const fetchProjects: () => void = getContext("FetchProjects");
 

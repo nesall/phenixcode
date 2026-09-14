@@ -321,8 +321,8 @@
             </label>
           </div>
 
-          <div class="mb-4">
-            {#if path.type === "directory"}
+          {#if path.type === "directory"}
+            <div class="mb-4">
               <div class="flex items-center">
                 <input
                   type="checkbox"
@@ -333,80 +333,80 @@
                 />
                 <label for="recursive-{i}" class="ml-2 block text-sm text-surface-700-300"> Recursive </label>
               </div>
-            {/if}
-          </div>
+            </div>
 
-          <div class="mb-8">
-            <span class="label-text text-left">Exclude Patterns</span>
-            <div class="mt-2 flex flex-wrap gap-2">
-              {#each path.exclude as exclude, j}
-                <div class="flex items-center bg-surface-100-900 rounded pl-3 pr-2 py-1">
-                  <span class="text-sm">{exclude}</span>
+            <div class="mb-8">
+              <span class="label-text text-left">Exclude Patterns</span>
+              <div class="mt-2 flex flex-wrap gap-2">
+                {#each path.exclude as exclude, j}
+                  <div class="flex items-center bg-surface-100-900 rounded pl-3 pr-2 py-1">
+                    <span class="text-sm">{exclude}</span>
+                    <button
+                      type="button"
+                      class="ml-2 text-surface-500 hover:text-red-500"
+                      onclick={() => removePathExclude(i, j)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                {/each}
+                <div class="flex">
+                  <input
+                    type="text"
+                    id="exclude-{i}"
+                    class="px-2 py-1 border border-dashed border-surface-300-700 rounded-l w-36 bg-surface-50-950"
+                    bind:value={newPathExclude}
+                    placeholder="+ exclude pattern"
+                    onkeydown={(e) => e.key === "Enter" && addPathExclude(i)}
+                    onchange={onChange}
+                  />
                   <button
                     type="button"
-                    class="ml-2 text-surface-500 hover:text-red-500"
-                    onclick={() => removePathExclude(i, j)}
+                    class="px-2 py-1 bg-surface-200-800 border border-l-0 border-surface-300-700 rounded-r hover:bg-surface-300-700"
+                    onclick={() => addPathExclude(i)}
                   >
-                    ×
+                    Add
                   </button>
                 </div>
-              {/each}
-              <div class="flex">
-                <input
-                  type="text"
-                  id="exclude-{i}"
-                  class="px-2 py-1 border border-dashed border-surface-300-700 rounded-l w-36 bg-surface-50-950"
-                  bind:value={newPathExclude}
-                  placeholder="+ exclude pattern"
-                  onkeydown={(e) => e.key === "Enter" && addPathExclude(i)}
-                  onchange={onChange}
-                />
-                <button
-                  type="button"
-                  class="px-2 py-1 bg-surface-200-800 border border-l-0 border-surface-300-700 rounded-r hover:bg-surface-300-700"
-                  onclick={() => addPathExclude(i)}
-                >
-                  Add
-                </button>
               </div>
             </div>
-          </div>
 
-          <div class="mb-8">
-            <span class="label-text text-left"> Extensions (empty = default extensions) </span>
-            <div class="mt-2 flex flex-wrap gap-2">
-              {#each path.extensions as ext, j}
-                <div class="flex items-center bg-surface-100-900 rounded pl-3 pr-2 py-1">
-                  <span class="text-sm">{ext}</span>
+            <div class="mb-8">
+              <span class="label-text text-left"> Extensions (empty = default extensions) </span>
+              <div class="mt-2 flex flex-wrap gap-2">
+                {#each path.extensions as ext, j}
+                  <div class="flex items-center bg-surface-100-900 rounded pl-3 pr-2 py-1">
+                    <span class="text-sm">{ext}</span>
+                    <button
+                      type="button"
+                      class="ml-2 text-surface-500 hover:text-red-500"
+                      onclick={() => removePathExtension(i, j)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                {/each}
+                <div class="flex">
+                  <input
+                    type="text"
+                    id="extension-{i}"
+                    class="px-2 py-1 border border-dashed border-surface-300-700 rounded-l w-36 bg-surface-50-950"
+                    bind:value={newPathExtension}
+                    placeholder="+ .ext"
+                    onkeydown={(e) => e.key === "Enter" && addPathExtension(i)}
+                    onchange={onChange}
+                  />
                   <button
                     type="button"
-                    class="ml-2 text-surface-500 hover:text-red-500"
-                    onclick={() => removePathExtension(i, j)}
+                    class="px-2 py-1 bg-surface-200-800 border border-l-0 border-surface-300-700 rounded-r hover:bg-surface-300-700"
+                    onclick={() => addPathExtension(i)}
                   >
-                    ×
+                    Add
                   </button>
                 </div>
-              {/each}
-              <div class="flex">
-                <input
-                  type="text"
-                  id="extension-{i}"
-                  class="px-2 py-1 border border-dashed border-surface-300-700 rounded-l w-36 bg-surface-50-950"
-                  bind:value={newPathExtension}
-                  placeholder="+ .ext"
-                  onkeydown={(e) => e.key === "Enter" && addPathExtension(i)}
-                  onchange={onChange}
-                />
-                <button
-                  type="button"
-                  class="px-2 py-1 bg-surface-200-800 border border-l-0 border-surface-300-700 rounded-r hover:bg-surface-300-700"
-                  onclick={() => addPathExtension(i)}
-                >
-                  Add
-                </button>
               </div>
             </div>
-          </div>
+          {/if}
 
           <div class="flex justify-between">
             <div class="space-x-2">

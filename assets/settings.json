@@ -7,20 +7,8 @@
     "config_path": "./bge_tokenizer.json"
   },
   "embedding": {
-    "apis": [
-      {
-        "_comment0": "You can run an embedding model locally (no GPU required), for example:",
-        "_comment1": "./llama-server -m ./coderankembed-q4_k_m.gguf --embedding --pooling cls -ub 8192 --port 8584 ",
-        "api_key": "",
-        "api_url": "http://127.0.0.1:8584/embedding",
-        "id": "local-coder",
-        "model": "nomic-ai/CodeRankEmbed",
-        "name": "local coder",
-        "document_format": "{}",
-        "query_format": "{}"
-      }
-    ],
-    "current_api": "local",
+    "enabled_providers": [ "bge_base" ],
+    "current_api": "bge_base",
     "batch_size": 4,
     "timeout_ms": 30000,
     "retry_attempts": 3,
@@ -28,85 +16,17 @@
     "prepend_label_format": "[Source: {}]\n"
   },
   "generation": {
-    "apis": [
-      {
-        "_comment0": "You can run an llm model locally (no GPU required), for example:",
-        "_comment1": "./llama-server -m ./qwen2.5-coder-1.5b-instruct-q4_k_m.gguf -c 32768 --port 8585 -np 1",
-        "api_key": "",
-        "api_url": "http://127.0.0.1:8585/v1/chat/completions",
-        "id": "local-qwen",
-        "model": "qwen2.5-coder-1.5b",
-        "name": "Local",
-        "enabled": true,
-        "pricing_tpm": {
-          "input": 0,
-          "output": 0
-        }
-      },
-      {
-        "api_key": "",
-        "api_url": "http://127.0.0.1:8587/v1/chat/completions",
-        "enabled": true,
-        "id": "local-fim-gemma",
-        "model": "codegemma-2b-fim",
-        "name": "Local",
-        "pricing_tpm": {
-          "input": 0,
-          "output": 0
-        },
-        "fim": {
-          "api_url": "http://127.0.0.1:8587/v1/completions",
-          "format": "<|fim_prefix|>{}<|fim_suffix|>{}<|fim_middle|>",
-          "file_divider_token": "<|file_separator|>",
-          "stop_tokens": ["return", "<|fim_prefix|>", "<|fim_middle|>"]
-        }
-      },      
-      {
-        "api_key": "${MISTRAL_API_KEY}",
-        "api_url": "https://api.mistral.ai/v1/chat/completions",
-        "id": "mistral-small",
-        "model": "mistral-small-latest",
-        "name": "Mistral",
-        "pricing_tpm": {
-          "input": 0.15,
-          "output": 0.6
-        },
-        "context_length": 256000
-      },
-      {
-        "api_key": "${CODESTRAL_API_KEY}",
-        "api_url": "https://codestral.mistral.ai/v1/chat/completions",
-        "context_length": 256000,
-        "enabled": true,
-        "id": "mistral-codestral",
-        "model": "codestral-latest",
-        "name": "Mistral",
-        "fim": {
-          "api_url": "https://codestral.mistral.ai/v1/fim/completions",
-          "prefix_name": "prompt",
-          "suffix_name": "suffix", 
-          "stop_tokens": []
-        },
-        "pricing_tpm": {
-          "input": 0.3,
-          "output": 0.9
-        }
-      },      
-      {
-        "api_key": "${DEEPSEEK_API_KEY}",
-        "api_url": "https://api.deepseek.com/chat/completions",
-        "id": "deepseek-flash",
-        "model": "deepseek-v4-flash",
-        "name": "DeepSeek",
-        "pricing_tpm": {
-          "cached_input": 0.0028,
-          "input": 0.14,
-          "output": 0.28
-        },
-        "context_length": 1000000
-      }
-    ],
-    "current_api": "mistral-devstral",
+    "enabled_providers": [
+      "glm-5.3-flash", 
+      "mistral-small", 
+      "mistral-codestral", 
+      "mistral-large-latest", 
+      "deepseek-flash", 
+      "kimi-k27-code", 
+      "grok-4.6",
+      "anthropic-sonnet-5"
+      ],
+    "current_api": "mistral-small",
     "timeout_ms": 120000,
     "max_chunks": 7,
     "max_full_sources": 2,
@@ -158,7 +78,8 @@
       "*/debug/*", "*/release/*", "*/lib/*", "*/docker/*",
       "*/fonts/*", "*/images/*", "*/test/*","*/tests/*",
       "*/example/*", "*/examples/*", "*/obj/*", "*/build_dbg/*", "*/build_rel/*",
-      "*/bin/*", "*/dist/*", "*/test/*", "*/3rdparty/*", "*/cmake-build/*"
+      "*/bin/*", "*/dist/*", "*/test/*", "*/3rdparty/*", "*/cmake-build/*",
+      "*/assets/*", "*/.vscode/*", "*/.vs/*"
     ],
     "encoding": "utf-8",
     "max_file_size_mb": 10

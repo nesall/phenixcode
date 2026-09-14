@@ -53,6 +53,9 @@ namespace {
   const fs::path projectRefsPath() {
     return (projectsFolderPath() / fs::path(PROJECT_REFS_FNAME));
   }
+  const fs::path providersJsonPath() {
+    return (projectsFolderPath() / fs::path("providers.json"));
+  }
   void ensureProjectsFolderExist() {
     if (!fs::exists(projectsFolderPath())) {
       if (fs::create_directories(projectsFolderPath())) {
@@ -263,6 +266,10 @@ int main() {
         nlohmann::json res;
         try {
           ensureProjectsFolderExist();
+          const auto prv = providersJsonPath();
+          if (!fs::exists(prv)) {
+            throw std::runtime_error("Providers file not found at: " + prv.string());
+          }
           const auto src = defaultSettingsJsonPath();
           if (!fs::exists(src)) {
             throw std::runtime_error("Default settings file not found at: " + src.string());
@@ -281,7 +288,7 @@ int main() {
           if (!fs::copy_file(src, ffname())) {
             throw std::runtime_error("Failed to copy default settings file to project folder");
           }
-          Settings ss{ ffname().string() };
+          Settings ss{ ffname().string(), prv.string() };
           ss.initProjectIdIfMissing(true);
 
           res["status"] = "success";
@@ -378,16 +385,22 @@ int main() {
         try {
           std::vector<nlohmann::json> projects;
           auto addPath = [&projects](const std::string &path) {
-            nlohmann::json j;
-            std::ifstream file(path);
-            file >> j;
-            nlohmann::json proj;
-            proj["settingsFilePath"] = path;
-            proj["jsonData"] = j;
-            projects.push_back(proj);
+            try {
+              nlohmann::json j;
+              std::ifstream file(path);
+              file >> j;
+              Settings::validateProjectJson(j);
+              nlohmann::json proj;
+              proj["settingsFilePath"] = path;
+              proj["jsonData"] = j;
+              projects.push_back(proj);
+            } catch (...) {
+              LOG_MSG << "Path not a project settings. Skipped. [" << path << "]";
+            }
             };
-          if (fs::exists(projectsFolderPath()) && fs::is_directory(projectsFolderPath())) {
-            for (const auto &entry : fs::directory_iterator(projectsFolderPath())) {
+          auto ppath = projectsFolderPath();
+          if (fs::exists(ppath) && fs::is_directory(ppath)) {
+            for (const auto &entry : fs::directory_iterator(ppath)) {
               if (entry.is_regular_file() && entry.path().extension() == ".json" && entry.path().filename() != PROJECT_REFS_FNAME) {
                 try {
                   addPath(fs::absolute(entry.path()).string());
@@ -432,6 +445,10 @@ int main() {
         LOG_MSG << "saveProject";
         nlohmann::json res;
         try {
+          const auto prv = providersJsonPath();
+          if (!fs::exists(prv)) {
+            throw std::runtime_error("Providers file not found at: " + prv.string());
+          }
           auto j = nlohmann::json::parse(data);
           if (!j.is_array() || j.size() == 0) {
             throw std::runtime_error("Invalid parameters for saveProject");
@@ -439,7 +456,7 @@ int main() {
           j = j[0];
           if (validateProjectItemArg(j)) {
             std::string fname = j["settingsFilePath"].get<std::string>();
-            Settings ss{ fname };
+            Settings ss{ fname, prv.string() };
             ss.updateFromConfig(j["jsonData"]);
             ss.initProjectIdIfMissing(false);
             ss.save();
@@ -449,6 +466,56 @@ int main() {
           } else {
             throw std::runtime_error("Unable to locate the file");
           }
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+          res["status"] = "error";
+          res["message"] = ex.what();
+        }
+        return res.dump();
+      }
+    );
+
+    w.bind("saveProviders", [](const std::string &data) -> std::string
+      {
+        LOG_MSG << "saveProviders";
+        nlohmann::json res;
+        try {
+          const auto prv = providersJsonPath();
+          if (!fs::exists(prv)) {
+            throw std::runtime_error("Providers file not found at: " + prv.string());
+          }
+          auto j = nlohmann::json::parse(data);
+          if (!j.is_array() || j.size() == 0) {
+            throw std::runtime_error("Invalid parameters for saveProviders");
+          }
+          j = j[0];
+          ProvidersSettings ss{ prv.string() };
+          ss.updateFromConfig(j);
+          ss.save();
+          res["status"] = "success";
+          res["message"] = "Providers saved successfully";
+          LOG_MSG << "Saved providers to file:" << prv.string();
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+          res["status"] = "error";
+          res["message"] = ex.what();
+        }
+        return res.dump();
+      }
+    );
+
+    w.bind("getProviders", [](const std::string &) -> std::string
+      {
+        LOG_MSG << "getProviders";
+        nlohmann::json res;
+        try {
+          const auto prv = providersJsonPath();
+          if (!fs::exists(prv)) {
+            throw std::runtime_error("Providers file not found at: " + prv.string());
+          }
+          ProvidersSettings ss{ prv.string() };
+          res["status"] = "success";
+          res["providers"] = ss.configJson();
         } catch (const std::exception &ex) {
           LOG_MSG << ex.what();
           res["status"] = "error";
@@ -486,6 +553,7 @@ int main() {
           }
           auto jProj = j[0];
           if (validateProjectItemArg(jProj)) {
+            auto providersPath = providersJsonPath().lexically_normal().generic_string();
             auto configPath = jProj["settingsFilePath"].get<std::string>();
             auto exePath = j[1].get<std::string>();
 #ifdef _WIN32
@@ -493,12 +561,14 @@ int main() {
               exePath += ".exe";
             }
 #endif
+            if (!std::filesystem::exists(providersPath))
+              throw std::runtime_error("Providers file not found: " + providersPath);
             if (!std::filesystem::exists(exePath))
               throw std::runtime_error("Executable not found: " + exePath);
             if (!std::filesystem::exists(configPath))
               throw std::runtime_error("Config file not found: " + configPath);
 
-            std::vector<std::string> args = { "--no-startup-tests", "--config", configPath, "serve", "--yes" };
+            std::vector<std::string> args = { "--no-startup-tests", "-w", providersPath, "--config", configPath, "serve", "--yes" };
             bool watch = j[2];
             if (watch) {
               args.push_back("--watch");
@@ -510,6 +580,7 @@ int main() {
                 LOG_MSG << "Invalid interval value, using to default value";
               }
             }
+
             ProcessManager proc;
             if (proc.startProcess(exePath, args)) {
               res["status"] = "success";
@@ -595,11 +666,16 @@ int main() {
         LOG_MSG << "pickSettingsJsonFile";
         nlohmann::json res;
         try {
+          const auto prv = providersJsonPath();
+          if (!fs::exists(prv)) {
+            throw std::runtime_error("Providers file not found at: " + prv.string());
+          }
+
           auto result = pfd::open_file("Pick a settings JSON file", {}, { "JSON files", "*.json", "All files", "*" }).result();
           if (!result.empty()) {
             auto path = result[0];
             if (fs::exists(path)) {
-              Settings ss{ path };
+              Settings ss{ path, prv.string() };
               ss.initProjectIdIfMissing(false);
               res["project_id"] = ss.getProjectId();
               res["path"] = path;
@@ -658,6 +734,8 @@ int main() {
         importProject,
         getProjectList,
         saveProject,
+        saveProviders,
+        getProviders,
         getInstances,
         stopServe,
         startServe,

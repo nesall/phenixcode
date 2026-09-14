@@ -1,10 +1,12 @@
 #include "settings.h"
 #include "cutils.h"
+#include <utils_log/logger.hpp>
 #include <fstream>
 #include <stdexcept>
 #include <filesystem>
 #include <sstream>
 #include <cstdlib>
+#include <iomanip>
 
 namespace {
   // Simple ${VAR} substitution
@@ -80,10 +82,10 @@ namespace {
     cfg.apiStyle = detectApiStyle(cfg.apiUrl, item);
   }
 
-  std::vector<ApiConfig> getApiConfigList(const nlohmann::json &section) {
+  std::vector<ApiConfig> getApiConfigList(const nlohmann::json &section, std::string_view key) {
     std::vector<ApiConfig> v;
-    if (!section.contains("apis") || !section["apis"].is_array()) return v;
-    for (const auto &item : section["apis"]) {
+    if (!section.contains(key) || !section[key].is_array()) return v;
+    for (const auto &item : section[key]) {
       if (!item.is_object()) continue;
       ApiConfig cfg;
       fetchApiConfigFromItem(item, cfg, section);
@@ -93,21 +95,20 @@ namespace {
     return v;
   }
 
-  ApiConfig getCurrentApiConfig(const nlohmann::json &section) {
+  ApiConfig getCurrentApiConfig(const nlohmann::json &section, const std::vector<ApiConfig> &apis) {
     ApiConfig cfg;
     if (!section.is_object()) return cfg;
-    std::string current = section.value("current_api", "");
-    if (!section.contains("apis") || !section["apis"].is_array()) return cfg;
-    for (const auto &item : section["apis"]) {
-      if (!item.is_object()) continue;
-      std::string id = item.value("id", "");
-      if (current.empty() || id == current) {
-        fetchApiConfigFromItem(item, cfg, section);
-        return cfg;
-      }
+    std::string current = section.value("current_api", std::string{});
+    std::vector<std::string> enabledApis = section.value("enabled_providers", nlohmann::json::array());
+    bool allowed = std::find(enabledApis.cbegin(), enabledApis.cend(), current) != enabledApis.cend();
+    if (!allowed) {
+      throw std::runtime_error("current_api '" + current + "' is not in this project's enabled_providers");
     }
-    if (!section["apis"].empty()) {
-      fetchApiConfigFromItem(section["apis"][0], cfg, section);
+    for (const auto &cfgItem : apis) {
+      if (cfgItem.id == current) {
+        cfg = cfgItem;
+        break;
+      }
     }
     return cfg;
   }
@@ -120,9 +121,73 @@ namespace {
   }
 } // anonymous namespace
 
-Settings::Settings(const std::string &path)
+
+//----------------------------------------------------------------------------------------
+
+ProvidersSettings::ProvidersSettings(const std::string &path)
+{
+  if (path.length())
+    loadFromFile(path);
+}
+
+void ProvidersSettings::loadFromFile(const std::string &path)
+{
+  std::ifstream file(path);
+  if (!file.is_open())
+    throw std::runtime_error("Cannot open providers file: " + path);
+  nlohmann::json j;
+  file >> j;
+  updateFromConfig(j);
+  if (embeddingProviders_.empty())
+    LOG_MSG << "Warning: no embedding_providers defined in " << path;
+  if (generationProviders_.empty())
+    LOG_MSG << "Warning: no generation_providers defined in " << path;
+  path_ = path;
+}
+
+void ProvidersSettings::updateFromConfig(const nlohmann::json &config)
+{
+  if (!config.is_object()) throw std::runtime_error("Invalid providers config: not a JSON object");
+  if (!config.contains("embedding_providers")) throw std::runtime_error("Invalid providers config: missing embedding_providers");
+  if (!config.contains("generation_providers")) throw std::runtime_error("Invalid providers config: missing generation_providers");
+  embeddingProviders_ = getApiConfigList(config, "embedding_providers");
+  generationProviders_ = getApiConfigList(config, "generation_providers");
+  config_ = config;
+}
+
+const ApiConfig *ProvidersSettings::findEmbedding(const std::string &id) const
+{
+  for (const auto &cfg : embeddingProviders_) {
+    if (cfg.id == id) return &cfg;
+  }
+  return nullptr;
+}
+
+const ApiConfig *ProvidersSettings::findGeneration(const std::string &id) const
+{
+  for (const auto &cfg : generationProviders_) {
+    if (cfg.id == id) return &cfg;
+  }
+  return nullptr;
+}
+
+void ProvidersSettings::save()
+{
+  std::ofstream file(path_);
+  if (file.is_open()) {
+    file << config_.dump(2);
+  }
+}
+
+
+//----------------------------------------------------------------------------------------
+
+
+Settings::Settings(const std::string &path, const std::string &providersPath)
 {
   updateFromPath(path);
+  providers_.loadFromFile(providersPath);
+  validate();
 }
 
 void Settings::updateFromConfig(const nlohmann::json &config)
@@ -148,28 +213,64 @@ void Settings::save()
   }
 }
 
+void Settings::validateProjectJson(nlohmann::json j)
+{
+  if (!j.is_object()) throw std::runtime_error("Settings root is not a JSON object");
+  static const char *requiredSections[] = { "source", "chunking", "embedding", "generation", "database" };
+  for (const char *section : requiredSections) {
+    if (!j.contains(section) || !j[section].is_object()) {
+      throw std::runtime_error(std::string("Missing or invalid settings section: ") + section);
+    }
+  }
+}
+
+void Settings::validate()
+{
+  validateProjectJson(config_);  
+
+  // Validate a provider section: current_api must be listed in enabled_providers
+  // and must exist in the providers list loaded from the providers file.
+  auto validateProviderSection = [&](const char *sectionName,
+    const std::vector<ApiConfig> &providers) {
+      const auto &section = config_[sectionName];
+      const std::string currentApi = section.value("current_api", std::string{});
+      if (currentApi.empty()) {
+        throw std::runtime_error(std::string("Missing 'current_api' in settings section: ") + sectionName);
+      }
+
+      std::vector<std::string> enabledApis =
+        section.value("enabled_providers", nlohmann::json::array());
+      if (std::find(enabledApis.cbegin(), enabledApis.cend(), currentApi) == enabledApis.cend()) {
+        LOG_MSG << "Warning: current_api '" << currentApi << "' is not in this project's enabled_providers";
+        throw std::runtime_error("current_api '" + currentApi + "' is not in this project's enabled_providers");
+      }
+
+      bool found = false;
+      for (const auto &cfg : providers) {
+        if (cfg.id == currentApi) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        throw std::runtime_error("current_api '" + currentApi + "' not found in providers list for section '" + sectionName + "'");
+      }
+    };
+
+  validateProviderSection("embedding", providers_.embeddingProviders());
+  validateProviderSection("generation", providers_.generationProviders());
+}
+
 ApiConfig Settings::embeddingCurrentApi() const
 {
   if (!config_.contains("embedding")) return {};
-  return getCurrentApiConfig(config_["embedding"]);
-}
-
-std::vector<ApiConfig> Settings::embeddingApis() const
-{
-  if (!config_.contains("embedding")) return {};
-  return getApiConfigList(config_["embedding"]);
+  return getCurrentApiConfig(config_["embedding"], providers_.embeddingProviders());
 }
 
 ApiConfig Settings::generationCurrentApi() const
 {
   if (!config_.contains("generation")) return {};
-  return getCurrentApiConfig(config_["generation"]);
-}
-
-std::vector<ApiConfig> Settings::generationApis() const
-{
-  if (!config_.contains("generation")) return {};
-  return getApiConfigList(config_["generation"]);
+  return getCurrentApiConfig(config_["generation"],providers_.generationProviders());
 }
 
 void Settings::initProjectIdIfMissing(bool hydrateFile)
@@ -251,3 +352,4 @@ std::vector<Settings::SourceItem> Settings::sources() const
   }
   return res;
 }
+

@@ -18,72 +18,72 @@
 
   onMount(() => {});
 
-  function addApi() {
-    if (!jsonData) {
-      return;
-    }
+  // function addApi() {
+  //   if (!jsonData) {
+  //     return;
+  //   }
 
-    const newId = `api_${Date.now()}`;
-    jsonData.embedding.apis.push({
-      api_key: "",
-      api_url: "",
-      id: newId,
-      model: "",
-      name: "New API",
-      document_format: "{}",
-      query_format:
-        "Represent this sentence for searching relevant passages: {}",
-    });
-    jsonData.embedding.current_api = newId;
-    // selectedJsonSettings.set(jsonData);
-    onChange();
-  }
+  //   const newId = `api_${Date.now()}`;
+  //   jsonData.embedding.apis.push({
+  //     api_key: "",
+  //     api_url: "",
+  //     id: newId,
+  //     model: "",
+  //     name: "New API",
+  //     document_format: "{}",
+  //     query_format:
+  //       "Represent this sentence for searching relevant passages: {}",
+  //   });
+  //   jsonData.embedding.current_api = newId;
+  //   // selectedJsonSettings.set(jsonData);
+  //   onChange();
+  // }
 
-  function removeApi(index: number) {
-    if (!jsonData) {
-      return;
-    }
+  // function removeApi(index: number) {
+  //   if (!jsonData) {
+  //     return;
+  //   }
 
-    if (1 < jsonData.embedding.apis.length) {
-      jsonData.embedding.apis.splice(index, 1);
-      // If we removed the current API, switch to the first one
-      if (
-        jsonData.embedding.current_api === jsonData.embedding.apis[index]?.id
-      ) {
-        jsonData.embedding.current_api = jsonData.embedding.apis[0]?.id || "";
-      }
-      // selectedJsonSettings.set(jsonData);
-      onChange();
-    }
-  }
+  //   if (1 < jsonData.embedding.apis.length) {
+  //     jsonData.embedding.apis.splice(index, 1);
+  //     // If we removed the current API, switch to the first one
+  //     if (
+  //       jsonData.embedding.current_api === jsonData.embedding.apis[index]?.id
+  //     ) {
+  //       jsonData.embedding.current_api = jsonData.embedding.apis[0]?.id || "";
+  //     }
+  //     // selectedJsonSettings.set(jsonData);
+  //     onChange();
+  //   }
+  // }
 
-  function moveApiUp(index: number) {
-    if (!jsonData) {
-      return;
-    }
+  // function moveApiUp(index: number) {
+  //   if (!jsonData) {
+  //     return;
+  //   }
 
-    if (0 < index) {
-      const temp = jsonData.embedding.apis[index];
-      jsonData.embedding.apis[index] = jsonData.embedding.apis[index - 1];
-      jsonData.embedding.apis[index - 1] = temp;
-      // selectedJsonSettings.set(jsonData);
-      onChange();
-    }
-  }
+  //   if (0 < index) {
+  //     const temp = jsonData.embedding.apis[index];
+  //     jsonData.embedding.apis[index] = jsonData.embedding.apis[index - 1];
+  //     jsonData.embedding.apis[index - 1] = temp;
+  //     // selectedJsonSettings.set(jsonData);
+  //     onChange();
+  //   }
+  // }
 
-  function moveApiDown(index: number) {
-    if (!jsonData) {
-      return;
-    }
+  // function moveApiDown(index: number) {
+  //   if (!jsonData) {
+  //     return;
+  //   }
 
-    if (index < jsonData.embedding.apis.length - 1) {
-      const temp = jsonData.embedding.apis[index];
-      jsonData.embedding.apis[index] = jsonData.embedding.apis[index + 1];
-      jsonData.embedding.apis[index + 1] = temp;
-      // selectedJsonSettings.set(jsonData);
-      onChange();
-    }
-  }
+  //   if (index < jsonData.embedding.apis.length - 1) {
+  //     const temp = jsonData.embedding.apis[index];
+  //     jsonData.embedding.apis[index] = jsonData.embedding.apis[index + 1];
+  //     jsonData.embedding.apis[index + 1] = temp;
+  //     // selectedJsonSettings.set(jsonData);
+  //     onChange();
+  //   }
+  // }
 
   function onCurApiChange(event: Event) {
     if (!jsonData) {
@@ -103,25 +103,25 @@
     }
   }
 
-  function onExpandAll() {
-    if (!$selectedProject) {
-      return;
-    }
-    for (const api of $selectedProject?.jsonData.embedding.apis) {
-      api._hidden = false;
-    }
-    $selectedProject = $selectedProject;
-  }
+  // function onExpandAll() {
+  //   if (!$selectedProject) {
+  //     return;
+  //   }
+  //   for (const api of $selectedProject?.jsonData.embedding.apis) {
+  //     api._hidden = false;
+  //   }
+  //   $selectedProject = $selectedProject;
+  // }
 
-  function onCollapseAll() {
-    if (!$selectedProject) {
-      return;
-    }
-    for (const api of $selectedProject?.jsonData.embedding.apis) {
-      api._hidden = true;
-    }
-    $selectedProject = $selectedProject;
-  }
+  // function onCollapseAll() {
+  //   if (!$selectedProject) {
+  //     return;
+  //   }
+  //   for (const api of $selectedProject?.jsonData.embedding.apis) {
+  //     api._hidden = true;
+  //   }
+  //   $selectedProject = $selectedProject;
+  // }
 </script>
 
 {#if $selectedProject}
@@ -216,8 +216,8 @@
                 value={$selectedProject.jsonData.embedding.current_api}
                 onchange={onCurApiChange}
               >
-                {#each $selectedProject.jsonData.embedding.apis as api}
-                  <option value={api.id}>{api.name} ({api.id})</option>
+                {#each $selectedProject.jsonData.embedding.enabled_providers as api}
+                  <option value={api}>{api}</option>
                 {/each}
               </select>
             </label>
@@ -225,166 +225,18 @@
         </div>
 
         <div class="rounded-md shadow p-4 flex flex-col gap-4">
-          <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-bold">
-              Embedding APIs ({$selectedProject.jsonData.embedding.apis.length})
-            </h2>
-            <button
-              type="button"
-              class="btn px-3 py-1 preset-filled-primary-500 rounded-md"
-              onclick={addApi}
-            >
-              Add API
-            </button>
-          </div>
-          <div>
-            <button type="button" class="btn btn-sm" onclick={onCollapseAll}
-              >collapse all</button
-            >
-            |
-            <button type="button" class="btn btn-sm" onclick={onExpandAll}
-              >expand all</button
-            >
-          </div>
 
-          {#each $selectedProject.jsonData.embedding.apis as api, i}
+          {#each $selectedProject.jsonData.embedding.enabled_providers as api, i}
             <div class="flex flex-col">
-              <UpDownButton
-                hidden={api._hidden}
-                text={`${api.name} - ${api.model}`}
-                onChange={() => (api._hidden = !api._hidden)}
-              />
-              {#if !api._hidden}
-                <div
-                  class="border border-surface-200-800 rounded-md rounded-t-none p-4 mb-4 flex flex-col gap-4"
-                  transition:slide
-                >
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <label class="label">
-                      <span class="label-text">API Name</span>
-                      <input
-                        type="text"
-                        id="api-name-{i}"
-                        class="input"
-                        bind:value={api.name}
-                        onchange={onChange}
-                      />
-                    </label>
-
-                    <label class="label">
-                      <span class="label-text">API ID</span>
-                      <input
-                        type="text"
-                        id="api-id-{i}"
-                        class="input"
-                        bind:value={api.id}
-                        onchange={onChange}
-                      />
-                    </label>
-                  </div>
-
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <label class="label">
-                      <span class="label-text">API URL</span>
-                      <input
-                        type="text"
-                        id="api-url-{i}"
-                        class="input"
-                        bind:value={api.api_url}
-                        placeholder="http://127.0.0.1:8583/embedding"
-                        onchange={onChange}
-                      />
-                    </label>
-
-                    <label class="label">
-                      <span class="label-text">API Key</span>
-                      <input
-                        type="text"
-                        id="api-key-{i}"
-                        class="input"
-                        bind:value={api.api_key}
-                        placeholder="API key or {'${ENV_VAR_NAME}'}"
-                        onchange={onChange}
-                      />
-                    </label>
-                  </div>
-
-                  <label class="label">
-                    <span class="label-text">Model</span>
-                    <input
-                      type="text"
-                      id="model-{i}"
-                      class="input"
-                      bind:value={api.model}
-                      placeholder="bge-base-v1.5"
-                      onchange={onChange}
-                    />
-                  </label>
-
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <label class="label">
-                      <span class="label-text">Document Format</span>
-                      <input
-                        type="text"
-                        id="document-format-{i}"
-                        class="input"
-                        bind:value={api.document_format}
-                        placeholder="&#123;&#125;"
-                        onchange={onChange}
-                      />
-                      <p class="text-sm text-surface-500 mt-1">
-                        Use &#123;&#125; as placeholder for the document text
-                      </p>
-                    </label>
-
-                    <label class="label">
-                      <span class="label-text">Query Format</span>
-                      <input
-                        type="text"
-                        id="query-format-{i}"
-                        class="input"
-                        bind:value={api.query_format}
-                        placeholder="Represent this sentence for searching relevant passages: &#123;&#125;"
-                        onchange={onChange}
-                      />
-                      <p class="text-sm text-surface-500 mt-1">
-                        Use &#123;&#125; as placeholder for the query text
-                      </p>
-                    </label>
-                  </div>
-
-                  <div class="flex justify-between">
-                    <div class="space-x-2">
-                      <button
-                        type="button"
-                        class="btn btn-sm preset-tonal-primary"
-                        onclick={() => moveApiUp(i)}
-                        disabled={i === 0}
-                      >
-                        ↑ Up
-                      </button>
-                      <button
-                        type="button"
-                        class="preset-tonal-primary btn btn-sm"
-                        onclick={() => moveApiDown(i)}
-                        disabled={i ===
-                          $selectedProject.jsonData.embedding.apis.length - 1}
-                      >
-                        ↓ Down
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      class="btn btn-sm preset-filled-error-500"
-                      onclick={() => removeApi(i)}
-                      disabled={$selectedProject.jsonData.embedding.apis
-                        .length === 1}
-                    >
-                      Remove API
-                    </button>
-                  </div>
-                </div>
-              {/if}
+              <!-- checkbox for each API -->
+              <label class="label flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  class="checkbox"
+                  onchange={onChange}
+                />
+                <span class="font-semibold">{api}</span>
+              </label>
             </div>
           {/each}
         </div>

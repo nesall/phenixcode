@@ -36,7 +36,8 @@ export interface ExcerptSettings {
  * Top-level configuration for the Generation service.
  */
 export interface GenerationSettings {
-  apis: GenerationApi[];
+  // apis: GenerationApi[];
+  enabled_providers: string[];
   current_api: string;
   timeout_ms: number;
   max_chunks: number;
@@ -68,7 +69,8 @@ export interface EmbeddingApi {
  * Top-level configuration for the Embedding service.
  */
 export interface EmbeddingSettings {
-  apis: EmbeddingApi[];
+  // apis: EmbeddingApi[];
+  enabled_providers: string[];
   current_api: string;
   batch_size: number;
   timeout_ms: number;
@@ -152,6 +154,11 @@ export interface SettingsJsonType {
   chunking: ChunkingSettings;
   source: SourceSettings;
   logging: LoggingSettings;
+}
+
+export interface ProvidersSettings {
+  embedding_providers: EmbeddingApi[];
+  generation_providers: GenerationApi[];
 }
 
 /**

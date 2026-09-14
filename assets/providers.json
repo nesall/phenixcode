@@ -1,0 +1,133 @@
+{
+  "embedding_providers": [
+    {
+      "_comment0": "You can run an embedding model locally (no GPU required), for example:",
+      "_comment1": "./llama-server -m ./coderankembed-q4_k_m.gguf --embedding --pooling cls -ub 8192 --port 8584 ",
+      "api_key": "",
+      "api_url": "http://127.0.0.1:8583/embedding",
+      "document_format": "{}",
+      "id": "bge_base",
+      "model": "base-v1.5",
+      "name": "BGE",
+      "query_format": "Represent this sentence for searching relevant passages: {}"
+    }
+  ],
+  "generation_providers": [
+    {
+      "api_key": "${ZAI_API_KEY}",
+      "api_url": "https://api.z.ai/api/paas/v4/chat/completions",
+      "context_length": 256000,
+      "id": "glm-5.3-flash",
+      "max_tokens_name": "max_tokens",
+      "model": "glm-5.3-flash",
+      "name": "Z.AI",
+      "pricing_tpm": {
+        "cached_input": 0.05,
+        "input": 0.15,
+        "output": 0.5
+      }
+    },
+    {
+      "api_key": "${MISTRAL_API_KEY}",
+      "api_url": "https://api.mistral.ai/v1/chat/completions",
+      "context_length": 256000,
+      "id": "mistral-small",
+      "model": "mistral-small-latest",
+      "name": "Mistral",
+      "pricing_tpm": {
+        "cached_input": 0.015,
+        "input": 0.15,
+        "output": 0.6
+      }
+    },
+    {
+      "api_key": "${CODESTRAL_API_KEY}",
+      "api_url": "https://codestral.mistral.ai/v1/chat/completions",
+      "context_length": 256000,
+      "enabled": true,
+      "fim": {
+        "api_url": "https://codestral.mistral.ai/v1/fim/completions",
+        "prefix_name": "prompt",
+        "stop_tokens": [],
+        "suffix_name": "suffix"
+      },
+      "id": "mistral-codestral",
+      "model": "codestral-latest",
+      "name": "Mistral",
+      "pricing_tpm": {
+        "cached_input": 0.03,
+        "input": 0.3,
+        "output": 0.9
+      }
+    },
+    {
+      "api_key": "${MISTRAL_API_KEY}",
+      "api_url": "https://api.mistral.ai/v1/chat/completions",
+      "context_length": 250000,
+      "id": "mistral-large",
+      "max_tokens_name": "max_tokens",
+      "model": "mistral-large-latest",
+      "name": "Mistral",
+      "pricing_tpm": {
+        "cached_input": 0.05,
+        "input": 0.5,
+        "output": 1.5
+      }
+    },
+    {
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "api_url": "https://api.deepseek.com/chat/completions",
+      "context_length": 500000,
+      "id": "deepseek-flash",
+      "model": "deepseek-flash",
+      "name": "DeepSeek",
+      "pricing_tpm": {
+        "cached_input": 0.006,
+        "input": 0.3,
+        "output": 1.2
+      }
+    },
+    {
+      "api_key": "${MOONSHOT_API_KEY}",
+      "api_url": "https://api.moonshot.ai/v1/chat/completions",
+      "context_length": 200000,
+      "id": "kimi-k27-code",
+      "max_tokens_name": "max_tokens",
+      "model": "kimi-k2.7-code",
+      "name": "Moonshot",
+      "pricing_tpm": {
+        "cached_input": 0.19,
+        "input": 0.95,
+        "output": 4
+      }
+    },
+    {
+      "api_key": "${XAI_API_KEY}",
+      "api_url": "https://api.x.ai/v1/chat/completions",
+      "context_length": 200000,
+      "id": "grok-4.6",
+      "max_tokens_name": "max_tokens",
+      "model": "grok-4.6",
+      "name": "Grok",
+      "pricing_tpm": {
+        "cached_input": 0.5,
+        "input": 2,
+        "output": 6
+      }
+    },
+    {
+      "api_key": "${ANTHROPIC_API_KEY}",
+      "api_url": "https://api.anthropic.com/v1/messages",
+      "context_length": 250000,
+      "enabled": true,
+      "id": "anthropic-sonnet-5",
+      "model": "claude-sonnet-5",
+      "name": "Anthropic",
+      "pricing_tpm": {
+        "input": 2,
+        "output": 10
+      },
+      "temperature_support": false
+    }
+  ]
+}

@@ -59,13 +59,44 @@ struct ApiConfig {
   double outputTokensPrice(size_t tokens) const {
     return (tokens / 1'000'000.0) * pricing.output;
   }
-
 };
+
+
+//----------------------------------------------------------------------------------------
+
+class ProvidersSettings {
+public:
+  ProvidersSettings(const std::string &path = {});
+  void loadFromFile(const std::string &path); // throws on missing/invalid
+  void updateFromConfig(const nlohmann::json &config);
+
+  std::string path() const { return path_; }
+  nlohmann::json configJson() const { return config_; }
+
+  const ApiConfig *findEmbedding(const std::string &id) const;
+  const ApiConfig *findGeneration(const std::string &id) const;
+
+  const std::vector<ApiConfig> &embeddingProviders() const { return embeddingProviders_; }
+  const std::vector<ApiConfig> &generationProviders() const { return generationProviders_; }
+
+  void save();
+
+private:
+  nlohmann::json config_;
+  std::string path_;
+  std::vector<ApiConfig> embeddingProviders_;
+  std::vector<ApiConfig> generationProviders_;
+};
+
+
+//----------------------------------------------------------------------------------------
+
 
 class Settings {
 private:
   nlohmann::json config_;
   std::string path_;
+  ProvidersSettings providers_;
 
 public:
   struct SourceItem {
@@ -80,12 +111,16 @@ public:
   };
 
 public:
-  explicit Settings(const std::string &path = "settings.json");
+  explicit Settings(const std::string &path, const std::string &providersPath);
 
   void updateFromConfig(const nlohmann::json &config);
   void updateFromPath(const std::string &path);
   void save();
   std::string configPath() const { return path_; }
+  std::string providersConfigPath() const { return providers_.path(); }
+
+  void validate();
+  static void validateProjectJson(nlohmann::json j);
 
   std::string tokenizerConfigPath() const {
     return config_["tokenizer"].value("config_path", "tokenizer.json");
@@ -96,8 +131,9 @@ public:
   float chunkingOverlap() const { return config_["chunking"].value("overlap_percentage", 0.1f); }
   bool chunkingSemantic() const { return config_["chunking"].value("semantic", false); }
 
+  std::vector<std::string> enabledEmbeddingProviders() const { return config_["embedding"].value("enabled_providers", nlohmann::json::array()); }
   ApiConfig embeddingCurrentApi() const;
-  std::vector<ApiConfig> embeddingApis() const;
+  std::vector<ApiConfig> embeddingApis() const { return providers_.embeddingProviders(); }
   size_t embeddingTimeoutMs() const { return config_["embedding"].value("timeout_ms", size_t(10'000)); }
   size_t embeddingBatchSize() const { return config_["embedding"].value("batch_size", size_t(4)); }
   size_t embeddingTopK() const { return config_["embedding"].value("top_k", size_t(5)); }
@@ -105,12 +141,12 @@ public:
     return config_["embedding"].value("prepend_label_format", std::string(""));
   }
 
+  std::vector<std::string> enabledGenerationProviders() const { return config_["generation"].value("enabled_providers", nlohmann::json::array()); }
   ApiConfig generationCurrentApi() const;
-  std::vector<ApiConfig> generationApis() const;
+  std::vector<ApiConfig> generationApis() const { return providers_.generationProviders(); }
   size_t generationTimeoutMs() const { return config_["generation"].value("timeout_ms", size_t(20'000)); }
   size_t generationMaxFullSources() const { return config_["generation"].value("max_full_sources", size_t(2)); }
   size_t generationMaxRelatedPerSource() const { return config_["generation"].value("max_related_per_source", size_t(3)); }
-  //size_t generationMaxContextTokens() const { return config_["generation"].value("max_context_tokens", size_t(20'000)); }
   size_t generationMaxChunks() const { return config_["generation"].value("max_chunks", size_t(5)); }
   float generationDefaultTemperature() const { return config_["generation"].value("default_temperature", 0.5f); }
   size_t generationDefaultMaxTokens() const { return config_["generation"].value("default_max_tokens", size_t(2048)); }
@@ -162,6 +198,7 @@ public:
   std::vector<SourceItem> sources() const;
   std::string configDump() const { return config_.dump(2); }
   nlohmann::json configJson() const { return config_; }
+  nlohmann::json providersJson() const { return providers_.configJson(); }
 };
 
 

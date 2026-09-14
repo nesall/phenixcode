@@ -1,4 +1,4 @@
-import type { InstanceItem, ProjectItem, SettingsJsonType } from "../app";
+import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings } from "../app";
 import { createToaster } from '@skeletonlabs/skeleton-svelte';
 
 export const toaster = createToaster();
@@ -7,23 +7,56 @@ export function jsonDeepCopy<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
-const defaultJsonSettings: SettingsJsonType =
+const testProviders: ProvidersSettings = {
+  "embedding_providers": [
+    {
+      "api_key": "",
+      "api_url": "http://127.0.0.1:8583/embedding",
+      "document_format": "{}",
+      "id": "bge_base",
+      "model": "base-v1.5",
+      "name": "BGE",
+      "query_format": "Represent this sentence for searching relevant passages: {}"
+    }
+  ],
+  "generation_providers": [
+    {
+      "api_key": "${ZAI_API_KEY}",
+      "api_url": "https://api.z.ai/api/paas/v4/chat/completions",
+      "context_length": 256000,
+      "id": "glm-5.3-flash",
+      "max_tokens_name": "max_tokens",
+      "model": "glm-5.3-flash",
+      "name": "Z.AI",
+      "pricing_tpm": {
+        "cached_input": 0.05,
+        "input": 0.15,
+        "output": 0.5
+      }
+    },
+    {
+      "api_key": "${MISTRAL_API_KEY}",
+      "api_url": "https://api.mistral.ai/v1/chat/completions",
+      "context_length": 256000,
+      "id": "mistral-small",
+      "model": "mistral-small-latest",
+      "name": "Mistral",
+      "pricing_tpm": {
+        "cached_input": 0.015,
+        "input": 0.15,
+        "output": 0.6
+      }
+    }
+  ]
+};
+
+const testJsonSettings: SettingsJsonType =
 {
   "tokenizer": {
     "config_path": "./bge_tokenizer.json"
   },
   "embedding": {
-    "apis": [
-      {
-        "api_key": "",
-        "api_url": "http://127.0.0.1:8583/embedding",
-        "id": "local",
-        "model": "bge-base-v1.5",
-        "name": "llamacpp-server",
-        "document_format": "{}",
-        "query_format": "Represent this sentence for searching relevant passages: {}"
-      }
-    ],
+    "enabled_providers": [ "local" ],
     "current_api": "local",
     "batch_size": 4,
     "timeout_ms": 30000,
@@ -32,72 +65,7 @@ const defaultJsonSettings: SettingsJsonType =
     "prepend_label_format": "[Source: {}]\n"
   },
   "generation": {
-    "apis": [
-      {
-        "api_key": "${MISTRAL_API_KEY}",
-        "api_url": "https://api.mistral.ai/v1/chat/completions",
-        "id": "mistral-devstral",
-        "model": "devstral-small-latest",
-        "name": "Mistral",
-        "pricing_tpm": {
-          "input": 0.1,
-          "output": 0.3
-        },
-        "context_length": 128000
-      },
-      {
-        "api_key": "${GEMINI_API_KEY}",
-        "api_url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "id": "gemini-2.0-flash",
-        "model": "gemini-2.0-flash",
-        "name": "Gemini",
-        "pricing_tpm": {
-          "input": 0.1,
-          "output": 0.4
-        },
-        "context_length": 1000000
-      },
-      {
-        "api_key": "${DEEPSEEK_API_KEY}",
-        "api_url": "https://api.deepseek.com/chat/completions",
-        "id": "deepseek",
-        "model": "deepseek-chat",
-        "name": "DeepSeek",
-        "pricing_tpm": {
-          "cached_input": 0.028,
-          "input": 0.28,
-          "output": 0.42
-        },
-        "context_length": 128000
-      },
-      {
-        "api_key": "${XAI_API_KEY}",
-        "api_url": "https://api.x.ai/v1/chat/completions",
-        "id": "xai",
-        "model": "grok-4-fast-non-reasoning",
-        "name": "X AI",
-        "pricing_tpm": {
-          "cached_input": 0.05,
-          "input": 0.2,
-          "output": 0.5
-        },
-        "context_length": 2000000
-      },
-      {
-        "api_key": "${OPENAI_API_KEY}",
-        "api_url": "https://api.openai.com/v1/chat/completions",
-        "id": "openai-4o-mini",
-        "model": "gpt-4o-mini",
-        "name": "OpenAI",
-        "max_tokens_name": "max_completion_tokens",
-        "pricing_tpm": {
-          "cached_input": 0.075,
-          "input": 0.15,
-          "output": 0.6
-        },
-        "context_length": 128000
-      }
-    ],
+    "enabled_providers": [ "mistral-devstral", "gemini-2.0-flash", "deepseek", "xai", "openai-4o-mini" ],
     "current_api": "mistral-devstral",
     "timeout_ms": 120000,
     "max_chunks": 7,
@@ -209,9 +177,9 @@ let mockProjects: ProjectItem[] = [
   {
     settingsFilePath: "C:/Users/Arman/workspace/projects/alpha/settings-embcpp.json",
     jsonData: {
-      ...defaultJsonSettings,
+      ...testJsonSettings,
       source: {
-        ...defaultJsonSettings.source,
+        ...testJsonSettings.source,
         project_id: "alpha-316e366b",
         project_title: "phenixcode",
       }
@@ -221,9 +189,9 @@ let mockProjects: ProjectItem[] = [
   {
     settingsFilePath: "C:/Users/Arman/workspace/projects/alpha/settings-vsix.json",
     jsonData: {
-      ...defaultJsonSettings,
+      ...testJsonSettings,
       source: {
-        ...defaultJsonSettings.source,
+        ...testJsonSettings.source,
         project_id: "project2",
         project_title: "ChatAssistantVSIX",
       }
@@ -272,6 +240,11 @@ async function test_getInstances() {
   return { status: "success", instances: mockInstances };
 }
 
+async function test_getProviders() {
+  console.log("[mock] fetching providers", testProviders);
+  return { status: "success", providers: testProviders };
+}
+
 async function test_getProjectList() {
   console.log("[mock] fetching projects", mockProjects);
   return { status: "success", projects: mockProjects };
@@ -284,7 +257,7 @@ async function test_saveProjectSettings(project: ProjectItem): Promise<{ status:
 }
 
 async function test_createProject(): Promise<ProjectItem> {
-  const newProject = jsonDeepCopy({ settingsFilePath: "", jsonData: defaultJsonSettings }) as ProjectItem;
+  const newProject = jsonDeepCopy({ settingsFilePath: "", jsonData: testJsonSettings }) as ProjectItem;
   newProject.settingsFilePath = `C:/Users/Arman/workspace/projects/alpha/settings-new-${Date.now()}.json`;
   newProject.jsonData.source.project_id = `project${mockProjects.length + 1}`;
   newProject.jsonData.source.project_title = `New Project ${mockProjects.length + 1}`;
@@ -309,9 +282,9 @@ async function test_importProject(projectId: string, configPath: string): Promis
   const importedProject: ProjectItem = {
     settingsFilePath: configPath,
     jsonData: {
-      ...defaultJsonSettings,
+      ...testJsonSettings,
       source: {
-        ...defaultJsonSettings.source,
+        ...testJsonSettings.source,
         project_id: projectId,
         project_title: `Imported Project ${projectId}`,
       }
@@ -367,6 +340,14 @@ async function test_checkPathExists(path: string) {
   }
 }
 
+export async function helper_getProviders(): Promise<{ status: string, providers: ProvidersSettings, message?: string }> {
+  if (window.cppApi) {
+    return await window.cppApi.getProviders();
+  } else {
+    return await test_getProviders();
+  }
+}
+
 export async function helper_getInstances(): Promise<{ status: string, instances: InstanceItem[], message?: string }> {
   if (window.cppApi) {
     return await window.cppApi.getInstances();
@@ -388,6 +369,15 @@ export async function helper_saveProjectSettings(project: ProjectItem): Promise<
     return await window.cppApi.saveProject(project);
   } else {
     return await test_saveProjectSettings(project);
+  }
+}
+
+export async function helper_saveProvidersSettings(providers: ProvidersSettings): Promise<{ status: string; message: string }> {
+  if (window.cppApi) {
+    return await window.cppApi.saveProviders(providers);
+  } else {
+    console.log("[mock] saving providers settings", providers);
+    return { status: "success", message: "Providers settings saved successfully." };
   }
 }
 
@@ -458,42 +448,11 @@ export async function hardValidateProjectItem(item: ProjectItem): Promise<{ stat
 
   const vec: { status: string; message: string }[] = [];
 
-  // Helper to resolve relative paths to absolute based on the settings file's directory
-  // function resolvePath(base: string, p: string): string {
-  //   if (p.startsWith('/') || p.includes(':')) return p; // Assume absolute if starts with / or has drive letter
-  //   return base ? base + '/' + p : p;
-  // }
-
-  // Get the base directory of the settings file
-  // const baseDir = item.settingsFilePath.substring(0, item.settingsFilePath.lastIndexOf('/'));
-  // if (!baseDir) {
-  //   return { status: "error", message: "Invalid settings file path: no parent directory." };
-  // }
-
   // Check if the settings file's parent directory exists
   const settingsParentRes = await helper_checkPathExists(item.settingsFilePath);
   if (settingsParentRes.status !== "success") {
     vec.push({ status: "error", message: `Settings file does not exist` });
   }
-
-  // Validate source paths
-  // for (const pathEntry of item.jsonData.source.paths) {
-  //   const fullPath = resolvePath(baseDir, pathEntry.path);
-  //   if (pathEntry.type === 'directory') {
-  //     const res = await helper_checkPathExists(fullPath);
-  //     if (res.status !== "success") {
-  //       return { status: "error", message: `Source directory does not exist: ${fullPath}` };
-  //     }
-  //   } else { // 'file'
-  //     const parent = fullPath.substring(0, fullPath.lastIndexOf('/'));
-  //     if (parent) {
-  //       const res = await helper_checkPathExists(parent);
-  //       if (res.status !== "success") {
-  //         return { status: "error", message: `Source file parent directory does not exist: ${parent}` };
-  //       }
-  //     }
-  //   }
-  // }
 
   if ((await isParentDirValid(item.jsonData.database.sqlite_path)).status !== "success") {
     vec.push({ status: "error", message: `Database SQLite directory does not exist for path: ${item.jsonData.database.sqlite_path}` });

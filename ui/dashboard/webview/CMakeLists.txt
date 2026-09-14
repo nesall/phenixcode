@@ -181,6 +181,16 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
   else()
     message(WARNING "assets/settings.json not found at ${ROOT_DIR}/assets/settings.json")
   endif()
+  if(EXISTS "${ROOT_DIR}/assets/providers.json")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy
+        "${ROOT_DIR}/assets/providers.json"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}"
+      COMMENT "Copying assets/providers.json"
+    )
+  else()
+    message(WARNING "assets/providers.json not found at ${ROOT_DIR}/assets/providers.json")
+  endif()
 else()
   if(EXISTS "${ROOT_DIR}/assets/settings.json")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
@@ -191,6 +201,16 @@ else()
     )
   else()
     message(WARNING "assets/settings.json not found at ${ROOT_DIR}/assets/settings.json")
+  endif()
+  if(EXISTS "${ROOT_DIR}/assets/providers.json")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy
+        "${ROOT_DIR}/assets/providers.json"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
+      COMMENT "Copying assets/providers.json"
+    )
+  else()
+    message(WARNING "assets/providers.json not found at ${ROOT_DIR}/assets/providers.json")
   endif()
 endif()
 

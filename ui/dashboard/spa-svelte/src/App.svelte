@@ -2,9 +2,27 @@
   import { Toast } from "@skeletonlabs/skeleton-svelte";
   import CentralWidget from "./lib/widgets/CentralWidget.svelte";
   import Statusbar from "./lib/widgets/Statusbar.svelte";
-  import { helper_getInstances, helper_getProjectList, toaster } from "./lib/utils";
+  import { helper_getInstances, helper_getProjectList, helper_getProviders, toaster } from "./lib/utils";
   import { instances, projectList } from "./lib/store";
   import { onMount, setContext } from "svelte";
+    import { setEmbeddingProviders, setGenerationProviders } from "./lib/store.svelte";
+
+  async function fetchProviders() {
+    try {
+      const res = await helper_getProviders();
+      console.log("fetchProviders", res);
+      if (res.status === "success") {
+        setGenerationProviders(res.providers.generation_providers || []);
+        setEmbeddingProviders(res.providers.embedding_providers || []);
+      } else {
+        toaster.error({ title: "Unable to fetch providers", description: res.message });
+      }
+    } catch (err: any) {
+      console.log("Error fetching providers", err);
+      setGenerationProviders([]);
+      setEmbeddingProviders([]);
+    }
+  }
 
   async function fetchInstances() {
     try {
@@ -37,6 +55,7 @@
     }
   }
 
+  setContext("FetchProviders", fetchProviders);
   setContext("FetchInstances", fetchInstances);
   setContext("FetchProjects", fetchProjects);
 
@@ -44,7 +63,7 @@
   onMount(() => {
     intervalId = setInterval(fetchInstances, 20000);
     fetchInstances();
-
+    fetchProviders();
     return () => clearInterval(intervalId);
   });
 </script>
