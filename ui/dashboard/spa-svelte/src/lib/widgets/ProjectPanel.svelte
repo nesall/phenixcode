@@ -1,11 +1,11 @@
 <script lang="ts">
   import { Tabs } from "@skeletonlabs/skeleton-svelte";
-  import { selectedProject } from "../store";
   import Instance from "./project-panels/Instance.svelte";
   import ConfigPanel from "./ConfigPanel.svelte";
+  import { projectStore } from "../store.svelte";
 </script>
 
-{#if $selectedProject}
+{#if projectStore.selected}
   <Tabs defaultValue="config" class="h-full text-sm">
     <Tabs.List class="">
       <Tabs.Trigger value="config" class="text-sm code">Configuration</Tabs.Trigger>

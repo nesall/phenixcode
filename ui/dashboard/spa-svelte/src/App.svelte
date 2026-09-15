@@ -3,7 +3,7 @@
   import CentralWidget from "./lib/widgets/CentralWidget.svelte";
   import Statusbar from "./lib/widgets/Statusbar.svelte";
   import { helper_getInstances, helper_getProjectList, helper_getProviders, toaster } from "./lib/utils";
-  import { instances, projectList } from "./lib/store";
+  import { instances, projectStore, setInstances } from "./lib/store.svelte";
   import { onMount, setContext } from "svelte";
     import { setEmbeddingProviders, setGenerationProviders } from "./lib/store.svelte";
 
@@ -29,13 +29,13 @@
       const res = await helper_getInstances();
       console.log("fetchInstances", res);
       if (res.status === "success") {
-        instances.set(res.instances);
+        setInstances(res.instances);
       } else {
         toaster.error({ title: "Unable to fetch instances", description: res.message });
       }
     } catch (err: any) {
       console.log("Error fetching instances", err);
-      instances.set([]);
+      setInstances([]);
     }
   }
 
@@ -44,14 +44,14 @@
       const res = await helper_getProjectList();
       console.log("fetchProjects", res);
       if (res.status === "success") {
-        projectList.set(res.projects);
-        if (notify) toaster.success({ title: `${$projectList.length} project(s) fetched` });
+        projectStore.list = res.projects;
+        if (notify) toaster.success({ title: `${projectStore.list.length} project(s) fetched` });
       } else {
         toaster.error({ title: "Unable to fetch projects", description: res.message });
       }
     } catch (err: any) {
       console.log("Error fetching projects", err);
-      projectList.set([]);
+      projectStore.list = [];
     }
   }
 

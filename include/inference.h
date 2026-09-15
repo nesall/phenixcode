@@ -18,6 +18,8 @@ public:
   InferenceClient(const ApiConfig &cfg, size_t timeout);
   virtual ~InferenceClient();
 
+  std::string generateChat(const nlohmann::json &messages, float temperature, size_t maxTokens) const;
+
 protected:
   struct Impl;
   std::unique_ptr<Impl> imp;

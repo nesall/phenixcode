@@ -1,7 +1,6 @@
 <script lang="ts">
   import { getContext, onMount, tick } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { instances, selectedProject } from "../../store";
   import {
     Consts,
     getPersistentKey,
@@ -13,12 +12,13 @@
     toaster,
   } from "../../utils";
   import InstanceInfo from "../misc/InstanceInfo.svelte";
+  import { projectStore, instances } from "../../store.svelte";
 
-  const jsonData = $derived($selectedProject?.jsonData);
-  const projectTitle = $derived($selectedProject?.jsonData.source.project_title);
+  const jsonData = $derived(projectStore.selected?.jsonData);
+  const projectTitle = $derived(projectStore.selected?.jsonData.source.project_title);
 
-  const running = $derived($selectedProject && mapProjectToInstance($selectedProject, $instances));
-  const instance = $derived(jsonData && $instances.find((a) => a.project_id == jsonData.source.project_id));
+  const running = $derived(projectStore.selected && mapProjectToInstance(projectStore.selected, instances));
+  const instance = $derived(jsonData && instances.find((a) => a.project_id == jsonData.source.project_id));
 
   let beingStarted = $state(false);
   let beingStopped = $state(false);
@@ -39,8 +39,8 @@
 
   async function onStop() {
     beingStopped = true;
-    if ($selectedProject) {
-      const inst = mapProjectToInstance($selectedProject, $instances);
+    if (projectStore.selected) {
+      const inst = mapProjectToInstance(projectStore.selected, instances);
       if (!inst) {
         toaster.error({ title: "No running instance for this project." });
         return;
@@ -48,7 +48,7 @@
       const res = await helper_stopServe(inst.id);
       if (res.status === "success") {
         toaster.success({ title: "Server stopped successfully" });
-        $selectedProject = $selectedProject;
+        projectStore.selected = projectStore.selected;
         fetchInstances();
         fetchProjects();
       } else {
@@ -70,16 +70,15 @@
       toaster.error({ title: "Empty executable path is set in the Settings tab" });
       return;
     }
-    if (!$selectedProject) {
+    if (!projectStore.selected) {
       toaster.error({ title: "No active project" });
       return;
     }
-    console.log("onServe", $selectedProject);
-    const res = await helper_startServe($selectedProject, execPath, bWatch, watchInterval);
+    console.log("onServe", projectStore.selected);
+    const res = await helper_startServe(projectStore.selected, execPath, bWatch, watchInterval);
     if (res.status === "success") {
       toaster.success({ title: "Server started successfully" });
-      $selectedProject = $selectedProject;
-      fetchInstances();
+        fetchInstances();
       fetchProjects();
     } else {
       toaster.error({ title: "Failed to start", description: res.message });
@@ -105,9 +104,9 @@
 
   async function validate(doNotToastSuccess?: boolean) {
     fileValidationResults = [];
-    if ($selectedProject) {
+    if (projectStore.selected) {
       beingValidated = true;
-      const res = (await hardValidateProjectItem($selectedProject)) as { status: string; message: string }[];
+      const res = (await hardValidateProjectItem(projectStore.selected)) as { status: string; message: string }[];
       const errors = res.filter((r) => r.status !== "success");
       if (errors.length === 0) {
         if (!doNotToastSuccess) toaster.success({ title: "Project settings file is valid." });
@@ -162,7 +161,7 @@
                 <div class="flex flex-col space-y-2">
                   <div class="flex items-center space-x-1">
                     <span class="font-semibold">File location:</span>
-                    <span class="font-semibold2">{$selectedProject?.settingsFilePath}</span>
+                    <span class="font-semibold2"> {projectStore.selected?.settingsFilePath} </span>
                   </div>
                   <div class="flex flex-col">
                     <div class="flex">

@@ -527,7 +527,19 @@ bool App::testSettings() const
     }
     {
       api = {};
-      api = settings().generationCurrentApi();
+      const bool isAuto = settings().generationIsAuto();
+      if (isAuto) {
+        auto router = settings().autoRouterConfig();
+        const ApiConfig *clfCfg = settings().providers().findGeneration(router.classifier.apiId);
+        if (!clfCfg)
+          clfCfg = settings().providers().findGeneration(router.fallbackModelId);
+        if (!clfCfg) {
+          throw std::runtime_error("No valid generation API found for testing");
+        }
+        api = *clfCfg;
+      } else {
+        api = settings().generationCurrentApi();
+      }
       LOG_MSG << "\nTesting completion client" << api.model;
       CompletionClient cl{ api, settings().generationTimeoutMs(), *this };
       std::vector<json> messages;
@@ -723,13 +735,20 @@ void App::clear(bool noPrompt)
 
 void App::chat()
 {
-  auto apiCfg = imp->settings_->generationCurrentApi();
-  std::cout << "Using model: " << apiCfg.model << " at " << apiCfg.apiUrl << std::endl;
-  std::cout << "Entering chat mode. Type 'exit' to quit." << std::endl;
+  const bool isAuto = settings().generationIsAuto();
+  ApiConfig staticCfg;
+  if (!isAuto)
+    staticCfg = settings().generationCurrentApi();
+
+  if (isAuto)
+    std::cout << "Using auto-router.\n";
+  else
+    std::cout << "Using model: " << staticCfg.model << " at " << staticCfg.apiUrl << "\n";
+  std::cout << "Entering chat mode. Type 'exit' to quit.\n";
+
   std::vector<json> messages;
   messages.push_back({ {"role", "system"}, {"content", "You are a helpful assistant."} });
   EmbeddingClient embeddingClient{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
-  CompletionClient completionClient{ apiCfg, settings().generationTimeoutMs(), *this };
 
   while (true) {
     try {
@@ -737,25 +756,52 @@ void App::chat()
       std::string userInput;
       std::getline(std::cin, userInput);
       if (userInput == "exit") break;
+      if (userInput.empty()) continue;
+
       messages.push_back({ {"role", "user"}, {"content", userInput} });
-      // Generate embedding for the user input
+
+      ApiConfig apiCfg = staticCfg;
+      if (isAuto) {
+        const AutoRouterConfig router = settings().autoRouterConfig();
+        std::string modelId = router.fallbackModelId;
+        try {
+          const ApiConfig *clfCfg = settings().providers().findGeneration(router.classifier.apiId);
+          if (!clfCfg)
+            throw std::runtime_error("classifier api_id not in generation_providers");
+
+          InferenceClient clf(*clfCfg, router.classifier.timeoutMs);
+          const nlohmann::json clfMsgs = nlohmann::json::array({
+            {{"role", "system"}, {"content", router.classifier.prompt}},
+            {{"role", "user"}, {"content", userInput}}
+            });
+          const std::string raw = clf.generateChat(clfMsgs, router.classifier.temperature, router.classifier.maxTokens);
+          modelId = router.resolveRoutedModelId(raw);
+          std::cout << "[router] tag=" << AutoRouterConfig::normalizeTierTag(raw) << " -> " << modelId << "\n";
+        } catch (const std::exception &e) {
+          std::cout << "[router] classifier failed (" << e.what() << "), fallback=" << modelId << "\n";
+        }
+        const ApiConfig *routed = settings().providers().findGeneration(modelId);
+        if (!routed)
+          throw std::runtime_error("auto-router resolved unknown id '" + modelId + "'");
+        apiCfg = *routed;
+      }
+
       std::vector<float> queryEmbedding;
       embeddingClient.generateEmbeddings(userInput, queryEmbedding, EmbeddingClient::EncodeType::Query);
       auto searchResults = imp->db_->search(queryEmbedding, 5);
+
+      CompletionClient completionClient{ apiCfg, settings().generationTimeoutMs(), *this };
       std::cout << "\nAssistant: " << std::flush;
-      std::string assistantResponse = completionClient.generateCompletion(
+      const std::string assistantResponse = completionClient.generateCompletion(
         messages, searchResults, 0.0f, settings().generationDefaultMaxTokens(),
-        [](const std::string &chunk) {
-          std::cout << chunk << std::flush;
-        }
-      );
+        [](const std::string &chunk) { std::cout << chunk << std::flush; });
       std::cout << std::endl;
       messages.push_back({ {"role", "assistant"}, {"content", assistantResponse} });
     } catch (const std::exception &e) {
       std::cout << "Error: " << e.what() << "\n";
     }
   }
-  std::cout << "Exiting chat mode." << std::endl;
+  std::cout << "Exiting chat mode.\n";
 }
 
 void App::serve(int suggestedPort, bool watch, int interval, const std::string &infoFile)

@@ -579,6 +579,10 @@ namespace {
     ApiConfig apiConfig = app.settings().generationCurrentApi();
     if (request.contains("targetapi") && request["targetapi"].is_string()) {
       std::string targetApi = request["targetapi"].get<std::string>();
+      if (targetApi == kAutoApiId) {
+        LOG_MSG << "Auto should not be used in getTargetApi, using current API instead.";
+        apiConfig = app.settings().generationCurrentApi();
+      }
       if (targetApi != apiConfig.id) {
         auto apis = app.settings().generationApis();
         auto it = std::find_if(apis.begin(), apis.end(), [&targetApi](const ApiConfig &a) { return a.id == targetApi; });
@@ -968,6 +972,55 @@ bool HttpServer::startServer()
       }
       std::string question = messagesJson.back()["content"].get<std::string>();
 
+
+      std::string targetApi;
+      if (request.contains("targetapi") && request["targetapi"].is_string()) {
+        targetApi = request["targetapi"].get<std::string>();
+      }
+      bool runAutoRouter = false;
+      if (targetApi == kAutoApiId) {
+        // Explicit request-level override to use auto-routing
+        runAutoRouter = true;
+      } else if (!targetApi.empty()) {
+        // Explicit request-level pin to a concrete model (e.g. "anthropic-sonnet-5")
+        // Bypasses auto-router even if auto_router.enabled == true in settings
+        runAutoRouter = false;
+      } else {
+        // No request-level preference given; fall back to the project default
+        runAutoRouter = imp->app_.settings().generationIsAuto();
+      }
+      ApiConfig apiConfig;
+      if (runAutoRouter) {
+        const AutoRouterConfig router = imp->app_.settings().autoRouterConfig();
+        LOG_MSG << "Auto-router enabled, routing to appropriate model. Classifier id is" << router.classifier.apiId;
+        std::string modelId = router.fallbackModelId;
+        try {
+          const ApiConfig *clfCfg = imp->app_.settings().providers().findGeneration(router.classifier.apiId);
+          if (!clfCfg) {
+            LOG_MSG << "Classifier API not found: " << router.classifier.apiId;
+            throw std::invalid_argument("Classifier API not found: " + router.classifier.apiId);
+          }
+          InferenceClient clf(*clfCfg, router.classifier.timeoutMs);
+          const nlohmann::json clfMsgs = nlohmann::json::array({
+            {{"role", "system"}, {"content", router.classifier.prompt}},
+            {{"role", "user"}, {"content", question}}
+            });
+          const std::string raw = clf.generateChat(clfMsgs, router.classifier.temperature, router.classifier.maxTokens);
+          modelId = router.resolveRoutedModelId(raw);
+        } catch (const std::exception &e) {
+          std::cout << "Classifier failed (" << e.what() << "), fallback=" << modelId << "\n";
+        }
+        const ApiConfig *routed = imp->app_.settings().providers().findGeneration(modelId);
+        if (!routed) {
+          LOG_MSG << "Auto-router resolved unknown id '" << modelId << "'";
+          throw std::runtime_error("auto-router resolved unknown id '" + modelId + "'");
+        }
+        apiConfig = *routed;
+      } else {
+        apiConfig = getTargetApi(request, imp->app_);
+      }
+      LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
+
       auto attachmentsJson = request["attachments"];
       auto attachments = parseAttachments(attachmentsJson);
 
@@ -981,10 +1034,6 @@ bool HttpServer::startServer()
         }
       }
 
-      auto apiConfig = getTargetApi(request, imp->app_);
-
-      LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
-
       const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
       const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());
       const float contextSizeRatio = request.value("ctxratio", 0.9f);
@@ -996,7 +1045,7 @@ bool HttpServer::startServer()
 
       res.set_chunked_content_provider(
         "text/event-stream",
-        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, apiConfig]
+        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig]
         (size_t offset, httplib::DataSink &sink) {
 
           auto packPayload = [](std::string data) {
@@ -1162,21 +1211,34 @@ bool HttpServer::startServer()
     try {
       LOG_MSG << "GET /api/settings";
       nlohmann::json apisJson;
-      const auto &cur = imp->app_.settings().generationCurrentApi();
+      const auto cur = imp->app_.settings().generationCurrentApiId();
       const auto &apis = imp->app_.settings().generationApis();
+      bool isAuto = imp->app_.settings().generationIsAuto();
+      if (isAuto) {
+        nlohmann::json autoApi;
+        autoApi["id"] = kAutoApiId;
+        autoApi["name"] = "Auto-router";
+        autoApi["url"] = "";
+        autoApi["model"] = "auto";
+        autoApi["current"] = true;
+        auto router = imp->app_.settings().autoRouterConfig();
+        auto [minPrice, maxPrice] = router.estimateCostRange(imp->app_.settings());
+        autoApi["combinedPrice"] = fmt::format("{:.2f} - {:.2f}", minPrice, maxPrice);
+        apisJson.push_back(autoApi);
+      }
       for (const auto &api : apis) {
         nlohmann::json apiObj;
         apiObj["id"] = api.id;
         apiObj["name"] = api.name;
         apiObj["url"] = api.apiUrl;
         apiObj["model"] = api.model;
-        apiObj["current"] = (api.id == cur.id);
+        apiObj["current"] = !isAuto && (api.id == cur);
         apiObj["combinedPrice"] = api.combinedPrice();
         apisJson.push_back(apiObj);
       }
       nlohmann::json responseJson;
       responseJson["completionApis"] = apisJson;
-      responseJson["currentApi"] = cur.id;
+      responseJson["currentApi"] = isAuto ? std::string(kAutoApiId) : cur;
       res.status = 200;
       res.set_content(responseJson.dump(2), "application/json");
     } catch (const std::exception &e) {

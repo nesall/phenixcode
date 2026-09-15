@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { selectedProject } from "../../store";
+  import { projectStore } from "../../store.svelte";
   import { helper_saveProjectSettings } from "../../utils";
 
   interface Props {
@@ -10,20 +10,20 @@
   let { onChanged }: Props = $props();
 
   const projectTitle = $derived(
-    $selectedProject?.jsonData.source.project_title,
+    projectStore.selected?.jsonData.source.project_title,
   );
 
   onMount(() => {});
 
   function onChange() {
-    if ($selectedProject) {
-      helper_saveProjectSettings($selectedProject);
-      onChanged($selectedProject);
+    if (projectStore.selected) {
+      helper_saveProjectSettings(projectStore.selected);
+      onChanged(projectStore.selected);
     }
   }
 </script>
 
-{#if $selectedProject}
+{#if projectStore.selected}
   <div class="h-full p-4 overflow-auto">
     <form class="w-full">
       <fieldset class="space-y-4">
@@ -47,7 +47,7 @@
               <input
                 type="checkbox"
                 class="checkbox checkbox-lg preset-filled-primary-500"
-                bind:checked={$selectedProject.jsonData.logging.log_to_console}
+                bind:checked={projectStore.selected.jsonData.logging.log_to_console}
                 id="log-console-toggle"
                 onchange={onChange}
               />
@@ -70,7 +70,7 @@
               <input
                 type="checkbox"
                 class="checkbox checkbox-lg preset-filled-primary-500"
-                bind:checked={$selectedProject.jsonData.logging.log_to_file}
+                bind:checked={projectStore.selected.jsonData.logging.log_to_file}
                 id="log-file-toggle"
                 onchange={onChange}
               />
@@ -97,9 +97,9 @@
               <input
                 type="text"
                 class="input"
-                bind:value={$selectedProject.jsonData.logging.logging_file}
+                bind:value={projectStore.selected.jsonData.logging.logging_file}
                 placeholder="application.log"
-                disabled={!$selectedProject.jsonData.logging.log_to_file}
+                disabled={!projectStore.selected?.jsonData.logging.log_to_file}
                 onchange={onChange}
               />
               <p class="text-sm text-surface-500 mt-1">
@@ -112,9 +112,9 @@
               <input
                 type="text"
                 class="input"
-                bind:value={$selectedProject.jsonData.logging.diagnostics_file}
+                bind:value={projectStore.selected.jsonData.logging.diagnostics_file}
                 placeholder="diagnostics.log"
-                disabled={!$selectedProject.jsonData.logging.log_to_file}
+                disabled={!projectStore.selected?.jsonData.logging.log_to_file}
                 onchange={onChange}
               />
               <p class="text-sm text-surface-500 mt-1">

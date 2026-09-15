@@ -1,3 +1,5 @@
+// Admin Dashboard main application entry point
+
 #include <httplib.h>
 #include <utils_log/logger.hpp>
 #include "wb.h"
@@ -383,9 +385,12 @@ int main() {
         LOG_MSG << "getProjectList";
         nlohmann::json res;
         try {
+          std::set<fs::path> pathSet;
           std::vector<nlohmann::json> projects;
-          auto addPath = [&projects](const std::string &path) {
+          auto addPath = [&projects, &pathSet](const std::string &path) {
             try {
+              if (pathSet.contains(fs::path(path))) return;
+              pathSet.insert(fs::path{ path });
               nlohmann::json j;
               std::ifstream file(path);
               file >> j;

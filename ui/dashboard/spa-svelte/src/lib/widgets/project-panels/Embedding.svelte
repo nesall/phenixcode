@@ -2,13 +2,13 @@
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
   import { slide } from "svelte/transition";
-  import { selectedProject } from "../../store";
   import UpDownButton from "../misc/UpDownButton.svelte";
   import { helper_saveProjectSettings } from "../../utils";
+    import { projectStore } from "../../store.svelte";
 
-  const jsonData = $derived($selectedProject?.jsonData);
+  const jsonData = $derived(projectStore.selected?.jsonData);
   const projectTitle = $derived(
-    $selectedProject?.jsonData.source.project_title,
+    projectStore.selected?.jsonData.source.project_title,
   );
 
   interface Props {
@@ -17,73 +17,6 @@
   let { onChanged }: Props = $props();
 
   onMount(() => {});
-
-  // function addApi() {
-  //   if (!jsonData) {
-  //     return;
-  //   }
-
-  //   const newId = `api_${Date.now()}`;
-  //   jsonData.embedding.apis.push({
-  //     api_key: "",
-  //     api_url: "",
-  //     id: newId,
-  //     model: "",
-  //     name: "New API",
-  //     document_format: "{}",
-  //     query_format:
-  //       "Represent this sentence for searching relevant passages: {}",
-  //   });
-  //   jsonData.embedding.current_api = newId;
-  //   // selectedJsonSettings.set(jsonData);
-  //   onChange();
-  // }
-
-  // function removeApi(index: number) {
-  //   if (!jsonData) {
-  //     return;
-  //   }
-
-  //   if (1 < jsonData.embedding.apis.length) {
-  //     jsonData.embedding.apis.splice(index, 1);
-  //     // If we removed the current API, switch to the first one
-  //     if (
-  //       jsonData.embedding.current_api === jsonData.embedding.apis[index]?.id
-  //     ) {
-  //       jsonData.embedding.current_api = jsonData.embedding.apis[0]?.id || "";
-  //     }
-  //     // selectedJsonSettings.set(jsonData);
-  //     onChange();
-  //   }
-  // }
-
-  // function moveApiUp(index: number) {
-  //   if (!jsonData) {
-  //     return;
-  //   }
-
-  //   if (0 < index) {
-  //     const temp = jsonData.embedding.apis[index];
-  //     jsonData.embedding.apis[index] = jsonData.embedding.apis[index - 1];
-  //     jsonData.embedding.apis[index - 1] = temp;
-  //     // selectedJsonSettings.set(jsonData);
-  //     onChange();
-  //   }
-  // }
-
-  // function moveApiDown(index: number) {
-  //   if (!jsonData) {
-  //     return;
-  //   }
-
-  //   if (index < jsonData.embedding.apis.length - 1) {
-  //     const temp = jsonData.embedding.apis[index];
-  //     jsonData.embedding.apis[index] = jsonData.embedding.apis[index + 1];
-  //     jsonData.embedding.apis[index + 1] = temp;
-  //     // selectedJsonSettings.set(jsonData);
-  //     onChange();
-  //   }
-  // }
 
   function onCurApiChange(event: Event) {
     if (!jsonData) {
@@ -96,35 +29,16 @@
   }
 
   function onChange() {
-    if ($selectedProject) {
-      $selectedProject = $selectedProject;
-      helper_saveProjectSettings($selectedProject);
-      onChanged($selectedProject);
+    if (projectStore.selected) {
+      projectStore.selected = projectStore.selected;
+      helper_saveProjectSettings(projectStore.selected);
+      onChanged(projectStore.selected);
     }
   }
 
-  // function onExpandAll() {
-  //   if (!$selectedProject) {
-  //     return;
-  //   }
-  //   for (const api of $selectedProject?.jsonData.embedding.apis) {
-  //     api._hidden = false;
-  //   }
-  //   $selectedProject = $selectedProject;
-  // }
-
-  // function onCollapseAll() {
-  //   if (!$selectedProject) {
-  //     return;
-  //   }
-  //   for (const api of $selectedProject?.jsonData.embedding.apis) {
-  //     api._hidden = true;
-  //   }
-  //   $selectedProject = $selectedProject;
-  // }
 </script>
 
-{#if $selectedProject}
+{#if projectStore.selected}
   <div class="h-full p-4 overflow-auto">
     <form class="w-full">
       <fieldset class="space-y-4">
@@ -144,7 +58,7 @@
                 type="number"
                 id="batch-size"
                 class="input"
-                bind:value={$selectedProject.jsonData.embedding.batch_size}
+                bind:value={projectStore.selected.jsonData.embedding.batch_size}
                 min="1"
                 onchange={onChange}
               />
@@ -156,7 +70,7 @@
                 type="number"
                 id="timeout-ms"
                 class="input"
-                bind:value={$selectedProject.jsonData.embedding.timeout_ms}
+                bind:value={projectStore.selected.jsonData.embedding.timeout_ms}
                 min="1000"
                 onchange={onChange}
               />
@@ -170,7 +84,7 @@
                 type="number"
                 id="retry-attempts"
                 class="input"
-                bind:value={$selectedProject.jsonData.embedding.retry_attempts}
+                bind:value={projectStore.selected.jsonData.embedding.retry_attempts}
                 min="0"
                 onchange={onChange}
               />
@@ -182,7 +96,7 @@
                 type="number"
                 id="top-k"
                 class="input"
-                bind:value={$selectedProject.jsonData.embedding.top_k}
+                bind:value={projectStore.selected.jsonData.embedding.top_k}
                 min="1"
                 onchange={onChange}
               />
@@ -197,7 +111,7 @@
                 id="prepend-label-format"
                 class="input"
                 bind:value={
-                  $selectedProject.jsonData.embedding.prepend_label_format
+                  projectStore.selected.jsonData.embedding.prepend_label_format
                 }
                 placeholder="[Source: &#123;&#125;]\n"
                 onchange={onChange}
@@ -213,10 +127,10 @@
               <select
                 id="current-api-emb"
                 class="select"
-                value={$selectedProject.jsonData.embedding.current_api}
+                value={projectStore.selected.jsonData.embedding.current_api}
                 onchange={onCurApiChange}
               >
-                {#each $selectedProject.jsonData.embedding.enabled_providers as api}
+                {#each projectStore.selected.jsonData.embedding.enabled_providers as api}
                   <option value={api}>{api}</option>
                 {/each}
               </select>
@@ -226,7 +140,7 @@
 
         <div class="rounded-md shadow p-4 flex flex-col gap-4">
 
-          {#each $selectedProject.jsonData.embedding.enabled_providers as api, i}
+          {#each projectStore.selected.jsonData.embedding.enabled_providers as api, i}
             <div class="flex flex-col">
               <!-- checkbox for each API -->
               <label class="label flex items-center gap-2">

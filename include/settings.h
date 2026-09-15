@@ -8,6 +8,8 @@
 #include <map>
 #include "json_shim.h"
 
+inline constexpr std::string_view kAutoApiId = "auto";
+
 struct ApiConfig {
   std::string id;
   std::string name;
@@ -59,6 +61,48 @@ struct ApiConfig {
   double outputTokensPrice(size_t tokens) const {
     return (tokens / 1'000'000.0) * pricing.output;
   }
+};
+
+
+//----------------------------------------------------------------------------------------
+
+class Settings;
+
+struct AutoRouterConfig {
+
+  bool enabled = false;
+
+  struct Classifier {
+    std::string apiId;
+    size_t timeoutMs = 3500;
+    size_t maxTokens = 20;
+    float temperature = 0.f;
+    std::string prompt;
+  } classifier;
+
+  struct Rule {
+    std::string strategy; // "direct" | "ensemble"
+    std::string directModelId;          // strategy == direct
+    std::vector<std::string> draftModelIds;   // strategy == ensemble
+    std::string synthesizerModelId;           // strategy == ensemble
+  };
+  std::map<std::string, Rule> rules; // key: normalized tier tag, e.g. "tier_1_simple"
+
+  std::string fallbackModelId;
+
+  std::string resolveRoutedModelId(const std::string &raw) const {
+    const auto it = rules.find(normalizeTierTag(raw));
+    if (it != rules.end() && it->second.strategy == "direct" && !it->second.directModelId.empty())
+      return it->second.directModelId;
+    return fallbackModelId;
+  }
+  static std::string normalizeTierTag(const std::string &raw) {
+    std::string s;
+    s.reserve(raw.size());
+    for (unsigned char c : raw) if (std::isalnum(c) || c == '_') s += static_cast<char>(std::tolower(c));    
+    return s;
+  }
+  std::pair<double, double> estimateCostRange(const Settings &s);
 };
 
 
@@ -142,6 +186,8 @@ public:
   }
 
   std::vector<std::string> enabledGenerationProviders() const { return config_["generation"].value("enabled_providers", nlohmann::json::array()); }
+  std::string generationCurrentApiId() const { return config_["generation"].value("current_api", std::string{}); }
+  bool generationIsAuto() const;
   ApiConfig generationCurrentApi() const;
   std::vector<ApiConfig> generationApis() const { return providers_.generationProviders(); }
   size_t generationTimeoutMs() const { return config_["generation"].value("timeout_ms", size_t(20'000)); }
@@ -199,7 +245,8 @@ public:
   std::string configDump() const { return config_.dump(2); }
   nlohmann::json configJson() const { return config_; }
   nlohmann::json providersJson() const { return providers_.configJson(); }
+  const ProvidersSettings &providers() const { return providers_; }
+  AutoRouterConfig autoRouterConfig() const;
 };
-
 
 #endif // _SETTINGS_H_

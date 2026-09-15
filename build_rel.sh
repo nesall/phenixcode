@@ -27,7 +27,8 @@ rm -f dist/diagnostics.log
 echo "Copying scripts and setup files to dist/ ..."
 cp -r build_rel/public dist/ 2>/dev/null || echo "public folder not found, skipping"
 cp assets/README dist/
-cp assets/settings.template.json dist/
+#cp assets/settings.template.json dist/
+cp assets/providers.json dist/providers.json
 cp assets/settings.json dist/settings.json
 cp assets/settings.json dist/settings.default.json
 cp assets/bge_tokenizer.json dist/

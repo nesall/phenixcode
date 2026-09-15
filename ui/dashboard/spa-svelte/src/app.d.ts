@@ -32,11 +32,43 @@ export interface ExcerptSettings {
   threshold_ratio: number;
 }
 
-/**
- * Top-level configuration for the Generation service.
- */
+export interface AutoRouterClassifierConfig {
+  api_id: string;
+  max_tokens: number;
+  prompt: string;
+  temperature: number;
+  timeout_ms: number;
+}
+
+export interface AutoRouterFallbackConfig {
+  _comment?: string;
+  default_model_id: string;
+}
+
+export interface AutoRouterTierRule {
+  direct_model_id?: string;
+  strategy: "direct" | "ensemble" | string;
+  draft_model_ids?: string[];
+  synthesizer_model_id?: string;
+  _strategy?: string;
+}
+
+export interface AutoRouterRulesConfig {
+  tier_1_simple: AutoRouterTierRule;
+  tier_2_refactor: AutoRouterTierRule;
+  tier_3_complex: AutoRouterTierRule;
+  [tier: string]: AutoRouterTierRule;
+}
+
+export interface AutoRouterConfig {
+  enabled: boolean;
+  _validate_ids_exist?: boolean;
+  classifier: AutoRouterClassifierConfig;
+  fallback: AutoRouterFallbackConfig;
+  routing_rules: AutoRouterRulesConfig;
+}
+
 export interface GenerationSettings {
-  // apis: GenerationApi[];
   enabled_providers: string[];
   current_api: string;
   timeout_ms: number;
@@ -49,6 +81,7 @@ export interface GenerationSettings {
   default_max_tokens_name: string;
   prepend_label_format: string;
   excerpt: ExcerptSettings;
+  auto_router?: AutoRouterConfig; // Optional sub-block
 }
 
 /**

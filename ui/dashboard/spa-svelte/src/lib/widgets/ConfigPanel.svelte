@@ -7,15 +7,15 @@
   import Chunking from "./project-panels/Chunking.svelte";
   import Logging from "./project-panels/Logging.svelte";
   import Tokenizer from "./project-panels/Tokenizer.svelte";
-  import { selectedProject } from "../store";
   import JSON from "./project-panels/JSON.svelte";
   import type { ProjectItem } from "../../app";
+    import { projectStore } from "../store.svelte";
 
   let value = $state("sources");
 
-  let changedProject: ProjectItem | null = $state($selectedProject);
+  let changedProject: ProjectItem | null = $state(projectStore.selected);
 
-  const projectItem = $derived(changedProject || $selectedProject);
+  const projectItem = $derived(changedProject || projectStore.selected);
 
   function onChanged(p: ProjectItem) {
     changedProject = p;
@@ -29,7 +29,7 @@
   }
 </script>
 
-{#if $selectedProject}
+{#if projectStore.selected}
   <Tabs
     {value}
     class="h-full w-full text-sm"

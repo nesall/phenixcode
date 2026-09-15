@@ -1,11 +1,11 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { instances, projectList } from "../store";
   import { helper_importProject, standardizePath, toaster } from "../utils";
   import InstanceInfo from "./misc/InstanceInfo.svelte";
   import type { InstanceItem, ProjectItem } from "../../app";
   import { slide } from "svelte/transition";
+  import { instances, projectStore } from "../store.svelte";
 
   const fetchInstances: () => void = getContext("FetchInstances");
   const fetchProjects: () => void = getContext("FetchProjects");
@@ -15,18 +15,18 @@
   });
 
   function onInstClick(j: number) {
-    $instances[j]._hidden = !$instances[j]._hidden;
-    console.log("Toggled instance", j, $instances[j]._hidden);
+    instances[j]._hidden = !instances[j]._hidden;
+    console.log("Toggled instance", j, instances[j]._hidden);
   }
 
   function onImport(j: number) {
-    helper_importProject($instances[j].project_id, $instances[j].config).then((res) => {
+    helper_importProject(instances[j].project_id, instances[j].config).then((res) => {
       fetchProjects();
       if (res.status === "success") {
-        console.log("Imported instance into projects:", $instances[j]);
+        console.log("Imported instance into projects:", instances[j]);
         toaster.success({
           title: "Import Successful",
-          description: `Instance ${$instances[j].project_id} imported into Projects.`,
+          description: `Instance ${instances[j].project_id} imported into Projects.`,
         });
       } else {
         console.log("Failed to import instance:", res.message);
@@ -53,9 +53,9 @@
             Refresh
           </button>
         </div>
-        <div class="text-left font-bold text-lg">List of currently running active instances ({$instances.length})</div>
+        <div class="text-left font-bold text-lg">List of currently running active instances ({instances.length})</div>
         <div class="flex flex-col space-y-2">
-          {#each $instances as inst, j}
+          {#each instances as inst, j}
             <div class="border rounded">
               <button type="button" class="btn flex items-center p-2 flex items-center" onclick={() => onInstClick(j)}>
                 <span class="">
@@ -67,7 +67,7 @@
                 </span>
                 <div class="flex items-center space-x-2">
                   <div><span>Instance:&nbsp;</span><span class="font-bold">{inst.project_id}</span></div>
-                  {#if !isInstInProjectList(inst, $projectList)}
+                  {#if !isInstInProjectList(inst, projectStore.list)}
                     <span class="italic text-error-500 text-sm">(not in projects)</span>
                   {/if}
                 </div>
@@ -77,7 +77,7 @@
               {/if}
               {#if !inst._hidden}
                 <div class="pt-2" transition:slide>
-                  {#if !isInstInProjectList(inst, $projectList)}
+                  {#if !isInstInProjectList(inst, projectStore.list)}
                     <div class="w-full flex items-center space-x-4 px-4">
                       <button
                         type="button"

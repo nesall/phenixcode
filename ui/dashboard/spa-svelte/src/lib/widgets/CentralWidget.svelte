@@ -6,7 +6,7 @@
   import CentralInstances from "./CentralInstances.svelte";
   import CentralSettings from "./CentralSettings.svelte";
   import { onMount } from "svelte";
-    import CentralProviders from "./CentralProviders.svelte";
+  import CentralProviders from "./CentralProviders.svelte";
 
   // interface Props {
   //   fetchInstances: () => void;
@@ -43,10 +43,10 @@
 
 <Tabs defaultValue="projects" class="h-full">
   <Tabs.List>
-    <Tabs.Trigger value="projects"><icons.Settings size={20} /> Projects</Tabs.Trigger>
-    <Tabs.Trigger value="providers"><icons.Target size={20} /> Providers</Tabs.Trigger>
+    <Tabs.Trigger value="projects"><icons.FolderGit2 size={20} /> Projects</Tabs.Trigger>
+    <Tabs.Trigger value="providers"><icons.Boxes size={20} /> Providers</Tabs.Trigger>
     <Tabs.Trigger value="instances"><icons.Activity size={20} /> Instances</Tabs.Trigger>
-    <Tabs.Trigger value="activity"><icons.Settings2 size={20} /> Settings</Tabs.Trigger>
+    <Tabs.Trigger value="settings"><icons.Settings size={20} /> Settings</Tabs.Trigger>
     <Tabs.Indicator />
     <div class="ml-auto flex items-center">
       <button

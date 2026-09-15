@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { selectedProject } from "../../store";
+  import { projectStore } from "../../store.svelte";
   import type { DatabaseSettings } from "../../../app";
   import { helper_saveProjectSettings, isParentDirValid } from "../../utils";
 
@@ -10,25 +10,21 @@
   }
   let { onChanged }: Props = $props();
 
-  const projectTitle = $derived(
-    $selectedProject?.jsonData.source.project_title,
-  );
-
   let indexParentDirError = $state("");
   let dbParentDirError = $state("");
 
   onMount(() => {});
 
   function onChange() {
-    if ($selectedProject) {
-      helper_saveProjectSettings($selectedProject);
-      onChanged($selectedProject);
+    if (projectStore.selected) {
+      helper_saveProjectSettings(projectStore.selected);
+      onChanged(projectStore.selected);
     }
   }
 
   async function onDbChange() {
-    if ($selectedProject) {
-      let path = $selectedProject.jsonData.database.sqlite_path;
+    if (projectStore.selected) {
+      let path = projectStore.selected.jsonData.database.sqlite_path;
       const res = await isParentDirValid(path);
       if (res.status !== "success") {
         dbParentDirError = res.message;
@@ -40,13 +36,13 @@
   }
 
   async function onIndexChange() {
-    if ($selectedProject) {
-      let path = $selectedProject.jsonData.database.index_path;
+    if (projectStore.selected) {
+      let path = projectStore.selected.jsonData.database.index_path;
       const res = await isParentDirValid(path);
       if (res.status !== "success") {
-        dbParentDirError = res.message;
+        indexParentDirError = res.message;
       } else {
-        dbParentDirError = "";
+        indexParentDirError = "";
       }
       onChange();
     }
@@ -62,7 +58,7 @@
   const formatNumber = (num: number) => new Intl.NumberFormat().format(num);
 </script>
 
-{#if $selectedProject}
+{#if projectStore.selected}
   <div class="h-full p-4 overflow-auto">
     <form class="w-full">
       <fieldset class="space-y-4">
@@ -72,7 +68,7 @@
               <icons.Database size={24} />
               Vector Database Configuration
             </h2>
-            <code class="px-2 rounded text-lg">{projectTitle}</code>
+            <code class="px-2 rounded text-lg">{projectStore.selected?.jsonData.source.project_title}</code>
           </div>
 
           <!-- File Paths -->
@@ -85,7 +81,7 @@
               <input
                 type="text"
                 class="input"
-                bind:value={$selectedProject.jsonData.database.sqlite_path}
+                bind:value={projectStore.selected.jsonData.database.sqlite_path}
                 placeholder="./db_metadata.db"
                 onchange={onDbChange}
               />
@@ -99,7 +95,7 @@
               <input
                 type="text"
                 class="input"
-                bind:value={$selectedProject.jsonData.database.index_path}
+                bind:value={projectStore.selected.jsonData.database.index_path}
                 placeholder="./db_embeddings.index"
                 onchange={onIndexChange}
               />
@@ -122,7 +118,7 @@
               <input
                 type="number"
                 class="input"
-                bind:value={$selectedProject.jsonData.database.vector_dim}
+                bind:value={projectStore.selected.jsonData.database.vector_dim}
                 min="1"
                 onchange={onChange}
               />
@@ -136,13 +132,13 @@
               <input
                 type="number"
                 class="input"
-                bind:value={$selectedProject.jsonData.database.max_elements}
+                bind:value={projectStore.selected.jsonData.database.max_elements}
                 min="1000"
                 onchange={onChange}
               />
               <p class="text-sm text-surface-500 mt-1">
                 Maximum number of vectors the index can hold ({formatNumber(
-                  $selectedProject.jsonData.database.max_elements,
+                  projectStore.selected.jsonData.database.max_elements,
                 )}).
               </p>
             </label>
@@ -151,7 +147,7 @@
               <span class="label-text">Distance Metric</span>
               <select
                 class="select"
-                bind:value={$selectedProject.jsonData.database.distance_metric}
+                bind:value={projectStore.selected.jsonData.database.distance_metric}
               >
                 {#each distanceMetrics as metric}
                   <option value={metric}>{metric.toUpperCase()}</option>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as icons from "@lucide/svelte";
-  import { selectedProject } from "../../store";
+  import { projectStore, instances } from "../../store.svelte";
   import type { ProjectItem } from "../../../app";
 
   interface Props {
@@ -33,7 +33,7 @@
       </div>
       <div class="flex items-center space-x-1">
         <span class="font-semibold">File location:</span>
-        <span class="font-mono">{$selectedProject?.settingsFilePath}</span>
+        <span class="font-mono"> {projectStore.selected?.settingsFilePath} </span>
       </div>
       <div class="flex items-center space-x-1">
         <span class="italic text-xs">Projects folder location can be overridden with <code class="code">PHENIXCODE_PROJECTS_FOLDER</code> environment variable</span>

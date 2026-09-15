@@ -12,43 +12,40 @@ const renderer: RendererObject = {
       <h${depth}${className}>${text}</h${depth}>`;
   },
 
-  // list(token: Tokens.List) {
-  //   const listItems = token.items.map(item => {
-  //     // Render each list item using the default listitem renderer
-  //     // or a custom one if defined
-  //     return this.listitem(item);
-  //   }).join('');
-  //   if (token.ordered) {
-  //     const startAttr = token.start !== 1 ? ` start="${token.start}"` : '';
-  //     return `<ol class="list-inside list-decimal space-y-1 py-2 pl-4"${startAttr}>\n${listItems}\n</ol>\n`;
-  //   }
-  //   return `<ul class="list-inside list-disc space-y-1 pl-4">
-  //     ${listItems}</ul>\n`;
-  // },
+  list(token: Tokens.List) {
+    const listItems = token.items.map(item => this.listitem(item)).join('');
+    if (token.ordered) {
+      const startAttr = token.start !== 1 ? ` start="${token.start}"` : '';
+      return `<ol class="list-inside list-decimal space-y-1 py-2 pl-4"${startAttr}>\n${listItems}\n</ol>\n`;
+    }
+    return `<ul class="list-inside list-disc space-y-1 pl-4">\n${listItems}</ul>\n`;
+  },
 
   listitem(item: Tokens.ListItem): string {
+    const checkbox = item.task
+      ? `<input type="checkbox" ${item.checked ? 'checked ' : ''}disabled class="mr-1 align-middle" /> `
+      : '';
+
     const first = item.tokens[0];
     if (first?.type === 'text' || first?.type === 'paragraph') {
-      const tokens = (first as any).tokens ?? [];
+      const tokens = ((first as any).tokens ?? []).filter((t: any) => t.type !== 'checkbox');
       const body = tokens.length
         ? this.parser.parseInline(tokens) as string
         : (first as any).text as string;
       const rest = item.tokens.length > 1
         ? this.parser.parse(item.tokens.slice(1)) as string
         : '';
-      return `<li>${body}${rest}</li>\n`;
+      const liClass = item.task ? ' class="list-none"' : '';
+      return `<li${liClass}>${checkbox}${body}${rest}</li>\n`;
     }
     return `<li>${this.parser.parse(item.tokens)}</li>\n`;
   },
 
   link(token: Tokens.Link): string {
-    let href = token.href || "";
-    const prefix = "/scratch/packages";
-    if (href.startsWith(prefix) && prefix.length < href.length) {
-      const file = encodeURIComponent(href.substring(prefix.length + 1));
-      href = procUrl(apiUrl(`/api/download?file=${file}`));
-    }
-    return `<a href="${href}" title="${token.title || 'Click to download ' + token.text}" download="${token.text}" class="underline text-primary-500">${token.text}</a>`;
+    const href = escapeHtml(token.href || '');
+    const text = escapeHtml(token.text || '');
+    const title = escapeHtml(token.title || '');
+    return `<a href="${href}"${title ? ` title="${title}"` : ''} class="underline text-primary-500">${text}</a>`;
   },
 
   code(token: Tokens.Code): string {
@@ -87,7 +84,7 @@ const renderer: RendererObject = {
 
 };
 
-marked.use({ renderer, async: false });
+marked.use({ renderer, async: false, gfm: true });
 
 export function renderMarkdown(content: string, urlProcessor?: (url: string) => string) {
   if (urlProcessor) {

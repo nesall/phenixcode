@@ -88,19 +88,23 @@
     $contextSizeRatio = ratio;
   }
 
-  const apiOptions = $derived(
-    apiOptionsGroupedSorted(
-      $settings.completionApis.map((a) => ({
-        value: a.id,
-        label: a.model,
-        hint: `${a.name} - ${a.model} (cost: ${Number(a.combinedPrice).toFixed(2)})`,
-        group: a.name,
-        _price: a.combinedPrice,
-      })),
-      $bApisSortedByPrice,
-      $bApisGroupedByLabel,
-    ),
-  );
+const apiOptions = $derived(
+  apiOptionsGroupedSorted(
+    $settings.completionApis.map((a) => ({
+      value: a.id,
+      label: a.model,
+      hint: `${a.name}${a.model === "auto" ? "" : ` - ${a.model}`} (cost: ${
+        typeof a.combinedPrice === "string"
+          ? a.combinedPrice
+          : a.combinedPrice.toFixed(2)
+      })`,
+      group: a.name,
+      _price: a.combinedPrice,
+    })),
+    $bApisSortedByPrice,
+    $bApisGroupedByLabel,
+  ),
+);
 
   const curApi = $derived(
     -1 != $settings.completionApis.findIndex((a) => a.current)

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { selectedProject } from "../../store";
+  import { projectStore } from "../../store.svelte";
   import { helper_saveProjectSettings } from "../../utils";
 
   interface Props {
@@ -9,21 +9,17 @@
   }
   let { onChanged }: Props = $props();
 
-  const projectTitle = $derived(
-    $selectedProject?.jsonData.source.project_title,
-  );
-
   onMount(() => {});
 
   function onChange() {
-    if ($selectedProject) {
-      helper_saveProjectSettings($selectedProject);
-      onChanged($selectedProject);
+    if (projectStore.selected) {
+      helper_saveProjectSettings(projectStore.selected);
+      onChanged(projectStore.selected);
     }
   }
 </script>
 
-{#if $selectedProject}
+{#if projectStore.selected}
   <div class="h-full p-4 overflow-auto">
     <form class="w-full">
       <fieldset class="space-y-4">
@@ -33,7 +29,7 @@
               <icons.Split size={24} />
               Document Chunking Settings
             </h2>
-            <code class="px-2 rounded text-lg">{projectTitle}</code>
+            <code class="px-2 rounded text-lg">{projectStore.selected?.jsonData.source.project_title}</code>
           </div>
 
           <!-- Semantic Chunking Toggle -->
@@ -46,7 +42,7 @@
             <input
               type="checkbox"
               class="checkbox checkbox-lg preset-filled-primary-500"
-              bind:checked={$selectedProject.jsonData.chunking.semantic}
+              bind:checked={projectStore.selected.jsonData.chunking.semantic}
               id="semantic-toggle"
               onchange={onChange}
             />
@@ -73,9 +69,9 @@
               <input
                 type="number"
                 class="input"
-                bind:value={$selectedProject.jsonData.chunking.nof_min_tokens}
+                bind:value={projectStore.selected.jsonData.chunking.nof_min_tokens}
                 min="1"
-                max={$selectedProject.jsonData.chunking.nof_max_tokens}
+                max={projectStore.selected.jsonData.chunking.nof_max_tokens}
                 onchange={onChange}
               />
               <p class="text-sm text-surface-500 mt-1">
@@ -88,8 +84,8 @@
               <input
                 type="number"
                 class="input"
-                bind:value={$selectedProject.jsonData.chunking.nof_max_tokens}
-                min={$selectedProject.jsonData.chunking.nof_min_tokens}
+                bind:value={projectStore.selected.jsonData.chunking.nof_max_tokens}
+                min={projectStore.selected.jsonData.chunking.nof_min_tokens}
                 onchange={onChange}
               />
               <p class="text-sm text-surface-500 mt-1">
@@ -109,7 +105,7 @@
             <input
               type="number"
               class="input"
-              bind:value={$selectedProject.jsonData.chunking.overlap_percentage}
+              bind:value={projectStore.selected.jsonData.chunking.overlap_percentage}
               min="0"
               max="1"
               step="0.05"

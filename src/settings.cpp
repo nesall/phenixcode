@@ -119,10 +119,86 @@ namespace {
     ss << std::hex << std::setfill('0') << std::setw(16) << hasher(str);
     return ss.str();
   }
+
+  std::string jsonStr(const nlohmann::json &j, const char *key, std::string def = {}) {
+    if (!j.contains(key) || !j[key].is_string()) return def;
+    return j[key].get<std::string>();
+  }
+
+  size_t jsonSize(const nlohmann::json &j, const char *key, size_t def) {
+    if (!j.contains(key) || !j[key].is_number_unsigned()) return def;
+    return j[key].get<size_t>();
+  }
+
+  float jsonFloat(const nlohmann::json &j, const char *key, float def) {
+    if (!j.contains(key) || !j[key].is_number()) return def;
+    return j[key].get<float>();
+  }
+
+  AutoRouterConfig parseAutoRouterConfig(const nlohmann::json &j) {
+    AutoRouterConfig res;
+    if (!j.is_object()) return res;
+    res.enabled = j.value("enabled", false);
+    if (j.contains("classifier") && j["classifier"].is_object()) {
+      const auto &c = j["classifier"];
+      res.classifier.apiId = jsonStr(c, "api_id");
+      res.classifier.timeoutMs = jsonSize(c, "timeout_ms", res.classifier.timeoutMs);
+      res.classifier.maxTokens = jsonSize(c, "max_tokens", res.classifier.maxTokens);
+      res.classifier.temperature = jsonFloat(c, "temperature", res.classifier.temperature);
+      res.classifier.prompt = jsonStr(c, "prompt");
+    }
+    if (j.contains("routing_rules") && j["routing_rules"].is_object()) {
+      for (auto it = j["routing_rules"].begin(); it != j["routing_rules"].end(); ++it) {
+        if (!it.value().is_object()) continue;
+        const auto &r = it.value();
+        AutoRouterConfig::Rule rule;
+        rule.strategy = jsonStr(r, "strategy");
+        rule.directModelId = jsonStr(r, "direct_model_id");
+        rule.synthesizerModelId = jsonStr(r, "synthesizer_model_id");
+        if (r.contains("draft_model_ids") && r["draft_model_ids"].is_array()) {
+          for (const auto &id : r["draft_model_ids"]) {
+            if (id.is_string()) rule.draftModelIds.push_back(id.get<std::string>());
+          }
+        }
+        res.rules.emplace(it.key(), std::move(rule));
+      }
+    }
+    if (j.contains("fallback") && j["fallback"].is_object())
+      res.fallbackModelId = jsonStr(j["fallback"], "default_model_id");
+    return res;
+  }
+
 } // anonymous namespace
 
 
 //----------------------------------------------------------------------------------------
+
+
+std::pair<double, double> AutoRouterConfig::estimateCostRange(const Settings &s)
+{
+  double minCost = 0.0;
+  double maxCost = 0.0;
+  for (const auto &[tier, rule] : rules) {
+    const std::string modelId = resolveRoutedModelId(tier);
+    if (modelId.empty()) continue;
+    const ApiConfig *cfg = s.providers().findGeneration(modelId);
+    if (!cfg) continue;
+    double cost = cfg->combinedPrice();
+    if (minCost == 0.0 || cost < minCost) minCost = cost;
+    if (cost > maxCost) maxCost = cost;
+  }
+  const ApiConfig *clfCfg = s.providers().findGeneration(classifier.apiId);
+  if (clfCfg) {
+    double clfCost = clfCfg->combinedPrice();
+    minCost += clfCost;
+    maxCost += clfCost;
+  }
+  return { minCost, maxCost };
+}
+
+
+//----------------------------------------------------------------------------------------
+
 
 ProvidersSettings::ProvidersSettings(const std::string &path)
 {
@@ -192,7 +268,9 @@ Settings::Settings(const std::string &path, const std::string &providersPath)
 
 void Settings::updateFromConfig(const nlohmann::json &config)
 {
-  config_ = config; // Or merge specific fields
+  if (config.is_object()) {
+    config_.merge_patch(config);
+  }
 }
 
 void Settings::updateFromPath(const std::string &path)
@@ -226,45 +304,94 @@ void Settings::validateProjectJson(nlohmann::json j)
 
 void Settings::validate()
 {
-  validateProjectJson(config_);  
+  validateProjectJson(config_);
 
   // Validate a provider section: current_api must be listed in enabled_providers
   // and must exist in the providers list loaded from the providers file.
-  auto validateProviderSection = [&](const char *sectionName,
-    const std::vector<ApiConfig> &providers) {
-      const auto &section = config_[sectionName];
-      const std::string currentApi = section.value("current_api", std::string{});
-      if (currentApi.empty()) {
-        throw std::runtime_error(std::string("Missing 'current_api' in settings section: ") + sectionName);
-      }
+  auto validateProviderSection = [&](const char *sectionName, const std::vector<ApiConfig> &providers) {
+    const auto &section = config_[sectionName];
+    const std::string currentApi = section.value("current_api", std::string{});
+    if (currentApi.empty()) {
+      throw std::runtime_error(std::string("Missing 'current_api' in settings section: ") + sectionName);
+    }
+    std::vector<std::string> enabledApis = section.value("enabled_providers", nlohmann::json::array());
+    if (std::find(enabledApis.cbegin(), enabledApis.cend(), currentApi) == enabledApis.cend()) {
+      LOG_MSG << "Warning: current_api '" << currentApi << "' is not in this project's enabled_providers";
+      throw std::runtime_error("current_api '" + currentApi + "' is not in this project's enabled_providers");
+    }
 
-      std::vector<std::string> enabledApis =
-        section.value("enabled_providers", nlohmann::json::array());
-      if (std::find(enabledApis.cbegin(), enabledApis.cend(), currentApi) == enabledApis.cend()) {
-        LOG_MSG << "Warning: current_api '" << currentApi << "' is not in this project's enabled_providers";
-        throw std::runtime_error("current_api '" + currentApi + "' is not in this project's enabled_providers");
-      }
+    //const bool isAuto = generationIsAuto();
+    //if (isAuto) {
+    //  if (std::strcmp(sectionName, "generation") != 0)
+    //    throw std::runtime_error("'auto' is only valid as generation.current_api");
+    //  if (!config_["generation"].contains("auto_router") || !config_["generation"]["auto_router"].is_object())
+    //    throw std::runtime_error("'auto' requires generation.auto_router");
+    //  return; // skip catalog lookup
+    //}
 
-      bool found = false;
-      for (const auto &cfg : providers) {
-        if (cfg.id == currentApi) {
-          found = true;
-          break;
-        }
+    bool found = false;
+    for (const auto &cfg : providers) {
+      if (cfg.id == currentApi) {
+        found = true;
+        break;
       }
-      if (!found) {
-        throw std::runtime_error("current_api '" + currentApi + "' not found in providers list for section '" + sectionName + "'");
-      }
+    }
+    if (!found) {
+      throw std::runtime_error("current_api '" + currentApi + "' not found in providers list for section '" + sectionName + "'");
+    }
     };
 
   validateProviderSection("embedding", providers_.embeddingProviders());
   validateProviderSection("generation", providers_.generationProviders());
+
+  if (generationIsAuto()) {
+    const AutoRouterConfig router = autoRouterConfig();
+    const auto enabled = enabledGenerationProviders();
+    const auto catalog = generationApis();
+
+    auto requireRealGenId = [&](const std::string &id, const std::string &what) {
+      if (id.empty())
+        throw std::runtime_error("auto_router: " + what + " is empty");
+      if (id == kAutoApiId)
+        throw std::runtime_error("auto_router: " + what + " cannot be 'auto'");
+      if (std::find(enabled.begin(), enabled.end(), id) == enabled.end())
+        throw std::runtime_error("auto_router: " + what + " '" + id + "' is not in generation.enabled_providers");
+      const bool inCatalog = std::any_of(catalog.begin(), catalog.end(), [&](const ApiConfig &a) { return a.id == id; });
+      if (!inCatalog)
+        throw std::runtime_error("auto_router: " + what + " '" + id + "' is not in generation_providers");
+      };
+
+    if (router.classifier.prompt.empty())
+      throw std::runtime_error("auto_router: classifier.prompt is empty");
+    requireRealGenId(router.classifier.apiId, "classifier.api_id");
+
+    if (router.fallbackModelId.empty())
+      throw std::runtime_error("auto_router: fallback.default_model_id is empty");
+    requireRealGenId(router.fallbackModelId, "fallback.default_model_id");
+
+    if (router.rules.empty())
+      throw std::runtime_error("auto_router: routing_rules is empty");
+
+    for (const auto &[tag, rule] : router.rules) {
+      if (tag.empty())
+        throw std::runtime_error("auto_router: routing_rules contains an empty key");
+      if (rule.strategy != "direct") {
+        throw std::runtime_error("auto_router: routing_rules." + tag + " strategy must be 'direct' (ensemble is not supported yet)");
+      }
+      requireRealGenId(rule.directModelId, "routing_rules." + tag + ".direct_model_id");
+    }
+  }
 }
 
 ApiConfig Settings::embeddingCurrentApi() const
 {
   if (!config_.contains("embedding")) return {};
   return getCurrentApiConfig(config_["embedding"], providers_.embeddingProviders());
+}
+
+bool Settings::generationIsAuto() const
+{
+  return config_["generation"].contains("auto_router") && config_["generation"]["auto_router"].value("enabled", false);
 }
 
 ApiConfig Settings::generationCurrentApi() const
@@ -353,3 +480,11 @@ std::vector<Settings::SourceItem> Settings::sources() const
   return res;
 }
 
+AutoRouterConfig Settings::autoRouterConfig() const
+{
+  if (!config_.contains("generation") ||
+    !config_["generation"].contains("auto_router") ||
+    !config_["generation"]["auto_router"].is_object())
+    return {};
+  return parseAutoRouterConfig(config_["generation"]["auto_router"]);
+}

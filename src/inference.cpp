@@ -172,6 +172,30 @@ InferenceClient::~InferenceClient()
 {
 }
 
+std::string InferenceClient::generateChat(const nlohmann::json &messages, float temperature, size_t maxTokens) const
+{
+#ifndef CPPHTTPLIB_OPENSSL_SUPPORT
+  if (cfg().apiUrl.starts_with("https://"))
+    throw std::runtime_error("HTTPS not supported in this build");
+#endif
+  const auto [httpClient, path] = imp->httpClientForUrl(cfg().apiUrl);
+  if (!httpClient)
+    throw std::runtime_error("Failed to initialize http client");
+
+  nlohmann::json body = buildRequestBody(cfg(), messages, temperature, maxTokens);
+  body["stream"] = false;
+  body["temperature"] = temperature;
+
+  const httplib::Headers headers = buildHeaders(cfg(), /*streaming=*/false);
+  const auto res = httpClient->Post(path.c_str(), headers, body.dump(), "application/json");
+  if (!res)
+    throw std::runtime_error("Failed to connect to completion server");
+  if (res->status != 200)
+    throw std::runtime_error(fmt::format("Server returned error: {} - {}", res->status, res->body));
+
+  return extractFullContent(cfg(), nlohmann::json::parse(res->body));
+}
+
 const ApiConfig &InferenceClient::cfg() const
 {
   return imp->apiCfg_;

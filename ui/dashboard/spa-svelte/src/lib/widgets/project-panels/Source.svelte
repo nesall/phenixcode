@@ -1,7 +1,7 @@
 <!-- Source.svelte -->
 <script lang="ts">
   import * as icons from "@lucide/svelte";
-  import { selectedProject } from "../../store";
+  import { projectStore } from "../../store.svelte";
   import { onMount } from "svelte";
   import { helper_saveProjectSettings } from "../../utils";
 
@@ -10,8 +10,8 @@
   }
   let { onChanged }: Props = $props();
 
-  const jsonData = $derived($selectedProject?.jsonData);
-  const projectTitle = $derived($selectedProject?.jsonData.source.project_title);
+  const jsonData = $derived(projectStore.selected?.jsonData);
+  const projectTitle = $derived(projectStore.selected?.jsonData.source.project_title);
 
   let newExtension = $state("");
   let newGlobalExclude = $state("");
@@ -21,10 +21,9 @@
   onMount(() => {});
 
   function onChange() {
-    if ($selectedProject) {
-      $selectedProject = $selectedProject;
-      helper_saveProjectSettings($selectedProject);
-      onChanged($selectedProject);
+    if (projectStore.selected) {
+      helper_saveProjectSettings(projectStore.selected);
+      onChanged(projectStore.selected);
     }
   }
 
@@ -151,11 +150,11 @@
   }
 </script>
 
-{#if $selectedProject === undefined}
+{#if projectStore.selected === undefined}
   <div class="h-full flex items-center justify-center">
     <span class="text-surface-400 italic">Loading...</span>
   </div>
-{:else if $selectedProject}
+{:else if projectStore.selected}
   <div class="flex flex-col h-full p-4 overflow-auto space-y-6">
     <div class="rounded-lg shadow p-4">
       <div class="mb-4 flex items-center justify-between">
@@ -173,7 +172,7 @@
             type="text"
             id="project-id"
             class="input"
-            bind:value={$selectedProject.jsonData.source.project_id}
+            bind:value={projectStore.selected.jsonData.source.project_id}
             placeholder="Leave empty to auto-generate"
             onchange={onChange}
           />
@@ -185,7 +184,7 @@
             type="text"
             id="project-title"
             class="input"
-            bind:value={$selectedProject.jsonData.source.project_title}
+            bind:value={projectStore.selected.jsonData.source.project_title}
             onchange={onChange}
           />
         </label>
@@ -196,7 +195,7 @@
         <textarea
           id="project-description"
           class="input"
-          bind:value={$selectedProject.jsonData.source.project_description}
+          bind:value={projectStore.selected.jsonData.source.project_description}
           rows="3"
           onchange={onChange}
         ></textarea>
@@ -209,7 +208,7 @@
             type="text"
             id="encoding"
             class="input"
-            bind:value={$selectedProject.jsonData.source.encoding}
+            bind:value={projectStore.selected.jsonData.source.encoding}
             onchange={onChange}
           />
         </label>
@@ -220,7 +219,7 @@
             type="number"
             id="max-file-size"
             class="input"
-            bind:value={$selectedProject.jsonData.source.max_file_size_mb}
+            bind:value={projectStore.selected.jsonData.source.max_file_size_mb}
             min="1"
             onchange={onChange}
           />
@@ -232,7 +231,7 @@
       <h2 class="font-semibold text-lg mb-4">Default Extensions</h2>
 
       <div class="flex flex-wrap gap-2">
-        {#each $selectedProject.jsonData.source.default_extensions as ext, i}
+        {#each projectStore.selected.jsonData.source.default_extensions as ext, i}
           <div class="flex items-center bg-primary-100-900 rounded pl-3 pr-2 py-1">
             <span class="text-sm">{ext}</span>
             <button type="button" class="ml-2 text-blue-500 hover:text-red-500" onclick={() => removeExtension(i)}>
@@ -264,7 +263,7 @@
       <h2 class="text-lg font-semibold mb-4">Global Exclude Patterns</h2>
 
       <div class="flex flex-wrap gap-2">
-        {#each $selectedProject.jsonData.source.global_exclude as pattern, i}
+        {#each projectStore.selected.jsonData.source.global_exclude as pattern, i}
           <div class="flex items-center bg-error-100-900 rounded pl-3 pr-2 py-1">
             <span class="text-sm">{pattern}</span>
             <button
@@ -298,13 +297,13 @@
 
     <div class="rounded-lg shadow p-4">
       <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-bold">Paths ({$selectedProject.jsonData.source.paths.length})</h2>
+        <h2 class="text-xl font-bold">Paths ({projectStore.selected.jsonData.source.paths.length})</h2>
         <button type="button" class="btn px-3 py-1 preset-filled-primary-500 rounded-md" onclick={addPath}>
           Add Path
         </button>
       </div>
 
-      {#each $selectedProject.jsonData.source.paths as path, i}
+      {#each projectStore.selected.jsonData.source.paths as path, i}
         <div class="border border-surface-200-800 rounded-md p-4 mb-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <label class="label">
@@ -417,7 +416,7 @@
                 type="button"
                 class="preset-tonal-primary btn"
                 onclick={() => movePathDown(i)}
-                disabled={i === $selectedProject.jsonData.source.paths.length - 1}
+                disabled={i === projectStore.selected.jsonData.source.paths.length - 1}
               >
                 ↓ Down
               </button>
@@ -426,7 +425,7 @@
               type="button"
               class="btn preset-filled-error-500"
               onclick={() => removePath(i)}
-              disabled={$selectedProject.jsonData.source.paths.length === 1}
+              disabled={projectStore.selected.jsonData.source.paths.length === 1}
             >
               Remove Path
             </button>

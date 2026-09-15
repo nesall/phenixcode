@@ -1,29 +1,25 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { selectedProject } from "../../store";
+  import { projectStore } from "../../store.svelte";
   import { helper_saveProjectSettings } from "../../utils";
 
   interface Props {
     onChanged: any;
   }
   let { onChanged }: Props = $props();
-  
-  const projectTitle = $derived(
-    $selectedProject?.jsonData.source.project_title,
-  );
 
   onMount(() => {});
 
   function onChange() {
-    if ($selectedProject) {
-      helper_saveProjectSettings($selectedProject);
-      onChanged($selectedProject);
+    if (projectStore.selected) {
+      helper_saveProjectSettings(projectStore.selected);
+      onChanged(projectStore.selected);
     }
   }
 </script>
 
-{#if $selectedProject}
+{#if projectStore.selected}
   <div class="h-full p-4 overflow-auto">
     <form class="w-full">
       <fieldset class="space-y-4">
@@ -33,7 +29,7 @@
               <icons.TextAlignStart size={24} />
               Tokenizer Configuration
             </h2>
-            <code class="px-2 rounded text-lg">{projectTitle}</code>
+            <code class="px-2 rounded text-lg">{projectStore.selected.jsonData.source.project_title}</code>
           </div>
 
           <!-- Configuration Path -->
@@ -45,7 +41,7 @@
             <input
               type="text"
               class="input"
-              bind:value={$selectedProject.jsonData.tokenizer.config_path}
+              bind:value={projectStore.selected.jsonData.tokenizer.config_path}
               placeholder="./bge_tokenizer.json"
               onchange={onChange}
             />
