@@ -32,6 +32,8 @@ cp assets/providers.json dist/providers.json
 cp assets/settings.json dist/settings.json
 cp assets/settings.json dist/settings.default.json
 cp assets/bge_tokenizer.json dist/
+mkdir -p dir/models
+cp assets/baseline_v1.bin dist/models/
 #cp scripts/install-service.sh dist/
 #cp scripts/uninstall-service.sh dist/
 #cp scripts/start.sh dist/

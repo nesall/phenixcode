@@ -17,6 +17,8 @@ export interface GenerationApi {
   model: string;
   name: string;
   max_tokens_name?: string; // The query parameter name for max tokens (e.g., 'max_completion_tokens')
+  max_tokens?: number; // The maximum number of tokens allowed for generation
+  temperature?: number; // The temperature setting for generation
   pricing_tpm: PricingTpm;
   context_length: number;
   _hidden?: boolean;

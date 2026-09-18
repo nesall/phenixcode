@@ -13,6 +13,10 @@
     fetchProviders();
   });
 
+  const jsonStr = $derived(
+    JSON.stringify({ embedding_providers: embeddingProviders, generation_providers: generationProviders }, null, 2),
+  );
+
   function onChange() {
     helper_saveProvidersSettings({
       embedding_providers: embeddingProviders,
@@ -92,9 +96,16 @@
     activeProviders.forEach((api) => (api._hidden = false));
     onChange();
   }
+
+  let copied = $state(false);
+  async function onCopy() {
+    await navigator.clipboard.writeText(jsonStr);
+    copied = true;
+    setTimeout(() => (copied = false), 1500);
+  }
 </script>
 
-<div style="height: 100%">
+<div style="height: 100%" class="flex flex-col gap-4 items-center">
   <div>
     <button
       type="button"
@@ -110,8 +121,15 @@
     >
       Generation
     </button>
+    <button
+      type="button"
+      class="btn {currentTab == 2 ? 'preset-filled-tertiary-500' : ''}"
+      onclick={() => (currentTab = 2)}
+    >
+      JSON
+    </button>
   </div>
-  <div class="h-full p-4 overflow-auto">
+  <div class="h-full p-4 w-full lg:max-w-6xl overflow-auto">
     {#if currentTab == 1}
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-bold">
@@ -183,16 +201,39 @@
                 </label>
               </div>
 
-              <label class="label">
-                <span class="label-text">Max Tokens Param Name</span>
-                <input
-                  type="text"
-                  class="input"
-                  bind:value={api.max_tokens_name}
-                  placeholder="max_tokens"
-                  onchange={onChange}
-                />
-              </label>
+              <div class="flex flex-col md:flex-row gap-4">
+                <label class="label">
+                  <span class="label-text">Temperature</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    class="input"
+                    bind:value={api.temperature}
+                    placeholder="temperature"
+                    onchange={onChange}
+                  />
+                </label>
+                <label class="label">
+                  <span class="label-text">Max Tokens</span>
+                  <input
+                    type="number"
+                    class="input"
+                    bind:value={api.max_tokens}
+                    placeholder="max_tokens"
+                    onchange={onChange}
+                  />
+                </label>
+                <label class="label">
+                  <span class="label-text">Max Tokens Param Name</span>
+                  <input
+                    type="text"
+                    class="input"
+                    bind:value={api.max_tokens_name}
+                    placeholder="max_tokens"
+                    onchange={onChange}
+                  />
+                </label>
+              </div>
 
               <div class="border border-surface-500 p-3 rounded-md">
                 <span class="label-text font-semibold mb-2 block">Pricing (TPM)</span>
@@ -262,7 +303,7 @@
           {/if}
         </div>
       {/each}
-    {:else}
+    {:else if currentTab == 0}
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-bold">
           Embedding APIs ({embeddingProviders.length})
@@ -398,6 +439,23 @@
           {/if}
         </div>
       {/each}
+    {:else if currentTab == 2}
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold">JSON Configuration</h2>
+      </div>
+      <div class="rounded-md shadow p-4 flex flex-col gap-4">
+        <div class="relative">
+          <pre class="pre text-left min-h-40 overflow-x-auto">{jsonStr}</pre>
+          <button
+            class="absolute top-2 right-2 px-2 py-1 text-xs rounded bg-gray-700 text-white hover:bg-gray-600"
+            onclick={onCopy}
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+      </div>
+    {:else}
+      <div>Invalid tab selection</div>
     {/if}
   </div>
 </div>

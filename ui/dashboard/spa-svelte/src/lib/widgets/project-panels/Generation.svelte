@@ -196,7 +196,7 @@
               />
             </label>
             <label class="label">
-              <span class="label-text">Max Tokens Param Name</span>
+              <span class="label-text">Default Max Tokens Param Name</span>
               <input
                 type="text"
                 class="input"

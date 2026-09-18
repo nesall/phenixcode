@@ -14,7 +14,7 @@ GLM_URL="https://api.z.ai/api/paas/v4/chat/completions"
 
 SYSTEM_PROMPT='Classify the user programming task into exactly one tier:
 [TIER_1_SIMPLE]: quick syntax, single function, lookup, explanation
-[TIER_2_REFACTOR]: multi-file changes, bug fixing, medium edits
+[TIER_2_MEDIUM]: multi-file changes, bug fixing, medium edits
 [TIER_3_COMPLEX]: deep architectural reasoning, tricky algorithms, math/threading
 Answer ONLY with the tag.'
 
@@ -67,13 +67,13 @@ $'TIER_1_SIMPLE\tWhat does HTTP status code 404 mean?'
 $'TIER_1_SIMPLE\tWrite a PostgreSQL query that selects all users where age > 18.'
 $'TIER_1_SIMPLE\tHow do I center a div horizontally using CSS?'
 
-$'TIER_2_REFACTOR\tI have a C++ class split between Foo.h and Foo.cpp. I want to rename Foo::process() to Foo::execute() and update every caller. What changes do I need to make?'
-$'TIER_2_REFACTOR\tMy Node.js API returns HTTP 500 when a user submits an empty email address. Find the likely problem and suggest the fix.'
-$'TIER_2_REFACTOR\tRefactor this C++ function into two functions: one responsible for parsing the input and another responsible for validating it.'
-$'TIER_2_REFACTOR\tI changed a PostgreSQL table by renaming a column, and now several queries in my application are failing. How should I systematically update the affected code?'
-$'TIER_2_REFACTOR\tMy Svelte component has three different places that independently fetch the same user data. Refactor it so the data is fetched once and shared between the components.'
-$'TIER_2_REFACTOR\tA C++ program has a memory leak somewhere across several classes using raw pointers. How would you approach finding and fixing it?'
-$'TIER_2_REFACTOR\tI have five C++ files implementing a small feature. I want to replace the current logging calls with a new Logger class. What files and code would likely need to change?'
+$'TIER_2_MEDIUM\tI have a C++ class split between Foo.h and Foo.cpp. I want to rename Foo::process() to Foo::execute() and update every caller. What changes do I need to make?'
+$'TIER_2_MEDIUM\tMy Node.js API returns HTTP 500 when a user submits an empty email address. Find the likely problem and suggest the fix.'
+$'TIER_2_MEDIUM\tRefactor this C++ function into two functions: one responsible for parsing the input and another responsible for validating it.'
+$'TIER_2_MEDIUM\tI changed a PostgreSQL table by renaming a column, and now several queries in my application are failing. How should I systematically update the affected code?'
+$'TIER_2_MEDIUM\tMy Svelte component has three different places that independently fetch the same user data. Refactor it so the data is fetched once and shared between the components.'
+$'TIER_2_MEDIUM\tA C++ program has a memory leak somewhere across several classes using raw pointers. How would you approach finding and fixing it?'
+$'TIER_2_MEDIUM\tI have five C++ files implementing a small feature. I want to replace the current logging calls with a new Logger class. What files and code would likely need to change?'
 
 $'TIER_3_COMPLEX\tI have a multithreaded C++ application where two worker threads occasionally deadlock, but the deadlock cannot be reproduced reliably. Analyze how you would diagnose the lock ordering problem and redesign the synchronization to eliminate the possibility of deadlock.'
 $'TIER_3_COMPLEX\tDesign a lock-free multi-producer, multi-consumer queue in C++ using atomics. Explain the memory-ordering requirements and the ABA problem.'
@@ -85,13 +85,13 @@ $'TIER_3_COMPLEX\tDesign a C++ memory allocator optimized for millions of small 
 $'TIER_3_COMPLEX\tMy application occasionally produces corrupted data even though ThreadSanitizer reports no data races. Develop a systematic investigation strategy for finding possible memory-ordering, lifetime, undefined-behavior, and cache-coherency-related problems.'
 
 $'TIER_1_SIMPLE\tFix this C++ segmentation fault. The crash occurs when processing an empty vector. The relevant function is about 20 lines long.'
-$'TIER_2_REFACTOR\tI have a C++ function that has grown to 200 lines. Refactor it into smaller functions while preserving its behavior.'
+$'TIER_2_MEDIUM\tI have a C++ function that has grown to 200 lines. Refactor it into smaller functions while preserving its behavior.'
 $'TIER_3_COMPLEX\tMy application has a race condition between two threads accessing a shared std::unordered_map. How should I fix it?'
-$'TIER_2_REFACTOR\tI need to change the API of a C++ class used by 12 other classes. How should I approach the refactoring?'
-$'TIER_2_REFACTOR\tImplement a binary search tree in C++ that supports insertion, deletion, and lookup.'
+$'TIER_2_MEDIUM\tI need to change the API of a C++ class used by 12 other classes. How should I approach the refactoring?'
+$'TIER_2_MEDIUM\tImplement a binary search tree in C++ that supports insertion, deletion, and lookup.'
 $'TIER_3_COMPLEX\tImplement a thread-safe singleton in modern C++.'
 $'TIER_3_COMPLEX\tMy C++ application has a deadlock caused by two mutexes being acquired in different orders. How should I fix it?'
-$'TIER_2_REFACTOR\tOptimize this SQL query that joins four tables and takes 8 seconds to execute.'
+$'TIER_2_MEDIUM\tOptimize this SQL query that joins four tables and takes 8 seconds to execute.'
 $'TIER_3_COMPLEX\tI need to convert a synchronous Node.js API to asynchronous processing using a job queue. What architectural changes are required?'
 )
 

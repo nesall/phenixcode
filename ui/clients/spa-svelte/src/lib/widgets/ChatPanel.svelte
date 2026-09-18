@@ -233,6 +233,9 @@
           for (const a of sources as string[]) {
             fullResponse += `*${a}*  \n`;
           }
+        } else if (chunkJson.error) {
+          fullResponse += `\n\nError: ${chunkJson.error}  \n`;
+          return { parsed: fullResponse, remainder: buffer };
         } else {
           const content = chunkJson.content || "";
           fullResponse += content;

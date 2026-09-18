@@ -15,6 +15,9 @@
 #include <termios.h>
 #include <sys/stat.h>
 #endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 namespace {
   void trimmedViewLeading(std::string_view &v) {
@@ -69,6 +72,34 @@ namespace utils {
     
   }
 #endif
+}
+
+const std::filesystem::path &utils::getExecutableDir()
+{
+  static const std::filesystem::path dir = []() -> std::filesystem::path {
+#ifdef _WIN32
+    char path[MAX_PATH] = { 0 };
+    DWORD len = GetModuleFileNameA(NULL, path, MAX_PATH);
+    if (len == 0 || len == MAX_PATH)
+      throw std::runtime_error("GetModuleFileNameA failed");
+    return std::filesystem::path(path).parent_path();
+#elif __APPLE__
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size); // first call: get required size
+    std::vector<char> buf(size);
+    if (_NSGetExecutablePath(buf.data(), &size) != 0)
+      throw std::runtime_error("_NSGetExecutablePath failed");
+    // resolve symlinks (macOS often gives you one)
+    return fs::canonical(fs::path(buf.data())).parent_path();
+#else
+    char result[PATH_MAX] = { 0 };
+    ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
+    if (count <= 0)
+      throw std::runtime_error("readlink /proc/self/exe failed");
+    return fs::path(std::string(result, count)).parent_path();
+#endif
+    }();
+  return dir;
 }
 
 std::string utils::currentTimestamp()

@@ -73,11 +73,13 @@ struct AutoRouterConfig {
   bool enabled = false;
 
   struct Classifier {
+    std::string type; // "internal" | "api", empty means "api"
     std::string apiId;
     size_t timeoutMs = 3500;
     size_t maxTokens = 20;
     float temperature = 0.f;
     std::string prompt;
+    bool isInternal() const { return type == "internal"; }
   } classifier;
 
   struct Rule {

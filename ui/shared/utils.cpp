@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "cutils.h"
 #include "procmngr.h"
 #include <utils_log/logger.hpp>
 #include <filesystem>
@@ -31,15 +32,7 @@ nlohmann::json shared::AppConfig::toJson() const
 std::string shared::getExecutableDir()
 {
   LOG_START;
-#ifdef _WIN32
-  char path[MAX_PATH] = { 0 };
-  GetModuleFileNameA(NULL, path, MAX_PATH);
-  return fs::path(path).parent_path().string();
-#else
-  char result[PATH_MAX] = { 0 };
-  ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
-  return fs::path(std::string(result, (count > 0) ? count : 0)).parent_path().string();
-#endif
+  return utils::getExecutableDir().string();
 }
 
 std::string shared::findConfigPath(const std::string &filename)

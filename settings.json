@@ -31,6 +31,8 @@
     "auto_router": {
       "enabled": true,
       "classifier": {
+        "_comment":  "type=internal means no LLM calls.",
+        "type": "internal",
         "api_id": "mistral-small",
         "max_tokens": 20,
         "prompt": "Classify the user programming task into exactly one tier:\n[TIER_1_SIMPLE]: quick syntax, single function, lookup, explanation\n[TIER_2_REFACTOR]: multi-file changes, bug fixing, medium edits\n[TIER_3_COMPLEX]: deep architectural reasoning, tricky algorithms, math/threading\nAnswer ONLY with the tag.",
@@ -47,7 +49,7 @@
           "strategy": "direct"
         },
         "tier_2_refactor": {
-          "direct_model_id": "deepseek-flash",
+          "direct_model_id": "kimi-k27-code",
           "strategy": "direct"
         },
         "tier_3_complex": {

@@ -43,12 +43,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(sqlite3)
 
-#FetchContent_Declare(
-#  nlohmann_json
-#  GIT_REPOSITORY https://github.com/nlohmann/json.git
-#  GIT_TAG v3.11.3
-#)
-#FetchContent_MakeAvailable(nlohmann_json)
+FetchContent_Declare(
+    cpp_task_classifier
+    GIT_REPOSITORY https://github.com/nesall/cpp-task-classifier.git
+    GIT_TAG main
+)
+FetchContent_MakeAvailable(cpp_task_classifier)
 
 FetchContent_Declare(
   utils_log
@@ -112,9 +112,9 @@ add_executable(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME} PRIVATE 
   httplib::httplib
   sqlite3_lib
-  #nlohmann_json::nlohmann_json
   utils_log
   jwt-cpp::jwt-cpp
+  classifier::classifier_core
 )
 
 # Include directories
@@ -203,3 +203,10 @@ add_custom_command(
       ${CMAKE_BINARY_DIR}/public/
   COMMENT "Copying setup UI files"
 )
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>/models
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${CMAKE_SOURCE_DIR}/assets/baseline_v1.bin
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>/models/baseline_v1.bin)

@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 #include <sqlite3.h>
+#include <filesystem>
 
 namespace utils {
   struct SqliteStmt {
@@ -23,7 +24,7 @@ namespace utils {
 
   };
 
-
+  const std::filesystem::path &getExecutableDir();
   std::string currentTimestamp();
   time_t getFileModificationTime(const std::string &path);
   int safeStoI(const std::string &s, int def = 0);

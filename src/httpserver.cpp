@@ -1,5 +1,6 @@
 #include "httpserver.h"
 #include "app.h"
+#include "cutils.h"
 #include "chunker.h"
 #include "sourceproc.h"
 #include "database.h"
@@ -9,10 +10,12 @@
 #include "instregistry.h"
 #include "auth.h"
 #include "3rdparty/base64.h"
+#include "3rdparty/fmt/core.h"
 #include "json_shim.h"
 #include <httplib.h>
 #include <utils_log/logger.hpp>
 #include <hnswlib/hnswlib.h>
+#include <classifier/model.h>
 #include <chrono>
 #include <cassert>
 #include <exception>
@@ -24,7 +27,6 @@
 #include <string_view>
 //#include <format>
 #include <filesystem>
-#include "3rdparty/fmt/core.h"
 
 using json = nlohmann::json;
 
@@ -413,7 +415,13 @@ namespace {
     const auto questionChunks = app.chunker().chunkText(question, "", false);
     std::vector<std::string> questionTexts;
     for (const auto &qc : questionChunks) questionTexts.push_back(qc.text);
-    embeddingClient.generateEmbeddings(questionTexts, questionEmbeddingVectors, EmbeddingClient::EncodeType::Query);
+
+    try {
+      embeddingClient.generateEmbeddings(questionTexts, questionEmbeddingVectors, EmbeddingClient::EncodeType::Query);
+    } catch (const std::exception &e) {
+      LOG_MSG << "Error generating embeddings |" << e.what();
+      throw;
+    }
 
     if (!attachedOnly) {
       std::set<size_t> uniqueChunkResults;
@@ -592,6 +600,32 @@ namespace {
     return apiConfig;
   }
 
+  std::filesystem::path getModelPath(const std::string &filename) {
+    return utils::getExecutableDir() / "models" / filename;
+  }
+
+  classifier::EmbeddedClassifier *getInternalClassifier(const std::filesystem::path &modelPath) {
+    static std::unique_ptr<classifier::EmbeddedClassifier> instance = []() -> std::unique_ptr<classifier::EmbeddedClassifier> {
+      classifier::TokenizerOptions tok_opts;
+      tok_opts.ngram_min = 1;
+      tok_opts.ngram_max = 2;
+      tok_opts.split_camel_case = true;
+      tok_opts.preserve_operators = true;
+      classifier::ClassificationThresholds thresholds;
+      thresholds.tier3_margin = 0.12f;
+      thresholds.tier2_margin = 0.05f;
+      thresholds.min_t3_prob = 0.30f;
+      thresholds.min_t2_prob = 0.35f;
+      auto c = std::make_unique<classifier::EmbeddedClassifier>(classifier::ModelType::ResidualMLP, tok_opts, thresholds);
+      auto modelPath = getModelPath("baseline_v1.bin");
+      if (!std::filesystem::exists(modelPath) || !c->load_from_file(modelPath.string())) {
+        LOG_MSG << "Auto-router classifier [internal] failed to load model: " << modelPath;
+        return nullptr;
+      }
+      return c;
+      }();
+    return instance.get();
+  }
 } // anonymous namespace
 
 
@@ -992,23 +1026,46 @@ bool HttpServer::startServer()
       ApiConfig apiConfig;
       if (runAutoRouter) {
         const AutoRouterConfig router = imp->app_.settings().autoRouterConfig();
-        LOG_MSG << "Auto-router enabled, routing to appropriate model. Classifier id is" << router.classifier.apiId;
         std::string modelId = router.fallbackModelId;
-        try {
-          const ApiConfig *clfCfg = imp->app_.settings().providers().findGeneration(router.classifier.apiId);
-          if (!clfCfg) {
-            LOG_MSG << "Classifier API not found: " << router.classifier.apiId;
-            throw std::invalid_argument("Classifier API not found: " + router.classifier.apiId);
+        if (router.classifier.isInternal()) {
+          auto modelPath = getModelPath("baseline_v1.bin");
+          if (auto *clf = getInternalClassifier(modelPath)) {
+            classifier::ClassificationResult res = clf->classify(question);
+            std::string tierName{ "tier_1_simple" };
+            switch (res.predicted_tier) {
+            case classifier::Tier::Tier2Medium:
+              tierName = "tier_2_medium";
+              break;
+            case classifier::Tier::Tier3Complex:
+              tierName = "tier_3_complex";
+              break;
+            default:
+              break;
+            }
+            modelId = router.resolveRoutedModelId(tierName);
+            LOG_MSG << "Auto-router classifier [internal] picked model" << modelId << "(" << AutoRouterConfig::normalizeTierTag(tierName) << ")";
+          } else {
+            LOG_MSG << "Auto-router classifier [internal] unavailable, fallback=" << modelId;
           }
-          InferenceClient clf(*clfCfg, router.classifier.timeoutMs);
-          const nlohmann::json clfMsgs = nlohmann::json::array({
-            {{"role", "system"}, {"content", router.classifier.prompt}},
-            {{"role", "user"}, {"content", question}}
-            });
-          const std::string raw = clf.generateChat(clfMsgs, router.classifier.temperature, router.classifier.maxTokens);
-          modelId = router.resolveRoutedModelId(raw);
-        } catch (const std::exception &e) {
-          std::cout << "Classifier failed (" << e.what() << "), fallback=" << modelId << "\n";
+        } else {
+          LOG_MSG << "Auto-router enabled, routing to appropriate model. Classifier id is" << router.classifier.apiId;
+          try {
+            const ApiConfig *clfCfg = imp->app_.settings().providers().findGeneration(router.classifier.apiId);
+            if (!clfCfg) {
+              LOG_MSG << "Classifier API not found:" << router.classifier.apiId;
+              throw std::invalid_argument("Classifier API not found: " + router.classifier.apiId);
+            }
+            InferenceClient clf(*clfCfg, router.classifier.timeoutMs);
+            const nlohmann::json clfMsgs = nlohmann::json::array({
+              {{"role", "system"}, {"content", router.classifier.prompt}},
+              {{"role", "user"}, {"content", question}}
+              });
+            const std::string raw = clf.generateChat(clfMsgs, router.classifier.temperature, router.classifier.maxTokens);
+            modelId = router.resolveRoutedModelId(raw);
+            LOG_MSG << "Auto-router classifier picked model" << modelId << "(" << AutoRouterConfig::normalizeTierTag(raw) << ")";
+          } catch (const std::exception &e) {
+            std::cout << "Classifier failed (" << e.what() << "), fallback=" << modelId << "\n";
+          }
         }
         const ApiConfig *routed = imp->app_.settings().providers().findGeneration(modelId);
         if (!routed) {
@@ -1063,12 +1120,14 @@ bool HttpServer::startServer()
               sink.write(s.data(), s.size());
             };
 
-          const auto [orderedResults, usedTokens] = processInputResults(imp->app_, apiConfig, question, attachments, sources, 
-            contextSizeRatio, attachedOnly, onInfo
-          );
-
-          CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
+          
           try {
+
+            const auto [orderedResults, usedTokens] = processInputResults(imp->app_, apiConfig, question, attachments, sources,
+              contextSizeRatio, attachedOnly, onInfo
+            );
+
+            CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
             const std::string fullResponse = completionClient.generateCompletion(
               messagesJson, orderedResults, temperature, maxTokens,
               [&sink, packPayload](const std::string &chunk) {

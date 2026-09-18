@@ -141,6 +141,7 @@ namespace {
     res.enabled = j.value("enabled", false);
     if (j.contains("classifier") && j["classifier"].is_object()) {
       const auto &c = j["classifier"];
+      res.classifier.type = jsonStr(c, "type");
       res.classifier.apiId = jsonStr(c, "api_id");
       res.classifier.timeoutMs = jsonSize(c, "timeout_ms", res.classifier.timeoutMs);
       res.classifier.maxTokens = jsonSize(c, "max_tokens", res.classifier.maxTokens);
@@ -363,7 +364,8 @@ void Settings::validate()
 
     if (router.classifier.prompt.empty())
       throw std::runtime_error("auto_router: classifier.prompt is empty");
-    requireRealGenId(router.classifier.apiId, "classifier.api_id");
+    if (!router.classifier.isInternal())
+      requireRealGenId(router.classifier.apiId, "classifier.api_id");
 
     if (router.fallbackModelId.empty())
       throw std::runtime_error("auto_router: fallback.default_model_id is empty");
