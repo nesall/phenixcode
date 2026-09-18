@@ -82,5 +82,6 @@ benchmarks/results/
 *.log
 *.bin
 
+!assets/*.bin
 combined_src.txt
 models/
