@@ -528,7 +528,12 @@
   <Portal>
     <Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
       <Dialog.Content class="card bg-surface-100-900 w-xl p-4 space-y-2 shadow-xl">
-        <Dialog.Title class="text-lg font-bold">Settings</Dialog.Title>
+        <Dialog.Title>
+          <div class="flex flex-row items-center justify-between">
+            <span class="text-lg font-bold">Settings</span>
+            <span class="text-xs">Build date: {__BUILD_DATE__}</span>
+          </div>
+        </Dialog.Title>
         <hr class="hr" />
         <Dialog.Description>
           <div class="flex flex-col space-y-4">

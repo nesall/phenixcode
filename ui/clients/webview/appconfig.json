@@ -13,16 +13,16 @@
       "value": "dark"
     },
     {
-      "key": "ApiOptionsGroupedKey",
-      "value": "1"
+      "key": "theme",
+      "value": "hamlindigo"
     },
     {
       "key": "EmbedderExecutablePath",
       "value": "./phenixcode-core"
     },
     {
-      "key": "theme",
-      "value": "hamlindigo"
+      "key": "ApiOptionsGroupedKey",
+      "value": "1"
     },
     {
       "key": "EmbedderSettingsFilePaths",

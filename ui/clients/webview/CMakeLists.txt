@@ -14,7 +14,6 @@ FetchContent_Declare(
 if(UNIX)
   set(WEBVIEW_WEBKITGTK_API "4.1" CACHE STRING "Force WebKit 4.1 (Soup 3)" FORCE)
   set(WEBVIEW_WEBKITGTK_MODULE_NAME "webkit2gtk-4.1" CACHE STRING "Force WebKit 4.1 module name" FORCE)
-  #set(WEBVIEW_TOOLCHAIN_EXECUTABLE_SUFFIX "-12")
   set(WEBVIEW_BUILD_AMALGAMATION OFF)
   set(WEBVIEW_BUILD_DOCS OFF)
   set(WEBVIEW_ENABLE_PACKAGING OFF)
@@ -78,6 +77,7 @@ set(SOURCES
   "${ROOT_DIR}/ui/shared/wb.h"
   "${ROOT_DIR}/ui/shared/wb.cpp"
   "${ROOT_DIR}/ui/shared/procmngr.h"
+  "${ROOT_DIR}/src/cutils.cpp"
   appconfig.json  
 )
 if (WIN32)

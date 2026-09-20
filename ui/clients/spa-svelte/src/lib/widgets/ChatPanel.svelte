@@ -9,6 +9,7 @@
     apiUrl,
     clog,
     isGoodArray,
+    newUUID,
     stripCommonPrefix,
     toaster,
   } from "../utils";
@@ -83,6 +84,8 @@
       },
     ];
   }
+
+  let sessionId = $state(newUUID());
 
   interface Attachment {
     filename: string;
@@ -290,6 +293,7 @@
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          session_id: sessionId,
           messages: messagesToSend,
           attachments,
           sourceids,

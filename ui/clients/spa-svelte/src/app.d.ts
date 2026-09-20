@@ -1,3 +1,7 @@
+declare global {
+  const __BUILD_DATE__: string;
+}
+
 interface SettingsType {
   completionApis: ModelItem[];
   currentApi: string;

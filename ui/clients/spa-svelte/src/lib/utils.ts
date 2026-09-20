@@ -35,6 +35,9 @@ export function nextRandomId(len: number): string {
     (len, e) => len += (e &= 63) < 36 ? e.toString(36) : e < 62 ? (e - 26).toString(36).toUpperCase() : e > 62 ? "-" : "_", "")
 }
 
+export function newUUID() {
+  return crypto.randomUUID();
+}
 
 const _lastLogs: { date: string, data: string }[] = [];
 
