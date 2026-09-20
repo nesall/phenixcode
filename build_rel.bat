@@ -23,7 +23,7 @@ copy assets\providers.json %DIRNAME%\providers.json
 copy assets\settings.json %DIRNAME%\settings.json
 copy assets\settings.json %DIRNAME%\settings.default.json
 xcopy assets\bge_tokenizer.json %DIRNAME%\
-xcopy assets\baseline_v1.bin %DIRNAME%\models /I
+xcopy assets\baseline_v2.bin %DIRNAME%\models /I /Y
 rem xcopy scripts\install-service.bat %DIRNAME%\
 rem xcopy scripts\uninstall-service.bat %DIRNAME%\
 rem xcopy scripts\start.bat %DIRNAME%\

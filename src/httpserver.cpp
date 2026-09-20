@@ -27,6 +27,8 @@
 #include <string_view>
 //#include <format>
 #include <filesystem>
+#include <list>
+#include <unordered_map>
 
 using json = nlohmann::json;
 
@@ -153,7 +155,7 @@ namespace {
     const auto excerptBudget = maxTokenBudget - usedTokens;
     if (excerptBudget <= 0) return false;
     // If the source file of the best chunk is too large then we fetch an excerpt of it instead.
-    const auto avgChunkTokens = app.settings().chunkingMaxTokens();    
+    const auto avgChunkTokens = app.settings().chunkingMaxTokens();
     float thresholdRatio = app.settings().generationExcerptThresholdRatio();
     size_t contentTokens = 0;
     if (!isWithinThreshold(app, content, maxTokenBudget, usedTokens, thresholdRatio, &contentTokens)) {
@@ -332,15 +334,16 @@ namespace {
   }
 
   std::pair<std::vector<SearchResult>, size_t> processInputResults(
-    const App &app, 
+    const App &app,
     const ApiConfig &apiConfig,
-    const std::string &question, 
-    std::vector<Attachment> attachments, 
+    const std::string &question,
+    std::vector<Attachment> attachments,
     std::vector<std::string> sources,
     float contextSizeRatio,
     bool attachedOnly,
     std::function<void(std::string_view)> onInfo
   ) {
+    LOG_START;
     if (!onInfo) onInfo = [](std::string_view) {};
     // Preferred order
     std::vector<SearchResult> attachmentResults;
@@ -572,13 +575,13 @@ namespace {
     }
     onInfo(fmt::format("Context token budget used {}/{}", usedTokens, maxTokenBudget));
 
-//#ifdef _DEBUG
-//    size_t nn = 0;
-//    for (const auto &tt : orderedResults) {
-//      nn += app.tokenizer().countTokensWithVocab(tt.content);
-//    }
-//    LOG_MSG << "Total context tokens used:" << nn;
-//#endif
+    //#ifdef _DEBUG
+    //    size_t nn = 0;
+    //    for (const auto &tt : orderedResults) {
+    //      nn += app.tokenizer().countTokensWithVocab(tt.content);
+    //    }
+    //    LOG_MSG << "Total context tokens used:" << nn;
+    //#endif
 
     return { orderedResults, usedTokens };
   }
@@ -600,40 +603,95 @@ namespace {
     return apiConfig;
   }
 
-  std::filesystem::path getModelPath(const std::string &filename) {
-    return utils::getExecutableDir() / "models" / filename;
-  }
-
-  classifier::EmbeddedClassifier *getInternalClassifier(const std::filesystem::path &modelPath) {
+  classifier::EmbeddedClassifier *getInternalClassifier() {
     static std::unique_ptr<classifier::EmbeddedClassifier> instance = []() -> std::unique_ptr<classifier::EmbeddedClassifier> {
-      classifier::TokenizerOptions tok_opts;
-      tok_opts.ngram_min = 1;
-      tok_opts.ngram_max = 2;
-      tok_opts.split_camel_case = true;
-      tok_opts.preserve_operators = true;
-      classifier::ClassificationThresholds thresholds;
-      thresholds.tier3_margin = 0.12f;
-      thresholds.tier2_margin = 0.05f;
-      thresholds.min_t3_prob = 0.30f;
-      thresholds.min_t2_prob = 0.35f;
-      auto c = std::make_unique<classifier::EmbeddedClassifier>(classifier::ModelType::ResidualMLP, tok_opts, thresholds);
-      auto modelPath = getModelPath("baseline_v1.bin");
-      if (!std::filesystem::exists(modelPath) || !c->load_from_file(modelPath.string())) {
-        LOG_MSG << "Auto-router classifier [internal] failed to load model: " << modelPath;
+      auto c = std::make_unique<classifier::EmbeddedClassifier>();
+      auto modelPath = utils::getExecutableDir() / INTERNAL_MODEL_RELATIVE_PATH;
+      if (!std::filesystem::exists(modelPath)) {
+        LOG_MSG << "Auto-router classifier [internal] model file not found: " << modelPath;
+        return nullptr;
+      }
+      try {
+        if (!c->load_from_file(modelPath.string())) {
+          LOG_MSG << "Auto-router classifier [internal] failed to load model: " << modelPath;
+          return nullptr;
+        }
+      } catch (const std::exception &e) {
+        LOG_MSG << "Auto-router classifier [internal] exception while loading model: " << e.what();
         return nullptr;
       }
       return c;
       }();
     return instance.get();
   }
+
+  size_t countUserTurns(const json &messages) {
+    if (!messages.is_array()) return 0;
+    size_t n = 0;
+    for (const auto &m : messages) if (m.value("role", "") == "user") ++n;
+    return n;
+  }
+
+  struct SessionTierCache {
+    static constexpr size_t kMaxSessions = 512;
+
+    // priorUserTurns = user turn count *excluding* the current question.
+    classifier::Tier lookupPrefix(const std::string &sessionId, size_t priorUserTurns) {
+      if (sessionId.empty() || priorUserTurns == 0) return classifier::Tier::Unknown;
+      std::lock_guard<std::mutex> lock(mtx_);
+      auto it = sessions_.find(sessionId);
+      if (it == sessions_.end() || it->second.userTurnCount != priorUserTurns)
+        return classifier::Tier::Unknown; // no entry, or client history diverged (edit/regenerate/clear)
+      touchLocked(it);
+      return it->second.tier;
+    }
+
+    void rememberFull(const std::string &sessionId, size_t userTurnCount, classifier::Tier tier) {
+      if (sessionId.empty() || userTurnCount == 0) return;
+      std::lock_guard<std::mutex> lock(mtx_);
+      auto it = sessions_.find(sessionId);
+      if (it == sessions_.end()) {
+        evictIfFullLocked();
+        lru_.push_back(sessionId);
+        it = sessions_.emplace(sessionId, SessionState{}).first;
+        it->second.lruIt = std::prev(lru_.end());
+      } else {
+        touchLocked(it);
+      }
+      it->second.userTurnCount = userTurnCount;
+      it->second.tier = tier;
+    }
+
+  private:
+    struct SessionState {
+      size_t userTurnCount = 0;
+      classifier::Tier tier = classifier::Tier::Unknown;
+      std::list<std::string>::iterator lruIt;
+    };
+
+    void touchLocked(std::unordered_map<std::string, SessionState>::iterator it) {
+      lru_.splice(lru_.end(), lru_, it->second.lruIt); // move to MRU end
+    }
+
+    void evictIfFullLocked() {
+      if (sessions_.size() < kMaxSessions) return;
+      sessions_.erase(lru_.front());
+      lru_.pop_front();
+    }
+
+    std::mutex mtx_;
+    std::unordered_map<std::string, SessionState> sessions_;
+    std::list<std::string> lru_; // front = LRU, back = MRU
+  };
+
+  SessionTierCache g_sessionTiers;
 } // anonymous namespace
 
 
 struct HttpServer::Impl {
   Impl(App &a)
     : app_(a)
-  {
-  }
+  {}
 
   httplib::Server server_;
 
@@ -681,8 +739,7 @@ HttpServer::HttpServer(App &a)
 }
 
 HttpServer::~HttpServer()
-{
-}
+{}
 
 int HttpServer::bindToPortIncremental(int port)
 {
@@ -702,7 +759,7 @@ int HttpServer::bindToPortIncremental(int port)
   return port;
 }
 
-bool HttpServer::startServer() 
+bool HttpServer::startServer()
 {
   auto &server = imp->server_;
   auto &auth = imp->app_.auth();
@@ -1028,9 +1085,12 @@ bool HttpServer::startServer()
         const AutoRouterConfig router = imp->app_.settings().autoRouterConfig();
         std::string modelId = router.fallbackModelId;
         if (router.classifier.isInternal()) {
-          auto modelPath = getModelPath("baseline_v1.bin");
-          if (auto *clf = getInternalClassifier(modelPath)) {
-            classifier::ClassificationResult res = clf->classify(question);
+          if (auto *clf = getInternalClassifier()) {
+            const std::string sessionId = request.value("session_id", std::string{});
+            const size_t userTurns = countUserTurns(messagesJson);
+            classifier::Tier sessionCtx = g_sessionTiers.lookupPrefix(sessionId, userTurns > 0 ? userTurns - 1 : 0);
+            classifier::ClassificationResult res = clf->classify(question, sessionCtx);
+            g_sessionTiers.rememberFull(sessionId, userTurns, res.predicted_tier);
             std::string tierName{ "tier_1_simple" };
             switch (res.predicted_tier) {
             case classifier::Tier::Tier2Medium:
@@ -1120,7 +1180,7 @@ bool HttpServer::startServer()
               sink.write(s.data(), s.size());
             };
 
-          
+
           try {
 
             const auto [orderedResults, usedTokens] = processInputResults(imp->app_, apiConfig, question, attachments, sources,
@@ -1216,55 +1276,55 @@ bool HttpServer::startServer()
     recordDuration(start, Impl::avgChatTimeMs_);
     });
 
-    server.Post("/api/fim", [this](const httplib::Request &req, httplib::Response &res) {
-      const auto start = std::chrono::steady_clock::now();
-      try {
-        LOG_MSG << "POST /api/fim";
-        json request = json::parse(req.body);
+  server.Post("/api/fim", [this](const httplib::Request &req, httplib::Response &res) {
+    const auto start = std::chrono::steady_clock::now();
+    try {
+      LOG_MSG << "POST /api/fim";
+      json request = json::parse(req.body);
 
-        if (!request.contains("prefix") || !request["prefix"].is_string()) {
-          throw std::invalid_argument("'prefix' field required and must be a string");
-        }
-        if (!request.contains("suffix") || !request["suffix"].is_string()) {
-          throw std::invalid_argument("'suffix' field required and must be a string");
-        }
-
-        std::string prefix = request["prefix"].get<std::string>();
-        std::string suffix = request["suffix"].get<std::string>();
-        std::string filename = request.value("filename", std::string{});
-        filename = std::filesystem::path(filename).lexically_normal().generic_string();
-
-        if (request.value("encoding", "") == "base64") {
-          prefix = base64_decode(prefix);
-          suffix = base64_decode(suffix);
-        }
-
-        auto apiConfig = getTargetApi(request, imp->app_);
-
-        LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
-
-        const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
-        const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());
-        const float contextSizeRatio = request.value("ctxratio", 0.5f);
-        std::vector<std::string> stops = request.value("stop", std::vector<std::string>{});
-
-        const auto searchResults = processInputResults(imp->app_, apiConfig, prefix, {}, {filename}, contextSizeRatio, {}, nullptr);
-
-        LOG_MSG << "Generating FIM with prefix length" << prefix.size() << "and suffix length" << suffix.size();
-        CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
-        std::string fullResponse = completionClient.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first);
-        LOG_MSG << "[FIM] Generated tokens:" << imp->app_.tokenizer().countTokensWithVocab(fullResponse);
-        json response = { {"completion", fullResponse} };
-        res.set_content(response.dump(), "application/json");
-        Impl::requestCounter_++;
-      } catch (const std::exception &e) {
-        json error = { {"error", e.what()} };
-        res.status = 400;
-        res.set_content(error.dump(), "application/json");
-        Impl::errorCounter_++;
+      if (!request.contains("prefix") || !request["prefix"].is_string()) {
+        throw std::invalid_argument("'prefix' field required and must be a string");
       }
-      recordDuration(start, Impl::avgChatTimeMs_); // reuse chat timing metric
-      });
+      if (!request.contains("suffix") || !request["suffix"].is_string()) {
+        throw std::invalid_argument("'suffix' field required and must be a string");
+      }
+
+      std::string prefix = request["prefix"].get<std::string>();
+      std::string suffix = request["suffix"].get<std::string>();
+      std::string filename = request.value("filename", std::string{});
+      filename = std::filesystem::path(filename).lexically_normal().generic_string();
+
+      if (request.value("encoding", "") == "base64") {
+        prefix = base64_decode(prefix);
+        suffix = base64_decode(suffix);
+      }
+
+      auto apiConfig = getTargetApi(request, imp->app_);
+
+      LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
+
+      const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
+      const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());
+      const float contextSizeRatio = request.value("ctxratio", 0.5f);
+      std::vector<std::string> stops = request.value("stop", std::vector<std::string>{});
+
+      const auto searchResults = processInputResults(imp->app_, apiConfig, prefix, {}, { filename }, contextSizeRatio, {}, nullptr);
+
+      LOG_MSG << "Generating FIM with prefix length" << prefix.size() << "and suffix length" << suffix.size();
+      CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
+      std::string fullResponse = completionClient.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first);
+      LOG_MSG << "[FIM] Generated tokens:" << imp->app_.tokenizer().countTokensWithVocab(fullResponse);
+      json response = { {"completion", fullResponse} };
+      res.set_content(response.dump(), "application/json");
+      Impl::requestCounter_++;
+    } catch (const std::exception &e) {
+      json error = { {"error", e.what()} };
+      res.status = 400;
+      res.set_content(error.dump(), "application/json");
+      Impl::errorCounter_++;
+    }
+    recordDuration(start, Impl::avgChatTimeMs_); // reuse chat timing metric
+    });
 
   server.Get("/api/settings", [this](const httplib::Request &, httplib::Response &res) {
     try {

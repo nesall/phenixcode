@@ -1,5 +1,6 @@
 #include "database.h"
 #include "cutils.h"
+#include "sqlite3_helper.h"
 #include <hnswlib/hnswlib.h>
 #include <sqlite3.h>
 #include <algorithm>

@@ -1,7 +1,6 @@
 #include "instregistry.h"
 #include "settings.h"
-#include "cutils.h"
-#include <sqlite3.h>
+#include "sqlite3_helper.h"
 #include <filesystem>
 #include <thread>
 #include <atomic>

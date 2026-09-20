@@ -21,7 +21,7 @@ namespace {
 
 std::vector<SourceProcessor::Data> SourceProcessor::collectSources(bool readContent)
 {
-  LOG_START;
+  //LOG_START;
   std::vector<SourceProcessor::Data> allContent;
   auto sources = settings_.sources();
   for (const auto &source : sources) {

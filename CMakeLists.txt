@@ -93,6 +93,7 @@ add_executable(${PROJECT_NAME}
   include/instregistry.h
   include/cutils.h
   include/json_shim.h
+  include/sqlite3_helper.h
   src/main.cpp
   src/tokenizer.cpp
   src/settings.cpp
@@ -106,6 +107,7 @@ add_executable(${PROJECT_NAME}
   src/instregistry.cpp
   src/cutils.cpp
   src/tests.cpp
+  src/sqlite3_helper.cpp
 )
 
 # Link libraries
@@ -126,10 +128,13 @@ target_include_directories(${PROJECT_NAME}
 
 include(version.cmake)
 
+set(MODEL_NAME "baseline_v2.bin")
+
 target_compile_definitions(${PROJECT_NAME} PRIVATE
   FMT_HEADER_ONLY
   FMT_USE_LOCALE=0
   EMBEDDER_VERSION="${EMBEDDER_VERSION}"
+  INTERNAL_MODEL_RELATIVE_PATH="models/${MODEL_NAME}"
 )
 
 # Enable threading (required by hnswlib)
@@ -208,5 +213,5 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory
     $<TARGET_FILE_DIR:${PROJECT_NAME}>/models
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    ${CMAKE_SOURCE_DIR}/assets/baseline_v1.bin
-    $<TARGET_FILE_DIR:${PROJECT_NAME}>/models/baseline_v1.bin)
+    ${CMAKE_SOURCE_DIR}/assets/${MODEL_NAME}
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>/models)
