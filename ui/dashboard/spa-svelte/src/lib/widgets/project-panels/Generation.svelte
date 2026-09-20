@@ -76,6 +76,7 @@
         enabled: enabled,
         _validate_ids_exist: true,
         classifier: {
+          type: "internal",
           api_id: fallbackModel,
           max_tokens: 20,
           prompt:
@@ -333,52 +334,76 @@
             >
               <!-- Classifier Settings -->
               <h3 class="font-semibold text-lg border-b border-surface-500 pb-1 pt-2">Classifier</h3>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <label class="label">
-                  <span class="label-text">Classifier Model</span>
-                  <select
-                    class="select"
-                    bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.api_id}
-                    onchange={onChange}
-                  >
-                    {#each availableModelIds as api}
-                      <option value={api}>{api}</option>
-                    {/each}
-                  </select>
-                </label>
-                <label class="label">
-                  <span class="label-text">Timeout (ms)</span>
+              <div class="flex items-center gap-4 mt-4 mb-2 justify-start">
+                <label class="label flex items-center gap-2 flex-1">
                   <input
-                    type="number"
-                    class="input"
-                    bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.timeout_ms}
-                    min="500"
-                    onchange={onChange}
+                    type="checkbox"
+                    class="checkbox"
+                    checked={projectStore.selected.jsonData.generation.auto_router.classifier.type === "internal"}
+                    onchange={(e) => {
+                      const checked = (e.currentTarget as HTMLInputElement).checked;
+                      if (projectStore.selected?.jsonData.generation.auto_router) {
+                        projectStore.selected.jsonData.generation.auto_router.classifier.type = checked
+                          ? "internal"
+                          : "api";
+                      }
+                      onChange();
+                    }}
                   />
+                  <span class="label-text">Internal classifier</span>
                 </label>
-                <label class="label">
-                  <span class="label-text">Temperature</span>
-                  <input
-                    type="number"
-                    class="input"
-                    step="0.05"
-                    min="0"
-                    max="2"
-                    bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.temperature}
-                    onchange={onChange}
-                  />
-                </label>
+                <span class="text-xs text-surface-500 mt-1 flex-grow text-left">
+                  Use "internal" for built-in, or specify an external API type.
+                </span>
               </div>
+              {#if projectStore.selected.jsonData.generation.auto_router.classifier.type === "api"}
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+                  <label class="label">
+                    <span class="label-text">Classifier Model</span>
+                    <select
+                      class="select"
+                      bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.api_id}
+                      onchange={onChange}
+                    >
+                      {#each availableModelIds as api}
+                        <option value={api}>{api}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <label class="label">
+                    <span class="label-text">Timeout (ms)</span>
+                    <input
+                      type="number"
+                      class="input"
+                      bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.timeout_ms}
+                      min="500"
+                      onchange={onChange}
+                    />
+                  </label>
+                  <label class="label">
+                    <span class="label-text">Temperature</span>
+                    <input
+                      type="number"
+                      class="input"
+                      step="0.05"
+                      min="0"
+                      max="2"
+                      bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.temperature}
+                      onchange={onChange}
+                    />
+                  </label>
+                </div>
 
-              <label class="label mt-4">
-                <span class="label-text">Classifier Prompt</span>
-                <textarea
-                  class="textarea font-mono text-sm"
-                  rows="4"
-                  bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.prompt}
-                  onchange={onChange}
-                ></textarea>
-              </label>
+                <label class="label mt-4">
+                  <span class="label-text">Classifier Prompt</span>
+                  <textarea
+                    class="textarea font-mono text-sm"
+                    rows="4"
+                    bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.prompt}
+                    onchange={onChange}
+                  ></textarea>
+                </label>
+              {/if}
 
               <!-- Fallback Settings -->
               <h3 class="font-semibold text-lg border-b border-surface-500 pb-1 pt-4">Fallback</h3>

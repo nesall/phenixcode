@@ -45,7 +45,7 @@
         <div class="rounded-md shadow p-4 flex flex-col gap-4">
           <div class="mb-4 flex items-center justify-between">
             <h2 class="text-xl font-bold flex items-center gap-2">
-              <icons.MoveUpLeft size={24} />
+              <icons.Split size={24} />
               Embedding API Settings
             </h2>
             <code class="px-2 rounded text-lg">{projectTitle}</code>

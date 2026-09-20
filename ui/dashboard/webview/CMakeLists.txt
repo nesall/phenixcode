@@ -3,7 +3,6 @@ project(phenixcode-admin LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_C_STANDARD 11)
 
 include(FetchContent)
 
@@ -91,6 +90,7 @@ set(SOURCES
   "${ROOT_DIR}/src/settings.cpp"
   "${ROOT_DIR}/src/instregistry.cpp"
   "${ROOT_DIR}/src/cutils.cpp"
+  "${ROOT_DIR}/src/sqlite3_helper.cpp"
   admconfig.json  
 )
 if (WIN32)

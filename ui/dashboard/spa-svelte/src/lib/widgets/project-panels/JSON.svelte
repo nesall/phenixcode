@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as icons from "@lucide/svelte";
-  import { projectStore, instances } from "../../store.svelte";
+  import { projectStore } from "../../store.svelte";
   import type { ProjectItem } from "../../../app";
 
   interface Props {

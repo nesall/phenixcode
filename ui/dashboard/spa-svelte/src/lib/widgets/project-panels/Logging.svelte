@@ -30,7 +30,7 @@
         <div class="rounded-md shadow p-4 flex flex-col gap-4">
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-xl font-bold flex items-center gap-2">
-              <icons.FileText size={24} />
+              <icons.Logs size={24} />
               Application Logging Configuration
             </h2>
             <code class="px-2 rounded text-lg">{projectTitle}</code>

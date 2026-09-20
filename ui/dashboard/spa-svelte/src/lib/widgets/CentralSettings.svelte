@@ -44,18 +44,17 @@
 </script>
 
 <div>
+  <div class="text-right text-xs">Build date: {__BUILD_DATE__}</div>
   <label class="label">
     <span class="label-text">PhenixCode Executable path</span>
     <div class="flex items-center space-x-1">
       <input
         type="text"
+        id="core-executable-path"
         class="input max-w-xl {!valid ? 'outline-2 outline-red-500' : ''}"
         oninput={onCorePathChange}
         value={embedderExecutablePath}
       />
-      <!-- <button type="button" class="btn preset-tonal" title="Browse for the core executable" onclick={onBrowse}>
-        ...
-      </button> -->
     </div>
     {#if !valid}
       <div class="text-xs italic">{invalidMessage}</div>

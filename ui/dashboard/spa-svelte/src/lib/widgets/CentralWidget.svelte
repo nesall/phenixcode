@@ -43,10 +43,18 @@
 
 <Tabs defaultValue="projects" class="h-full">
   <Tabs.List>
-    <Tabs.Trigger value="projects"><icons.FolderGit2 size={20} /> Projects</Tabs.Trigger>
-    <Tabs.Trigger value="providers"><icons.Boxes size={20} /> Providers</Tabs.Trigger>
-    <Tabs.Trigger value="instances"><icons.Activity size={20} /> Instances</Tabs.Trigger>
-    <Tabs.Trigger value="settings"><icons.Settings size={20} /> Settings</Tabs.Trigger>
+    <Tabs.Trigger value="projects">
+      <icons.FolderGit2 size={20} /><span class="hidden lg:inline">Projects</span>
+    </Tabs.Trigger>
+    <Tabs.Trigger value="providers">
+      <icons.Boxes size={20} /><span class="hidden lg:inline">Providers</span>
+    </Tabs.Trigger>
+    <Tabs.Trigger value="instances">
+      <icons.Activity size={20} /><span class="hidden lg:inline">Instances</span>
+    </Tabs.Trigger>
+    <Tabs.Trigger value="settings">
+      <icons.Settings size={20} /><span class="hidden lg:inline">Settings</span>
+    </Tabs.Trigger>
     <Tabs.Indicator />
     <div class="ml-auto flex items-center">
       <button
@@ -68,7 +76,7 @@
   <Tabs.Content value="instances" class="h-0 flex-grow">
     <CentralInstances />
   </Tabs.Content>
-  <Tabs.Content value="activity" class="h-0 flex-grow">
+  <Tabs.Content value="settings" class="h-0 flex-grow">
     <CentralSettings />
   </Tabs.Content>
 </Tabs>

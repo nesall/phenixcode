@@ -26,7 +26,7 @@
         <div class="rounded-md shadow p-4 flex flex-col gap-4">
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-xl font-bold flex items-center gap-2">
-              <icons.TextAlignStart size={24} />
+              <icons.CodeXml size={24} />
               Tokenizer Configuration
             </h2>
             <code class="px-2 rounded text-lg">{projectStore.selected.jsonData.source.project_title}</code>

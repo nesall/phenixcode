@@ -26,7 +26,7 @@
         <div class="rounded-md shadow p-4 flex flex-col gap-4">
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-xl font-bold flex items-center gap-2">
-              <icons.Split size={24} />
+              <icons.Scissors size={24} />
               Document Chunking Settings
             </h2>
             <code class="px-2 rounded text-lg">{projectStore.selected?.jsonData.source.project_title}</code>

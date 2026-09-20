@@ -1,3 +1,7 @@
+declare global {
+  const __BUILD_DATE__: string;
+}
+
 /**
  * Configuration for the LLM API pricing (Tokens Per Million).
  */
@@ -35,6 +39,7 @@ export interface ExcerptSettings {
 }
 
 export interface AutoRouterClassifierConfig {
+  type: "internal" | "api" | string;
   api_id: string;
   max_tokens: number;
   prompt: string;
