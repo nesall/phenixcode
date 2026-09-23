@@ -56,8 +56,7 @@ const testJsonSettings: SettingsJsonType =
     "config_path": "./bge_tokenizer.json"
   },
   "embedding": {
-    "enabled_providers": [ "local" ],
-    "current_api": "local",
+    "current_api": "bge_base",
     "batch_size": 4,
     "timeout_ms": 30000,
     "retry_attempts": 3,
@@ -65,8 +64,8 @@ const testJsonSettings: SettingsJsonType =
     "prepend_label_format": "[Source: {}]\n"
   },
   "generation": {
-    "enabled_providers": [ "mistral-devstral", "gemini-2.0-flash", "deepseek", "xai", "openai-4o-mini" ],
-    "current_api": "mistral-devstral",
+    "enabled_providers": ["glm-5.3-flash", "mistral-small"],
+    "current_api": "glm-5.3-flash",
     "timeout_ms": 120000,
     "max_chunks": 7,
     "max_full_sources": 2,
@@ -288,7 +287,7 @@ async function test_importProject(projectId: string, configPath: string): Promis
         project_id: projectId,
         project_title: `Imported Project ${projectId}`,
       }
-    }, 
+    },
     status: 'success'
   };
   mockProjects = [importedProject, ...mockProjects];
@@ -365,6 +364,7 @@ export async function helper_getProjectList(): Promise<{ status: string, project
 }
 
 export async function helper_saveProjectSettings(project: ProjectItem): Promise<{ status: string; message: string }> {
+  console.log("helper_saveProjectSettings", project);
   if (window.cppApi) {
     return await window.cppApi.saveProject(project);
   } else {
@@ -379,6 +379,29 @@ export async function helper_saveProvidersSettings(providers: ProvidersSettings)
     console.log("[mock] saving providers settings", providers);
     return { status: "success", message: "Providers settings saved successfully." };
   }
+}
+
+export function helper_readjustProject(newProviders: ProvidersSettings, proj: ProjectItem) {
+  console.log("helper_readjustProjects", newProviders, proj);
+  // Adjust embedding providers
+  const oldEmbeddingApi = proj.jsonData.embedding.current_api;
+  const newEmbeddingProviders = newProviders.embedding_providers.map(p => p.id);
+  if (!newEmbeddingProviders.includes(oldEmbeddingApi)) {
+    proj.jsonData.embedding.current_api = 0 < newEmbeddingProviders.length ? newEmbeddingProviders[0] : "";
+  }
+
+  // Adjust generation providers
+  const oldGenerationApi = proj.jsonData.generation.current_api;
+  const currentGenerationProviders = proj.jsonData.generation.enabled_providers;
+  const newGenerationProviders = newProviders.generation_providers.map(p => p.id);
+  const removedGenerationProviders = currentGenerationProviders.filter(id => !newGenerationProviders.includes(id));
+  const addedGenerationProviders = newGenerationProviders.filter(id => !currentGenerationProviders.includes(id));
+  proj.jsonData.generation.enabled_providers = currentGenerationProviders.filter(id => !removedGenerationProviders.includes(id)).concat(addedGenerationProviders);
+  // Check if current_api is still included in enabled_providers list. If not assign first one. If no enabled_providers, clear.
+  if (!proj.jsonData.generation.enabled_providers.includes(oldGenerationApi)) {
+    proj.jsonData.generation.current_api = proj.jsonData.generation.enabled_providers.length > 0 ? proj.jsonData.generation.enabled_providers[0] : "";
+  }
+  return proj;
 }
 
 export async function helper_createProject(): Promise<ProjectItem> {

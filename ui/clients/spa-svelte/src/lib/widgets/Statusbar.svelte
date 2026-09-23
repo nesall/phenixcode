@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { apiOptionsGroupedSorted, clog, isGoodArray, testConnection } from "../utils";
+  import { apiOptionsGroupedSorted, clog, testConnection } from "../utils";
   import * as icons from "@lucide/svelte";
   import Dropdown from "./Dropdown.svelte";
   import { bApisGroupedByLabel, bApisSortedByPrice, contextSizeRatio, settings } from "../store";

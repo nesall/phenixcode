@@ -907,7 +907,7 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
 
 void App::providers(const std::string &testProvider)
 {
-  auto vc = settings().generationApis();
+  auto vc = settings().providers().generationProviders();
 
   if (testProvider.empty()) {
     size_t x = 0;

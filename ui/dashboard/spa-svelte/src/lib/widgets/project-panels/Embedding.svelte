@@ -4,12 +4,10 @@
   import { slide } from "svelte/transition";
   import UpDownButton from "../misc/UpDownButton.svelte";
   import { helper_saveProjectSettings } from "../../utils";
-    import { projectStore } from "../../store.svelte";
+  import { embeddingProviders, projectStore } from "../../store.svelte";
 
   const jsonData = $derived(projectStore.selected?.jsonData);
-  const projectTitle = $derived(
-    projectStore.selected?.jsonData.source.project_title,
-  );
+  const projectTitle = $derived(projectStore.selected?.jsonData.source.project_title);
 
   interface Props {
     onChanged: any;
@@ -35,7 +33,6 @@
       onChanged(projectStore.selected);
     }
   }
-
 </script>
 
 {#if projectStore.selected}
@@ -110,15 +107,11 @@
                 type="text"
                 id="prepend-label-format"
                 class="input"
-                bind:value={
-                  projectStore.selected.jsonData.embedding.prepend_label_format
-                }
+                bind:value={projectStore.selected.jsonData.embedding.prepend_label_format}
                 placeholder="[Source: &#123;&#125;]\n"
                 onchange={onChange}
               />
-              <p class="text-sm text-surface-500 mt-1">
-                Use &#123;&#125; as placeholder for the source name
-              </p>
+              <p class="text-sm text-surface-500 mt-1">Use &#123;&#125; as placeholder for the source name</p>
             </label>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -130,29 +123,12 @@
                 value={projectStore.selected.jsonData.embedding.current_api}
                 onchange={onCurApiChange}
               >
-                {#each projectStore.selected.jsonData.embedding.enabled_providers as api}
-                  <option value={api}>{api}</option>
+                {#each embeddingProviders as api}
+                  <option value={api.id}>{api.id}</option>
                 {/each}
               </select>
             </label>
           </div>
-        </div>
-
-        <div class="rounded-md shadow p-4 flex flex-col gap-4">
-
-          {#each projectStore.selected.jsonData.embedding.enabled_providers as api, i}
-            <div class="flex flex-col">
-              <!-- checkbox for each API -->
-              <label class="label flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  class="checkbox"
-                  onchange={onChange}
-                />
-                <span class="font-semibold">{api}</span>
-              </label>
-            </div>
-          {/each}
         </div>
       </fieldset>
     </form>

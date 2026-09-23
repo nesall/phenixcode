@@ -65,9 +65,6 @@
   // Pure list of enabled concrete models (never contains "auto")
   const availableModelIds = $derived(checkedProviders.filter((id) => id !== "auto"));
 
-  // Current API options strictly list concrete models
-  const currentApiOptions = $derived(availableModelIds);
-
   function toggleAutoRouter(enabled: boolean) {
     if (!jsonData) return;
     if (!jsonData.generation.auto_router) {
@@ -273,7 +270,7 @@
                 value={projectStore.selected.jsonData.generation.current_api}
                 onchange={onCurApiChange}
               >
-                {#each currentApiOptions as api}
+                {#each projectStore.selected.jsonData.generation.enabled_providers as api}
                   <option value={api}>{api}</option>
                 {/each}
               </select>

@@ -23,6 +23,8 @@ struct ApiConfig {
   bool enabled = true;
   bool stream = true;
   size_t contextLength = 0;
+  size_t maxTokens = 0;
+  float temperature = 0;
   struct {
     float input = 0;
     float output = 0;
@@ -157,11 +159,14 @@ public:
   };
 
 public:
+  explicit Settings(const nlohmann::json &prj, const nlohmann::json &prv);
+  explicit Settings(const nlohmann::json &prj, const std::string &providersPath);
   explicit Settings(const std::string &path, const std::string &providersPath);
 
   void updateFromConfig(const nlohmann::json &config);
   void updateFromPath(const std::string &path);
   void save();
+  void saveToPath(std::string_view path);
   std::string configPath() const { return path_; }
   std::string providersConfigPath() const { return providers_.path(); }
 
@@ -177,7 +182,7 @@ public:
   float chunkingOverlap() const { return config_["chunking"].value("overlap_percentage", 0.1f); }
   bool chunkingSemantic() const { return config_["chunking"].value("semantic", false); }
 
-  std::vector<std::string> enabledEmbeddingProviders() const { return config_["embedding"].value("enabled_providers", nlohmann::json::array()); }
+  //std::vector<std::string> enabledEmbeddingProviders() const { return config_["embedding"].value("enabled_providers", nlohmann::json::array()); }
   ApiConfig embeddingCurrentApi() const;
   std::vector<ApiConfig> embeddingApis() const { return providers_.embeddingProviders(); }
   size_t embeddingTimeoutMs() const { return config_["embedding"].value("timeout_ms", size_t(10'000)); }
@@ -191,7 +196,7 @@ public:
   std::string generationCurrentApiId() const { return config_["generation"].value("current_api", std::string{}); }
   bool generationIsAuto() const;
   ApiConfig generationCurrentApi() const;
-  std::vector<ApiConfig> generationApis() const { return providers_.generationProviders(); }
+  //std::vector<ApiConfig> generationApis() const { return providers_.generationProviders(); }
   size_t generationTimeoutMs() const { return config_["generation"].value("timeout_ms", size_t(20'000)); }
   size_t generationMaxFullSources() const { return config_["generation"].value("max_full_sources", size_t(2)); }
   size_t generationMaxRelatedPerSource() const { return config_["generation"].value("max_related_per_source", size_t(3)); }

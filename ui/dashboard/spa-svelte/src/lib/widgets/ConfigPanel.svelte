@@ -14,12 +14,12 @@
 
   let value = $state("sources");
 
-  let changedProject: ProjectItem | null = $state(projectStore.selected);
+  // let changedProject: ProjectItem | null = $state(projectStore.selected);
 
-  const projectItem = $derived(changedProject || projectStore.selected);
+  // const projectItem = $derived(changedProject || projectStore.selected);
 
   function onChanged(p: ProjectItem) {
-    changedProject = p;
+    // changedProject = p;
   }
 
   function onTabChange(details: any) {
@@ -82,7 +82,7 @@
       <Tokenizer {onChanged} />
     </Tabs.Content>
     <Tabs.Content value="json" class="grow">
-      <JSON {projectItem} />
+      <JSON />
     </Tabs.Content>
   </Tabs>
 {:else}

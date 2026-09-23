@@ -595,7 +595,7 @@ namespace {
         apiConfig = app.settings().generationCurrentApi();
       }
       if (targetApi != apiConfig.id) {
-        auto apis = app.settings().generationApis();
+        auto apis = app.settings().providers().generationProviders();
         auto it = std::find_if(apis.begin(), apis.end(), [&targetApi](const ApiConfig &a) { return a.id == targetApi; });
         if (it != apis.end()) apiConfig = *it;
       }
@@ -1151,8 +1151,31 @@ bool HttpServer::startServer()
         }
       }
 
-      const float temperature = request.value("temperature", imp->app_.settings().generationDefaultTemperature());
-      const size_t maxTokens = request.value("max_tokens", imp->app_.settings().generationDefaultMaxTokens());
+      float temperature = 0;
+      if (apiConfig.temperatureSupport) {
+        if (request.contains("temperature") && request["temperature"].is_number_float()) {
+          temperature = request["temperature"];
+          LOG_MSG << "Using request's temperature limit" << temperature;
+        } else if (0.0f <= apiConfig.temperature && apiConfig.temperature <= 2.0f) {
+          temperature = apiConfig.temperature;
+          LOG_MSG << "Using model's temperature limit" << temperature;
+        } else {
+          temperature = imp->app_.settings().generationDefaultTemperature();
+          LOG_MSG << "Using default temperature limit" << temperature;
+        }
+      }
+
+      size_t maxTokens = imp->app_.settings().generationDefaultMaxTokens();
+      if (request.contains("max_tokens") && request["max_tokens"].is_number_float()) {
+        maxTokens = request["max_tokens"];
+        LOG_MSG << "Using request's max_tokens limit" << maxTokens;
+      } else if (0 < apiConfig.maxTokens && apiConfig.maxTokens != size_t(-1)) {
+        maxTokens = apiConfig.maxTokens;
+        LOG_MSG << "Using model's max_tokens limit" << maxTokens;
+      } else {
+        LOG_MSG << "Using default max_tokens limit" << maxTokens;
+      }
+
       const float contextSizeRatio = request.value("ctxratio", 0.9f);
       const bool attachedOnly = request.value("attachedonly", false);
 
@@ -1331,7 +1354,7 @@ bool HttpServer::startServer()
       LOG_MSG << "GET /api/settings";
       nlohmann::json apisJson;
       const auto cur = imp->app_.settings().generationCurrentApiId();
-      const auto &apis = imp->app_.settings().generationApis();
+      const auto &apis = imp->app_.settings().providers().generationProviders();
       bool isAuto = imp->app_.settings().generationIsAuto();
       if (isAuto) {
         nlohmann::json autoApi;
@@ -1345,7 +1368,11 @@ bool HttpServer::startServer()
         autoApi["combinedPrice"] = fmt::format("{:.2f} - {:.2f}", minPrice, maxPrice);
         apisJson.push_back(autoApi);
       }
+      const auto &enabledProviders = imp->app_.settings().enabledGenerationProviders();
       for (const auto &api : apis) {
+        if (std::find(enabledProviders.cbegin(), enabledProviders.cend(), api.id) == enabledProviders.end()) {
+          continue; // skip disabled providers
+        }
         nlohmann::json apiObj;
         apiObj["id"] = api.id;
         apiObj["name"] = api.name;

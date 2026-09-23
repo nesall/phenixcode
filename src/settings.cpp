@@ -42,6 +42,7 @@ namespace {
     cfg.apiKey = expandEnvVar(item.value("api_key", item.value("apiKey", "")));
     cfg.model = item.value("model", "");
     cfg.maxTokensName = item.value("max_tokens_name", "");
+    cfg.maxTokens = item.value("max_tokens", 0.f);
     if (cfg.maxTokensName.empty()) {
       cfg.maxTokensName = section.value("default_max_tokens_name", "max_tokens");
     }
@@ -64,6 +65,7 @@ namespace {
     cfg.documentFormat = item.value("document_format", "");
     cfg.queryFormat = item.value("query_format", "");
     cfg.temperatureSupport = item.value("temperature_support", false);
+    cfg.temperature = item.value("temperature", 0.f);
     cfg.enabled = item.value("enabled", true);
     cfg.stream = item.value("stream", true);
     cfg.contextLength = item.value("context_length", section.value("max_context_tokens", 32000));
@@ -95,14 +97,16 @@ namespace {
     return v;
   }
 
-  ApiConfig getCurrentApiConfig(const nlohmann::json &section, const std::vector<ApiConfig> &apis) {
+  ApiConfig getCurrentApiConfig(const nlohmann::json &section, const std::vector<ApiConfig> &apis, bool checkAllowed = true) {
     ApiConfig cfg;
     if (!section.is_object()) return cfg;
     std::string current = section.value("current_api", std::string{});
-    std::vector<std::string> enabledApis = section.value("enabled_providers", nlohmann::json::array());
-    bool allowed = std::find(enabledApis.cbegin(), enabledApis.cend(), current) != enabledApis.cend();
-    if (!allowed) {
-      throw std::runtime_error("current_api '" + current + "' is not in this project's enabled_providers");
+    if (checkAllowed) {
+      std::vector<std::string> enabledApis = section.value("enabled_providers", nlohmann::json::array());
+      bool allowed = std::find(enabledApis.cbegin(), enabledApis.cend(), current) != enabledApis.cend();
+      if (!allowed) {
+        throw std::runtime_error("current_api '" + current + "' is not in this project's enabled_providers");
+      }
     }
     for (const auto &cfgItem : apis) {
       if (cfgItem.id == current) {
@@ -259,6 +263,19 @@ void ProvidersSettings::save()
 
 //----------------------------------------------------------------------------------------
 
+Settings::Settings(const nlohmann::json &prj, const nlohmann::json &prv)
+{
+  updateFromConfig(prj);
+  providers_.updateFromConfig(prv);
+  validate();
+}
+
+Settings::Settings(const nlohmann::json &prj, const std::string &providersPath)
+{
+  updateFromConfig(prj);
+  providers_.loadFromFile(providersPath);
+  validate();
+}
 
 Settings::Settings(const std::string &path, const std::string &providersPath)
 {
@@ -286,10 +303,20 @@ void Settings::updateFromPath(const std::string &path)
 
 void Settings::save()
 {
+  if (path_.empty()) throw std::runtime_error("Cannot save settings: path is empty");
   std::ofstream file(path_);
   if (file.is_open()) {
     file << config_.dump(2);
   }
+}
+
+void Settings::saveToPath(std::string_view path)
+{
+  std::ofstream file(path.data());
+  if (!file.is_open()) {
+    throw std::runtime_error("Cannot open settings file for writing: " + std::string(path));
+  }
+  file << config_.dump(2);
 }
 
 void Settings::validateProjectJson(nlohmann::json j)
@@ -309,18 +336,19 @@ void Settings::validate()
 
   // Validate a provider section: current_api must be listed in enabled_providers
   // and must exist in the providers list loaded from the providers file.
-  auto validateProviderSection = [&](const char *sectionName, const std::vector<ApiConfig> &providers) {
+  auto validateProviderSection = [&](const char *sectionName, const std::vector<ApiConfig> &providers, bool checkEnabledPrv = true) {
     const auto &section = config_[sectionName];
     const std::string currentApi = section.value("current_api", std::string{});
     if (currentApi.empty()) {
       throw std::runtime_error(std::string("Missing 'current_api' in settings section: ") + sectionName);
     }
-    std::vector<std::string> enabledApis = section.value("enabled_providers", nlohmann::json::array());
-    if (std::find(enabledApis.cbegin(), enabledApis.cend(), currentApi) == enabledApis.cend()) {
-      LOG_MSG << "Warning: current_api '" << currentApi << "' is not in this project's enabled_providers";
-      throw std::runtime_error("current_api '" + currentApi + "' is not in this project's enabled_providers");
+    if (checkEnabledPrv) {
+      std::vector<std::string> enabledApis = section.value("enabled_providers", nlohmann::json::array());
+      if (std::find(enabledApis.cbegin(), enabledApis.cend(), currentApi) == enabledApis.cend()) {
+        LOG_MSG << "Warning: current_api '" << currentApi << "' is not in this project's enabled_providers";
+        throw std::runtime_error("current_api '" + currentApi + "' is not in this project's enabled_providers");
+      }
     }
-
     //const bool isAuto = generationIsAuto();
     //if (isAuto) {
     //  if (std::strcmp(sectionName, "generation") != 0)
@@ -342,13 +370,13 @@ void Settings::validate()
     }
     };
 
-  validateProviderSection("embedding", providers_.embeddingProviders());
+  validateProviderSection("embedding", providers_.embeddingProviders(), false);
   validateProviderSection("generation", providers_.generationProviders());
 
   if (generationIsAuto()) {
     const AutoRouterConfig router = autoRouterConfig();
     const auto enabled = enabledGenerationProviders();
-    const auto catalog = generationApis();
+    const auto catalog = providers().generationProviders();
 
     auto requireRealGenId = [&](const std::string &id, const std::string &what) {
       if (id.empty())
@@ -388,7 +416,7 @@ void Settings::validate()
 ApiConfig Settings::embeddingCurrentApi() const
 {
   if (!config_.contains("embedding")) return {};
-  return getCurrentApiConfig(config_["embedding"], providers_.embeddingProviders());
+  return getCurrentApiConfig(config_["embedding"], providers_.embeddingProviders(), false);
 }
 
 bool Settings::generationIsAuto() const

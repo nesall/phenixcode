@@ -461,10 +461,9 @@ int main() {
           j = j[0];
           if (validateProjectItemArg(j)) {
             std::string fname = j["settingsFilePath"].get<std::string>();
-            Settings ss{ fname, prv.string() };
-            ss.updateFromConfig(j["jsonData"]);
+            Settings ss{ j["jsonData"], prv.string() };
             ss.initProjectIdIfMissing(false);
-            ss.save();
+            ss.saveToPath(fname);
             res["status"] = "success";
             res["message"] = "Project saved successfully";
             LOG_MSG << "Saved project settings to file:" << fname;

@@ -2,8 +2,8 @@
   import { getContext, onMount } from "svelte";
   import UpDownButton from "./misc/UpDownButton.svelte";
   import { slide } from "svelte/transition";
-  import { embeddingProviders, generationProviders } from "../store.svelte";
-  import { helper_saveProvidersSettings } from "../utils";
+  import { embeddingProviders, generationProviders, projectStore } from "../store.svelte";
+  import { helper_readjustProject, helper_saveProjectSettings, helper_saveProvidersSettings } from "../utils";
 
   let currentTab = $state(0); // 0=>embedding, 1=>generation
 
@@ -18,10 +18,32 @@
   );
 
   function onChange() {
-    helper_saveProvidersSettings({
+    console.log("CentralProviders.onChange ");
+    const providers = {
       embedding_providers: embeddingProviders,
       generation_providers: generationProviders,
-    });
+    };
+    helper_saveProvidersSettings(providers);
+    let i = -1;
+    if (projectStore.selected) i = projectStore.list.indexOf(projectStore.selected);
+    for (let i = 0; i < projectStore.list.length; i ++) {
+      let p = projectStore.list[i];
+      console.log("CentralProviders.svelte.onChange: project", p.jsonData.source.project_title, p);
+      projectStore.list[i] = helper_readjustProject(providers, p);
+      console.log("Updated proj", $state.snapshot(projectStore.list[i]));
+    }
+    if (i != -1) {
+      projectStore.selected = projectStore.list[i];
+    }
+    projectStore.list = projectStore.list;
+    for (const p of projectStore.list) {
+      console.log("CentralProviders.svelte.onChange: project", p.jsonData.source.project_title, p);
+      helper_saveProjectSettings(p)
+        .then((res) => {
+          console.log("CentralProviders.svelte.onChange: helper_saveProjectSettings", res);
+        })
+        .catch((er) => console.error("CentralProviders.svelte.onChange: helper_saveProjectSettings error", er));
+    }
   }
 
   function moveApiUp(index: number) {

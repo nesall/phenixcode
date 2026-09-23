@@ -7,7 +7,6 @@
     "config_path": "./bge_tokenizer.json"
   },
   "embedding": {
-    "enabled_providers": [ "bge_base" ],
     "current_api": "bge_base",
     "batch_size": 4,
     "timeout_ms": 30000,

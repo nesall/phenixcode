@@ -109,8 +109,6 @@ export interface EmbeddingApi {
  * Top-level configuration for the Embedding service.
  */
 export interface EmbeddingSettings {
-  // apis: EmbeddingApi[];
-  enabled_providers: string[];
   current_api: string;
   batch_size: number;
   timeout_ms: number;

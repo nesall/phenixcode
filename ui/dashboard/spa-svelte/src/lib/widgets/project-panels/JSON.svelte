@@ -3,10 +3,10 @@
   import { projectStore } from "../../store.svelte";
   import type { ProjectItem } from "../../../app";
 
-  interface Props {
-    projectItem: ProjectItem | null;
-  }
-  let { projectItem }: Props = $props();
+  // interface Props {
+  //   projectItem: ProjectItem | null;
+  // }
+  // let { projectItem }: Props = $props();
 
   let copied = $state(false);
   async function onCopy() {
@@ -15,10 +15,10 @@
     setTimeout(() => (copied = false), 1500);
   }
 
-  const jsonData = $derived(projectItem?.jsonData);
-  const projectTitle = $derived(projectItem?.jsonData.source.project_title);
+  const jsonData = $derived(projectStore.selected?.jsonData);
+  const projectTitle = $derived(projectStore.selected?.jsonData.source.project_title);
 
-  const jsonSettingsStr = $derived(JSON.stringify(jsonData || {}, null, 2));
+  const jsonSettingsStr = $derived(JSON.stringify(projectStore.selected?.jsonData || {}, null, 2));
 </script>
 
 {#if jsonData}
