@@ -77,7 +77,7 @@
           api_id: fallbackModel,
           max_tokens: 20,
           prompt:
-            "Classify the user programming task into exactly one tier:\n[TIER_1_SIMPLE]: quick syntax, single function, lookup, explanation\n[TIER_2_REFACTOR]: multi-file changes, bug fixing, medium edits\n[TIER_3_COMPLEX]: deep architectural reasoning, tricky algorithms, math/threading\nAnswer ONLY with the tag.",
+            "Classify the user programming task into exactly one tier:\n[TIER_1_SIMPLE]: quick syntax, single function, lookup, explanation\n[TIER_2_MEDIUM]: multi-file changes, bug fixing, medium edits\n[TIER_3_COMPLEX]: deep architectural reasoning, tricky algorithms, math/threading\nAnswer ONLY with the tag.",
           temperature: 0.0,
           timeout_ms: 3500,
         },
@@ -87,7 +87,7 @@
         },
         routing_rules: {
           tier_1_simple: { direct_model_id: fallbackModel, strategy: "direct" },
-          tier_2_refactor: { direct_model_id: fallbackModel, strategy: "direct" },
+          tier_2_medium: { direct_model_id: fallbackModel, strategy: "direct" },
           tier_3_complex: { direct_model_id: fallbackModel, strategy: "direct" },
         },
       };
@@ -437,11 +437,11 @@
                   </select>
                 </label>
                 <label class="label">
-                  <span class="label-text">Tier 2 Refactor</span>
+                  <span class="label-text">Tier 2 Medium</span>
                   <select
                     class="select"
                     bind:value={
-                      projectStore.selected.jsonData.generation.auto_router.routing_rules.tier_2_refactor
+                      projectStore.selected.jsonData.generation.auto_router.routing_rules.tier_2_medium
                         .direct_model_id
                     }
                     onchange={onChange}

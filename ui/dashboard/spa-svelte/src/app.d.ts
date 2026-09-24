@@ -62,7 +62,7 @@ export interface AutoRouterTierRule {
 
 export interface AutoRouterRulesConfig {
   tier_1_simple: AutoRouterTierRule;
-  tier_2_refactor: AutoRouterTierRule;
+  tier_2_medium: AutoRouterTierRule;
   tier_3_complex: AutoRouterTierRule;
   [tier: string]: AutoRouterTierRule;
 }
