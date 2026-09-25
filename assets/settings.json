@@ -15,6 +15,35 @@
     "prepend_label_format": "[Source: {}]\n"
   },
   "generation": {
+    "auto_router": {
+      "classifier": {
+        "api_id": "mistral-small",
+        "max_tokens": 20,
+        "prompt": "Classify the user programming task into exactly one tier:\n[TIER_1_SIMPLE]: quick syntax, single function, lookup, explanation\n[TIER_2_MEDIUM]: multi-file changes, bug fixing, medium edits\n[TIER_3_COMPLEX]: deep architectural reasoning, tricky algorithms, math/threading\nAnswer ONLY with the tag.",
+        "temperature": 0,
+        "timeout_ms": 3500,
+        "type": "internal"
+      },
+      "enabled": true,
+      "fallback": {
+        "_comment": "used on classifier timeout, transport error, or unparseable tag",
+        "default_model_id": "glm-5.3-flash"
+      },
+      "routing_rules": {
+        "tier_1_simple": {
+          "direct_model_id": "glm-5.3-flash",
+          "strategy": "direct"
+        },
+        "tier_2_medium": {
+          "direct_model_id": "deepseek-flash",
+          "strategy": "direct"
+        },
+        "tier_3_complex": {
+          "direct_model_id": "grok-4.7",
+          "strategy": "direct"
+        }
+      }
+    },
     "enabled_providers": [
       "glm-5.3-flash", 
       "mistral-small", 
@@ -22,7 +51,7 @@
       "mistral-large-latest", 
       "deepseek-flash", 
       "kimi-k27-code", 
-      "grok-4.6",
+      "grok-4.7",
       "anthropic-sonnet-5"
       ],
     "current_api": "mistral-small",
