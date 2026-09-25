@@ -64,6 +64,7 @@ public:
   static std::string contentTypeToStr(Chunker::ContentType t);
   static Chunker::ContentType detectContentType(const std::string &text, const std::string &uri);
   static std::string normalizeWhitespaces(const std::string &str);
+  static std::string maskOpaqueBlobs(const std::string &str);
 };
 
 

@@ -7,9 +7,9 @@ extern void runUnitTests();
 
 //#define TEST_CHUNKING
 
+#include "chunker.h"
 #ifdef TEST_CHUNKING
 #include <iostream>
-#include "chunker.h"
 #include "sourceproc.h"
 #endif
 
@@ -65,6 +65,22 @@ int main(int argc, char *argv[]) {
 #endif
 
 #ifdef _DEBUG
+  //SimpleTokenizer tok{ "D:\\workspace\\projects\\phenixcode\\assets\\bge_tokenizer.json2" };
+  //Chunker chunker{ tok, 10, 800, 0.25 };
+  //auto uri = "D:\\workspace\\projects\\phenixcode\\ui\\clients\\spa-svelte\\src\\lib\\widgets\\ChatPanel.svelte";
+  //std::string text;
+  //std::ifstream file(uri);
+  //if (file) {
+  //  std::ostringstream ss;
+  //  ss << file.rdbuf();
+  //  text = ss.str();
+  //} else {
+  //  LOG_MSG << "Failed to open file: " << uri;
+  //}
+  //auto chunks = chunker.chunkText(text, uri);
+  //for (const auto &c : chunks) {
+  //  LOG_MSG << c.chunkId << c.raw.size() << c.metadata.tokenCount;
+  //}
   runUnitTests();
 #endif
 

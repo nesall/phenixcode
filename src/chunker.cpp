@@ -294,6 +294,38 @@ namespace {
     return result;
   }
 
+  // Hard-splits text into pieces each within maxTokens, using tokenCounter to measure. Always makes progress and consumes the whole string.
+  template <typename TokenCounter>
+  std::vector<std::string> hardSplitByBudget(const std::string &text, size_t maxTokens, TokenCounter tokenCounter) {
+    std::vector<std::string> result;
+    size_t pos = 0;
+    while (pos < text.size()) {
+      size_t len = text.size() - pos;
+      std::string candidate = text.substr(pos, len);
+      size_t tks = tokenCounter(candidate);
+      while (maxTokens < tks && 1 < len) {
+        // shrink with margin; guaranteed to strictly decrease len
+        len = std::max<size_t>(1, static_cast<size_t>(len * (static_cast<double>(maxTokens) / tks) * 0.9));
+        candidate = text.substr(pos, len);
+        tks = tokenCounter(candidate);
+      }
+      result.push_back(candidate);
+      pos += candidate.size(); // guaranteed >= 1, so outer loop always progresses
+    }
+    return result;
+  }
+
+  static bool looksLikeOpaqueBlob(const std::string &s) {
+    if (s.size() < 100) return false;
+    size_t digits = 0, upper = 0, lower = 0;
+    for (unsigned char c : s) {
+      if (std::isdigit(c)) digits++;
+      else if (std::isupper(c)) upper++;
+      else if (std::islower(c)) lower++;
+    }
+    // real identifiers rarely have this much digit density mixed with both cases
+    return digits > s.size() / 10 && upper > 0 && lower > 0;
+  }
 
 } // anonymous namespace
 
@@ -381,11 +413,21 @@ std::vector<Chunk> Chunker::splitIntoTextChunks(std::string text, const std::str
   auto overlap = overlapTokens_;
   if (maxTokens_ * 0.6 < overlap) overlap = static_cast<size_t>(maxTokens_ * 0.6);
   text = normalizeWhitespaces(text);
+  text = maskOpaqueBlobs(text);
   auto rawUnits = splitUnits(text);
   std::vector<Unit> units;
   size_t charPos = 0;
   for (auto &uText : rawUnits) {
     size_t tks = tokenCount(uText);
+    if (maxTokens_ < tks) {
+      auto pieces = hardSplitByBudget(uText, maxTokens_, [this](const std::string &s) { return tokenCount(s); });
+      for (auto &p : pieces) {
+        size_t pTks = tokenCount(p);
+        units.push_back({ p, pTks, charPos, charPos + p.size() });
+        charPos += p.size();
+      }
+      continue;
+    }
     units.push_back({ uText, tks, charPos, charPos + uText.size() });
     charPos += uText.size();
   }
@@ -422,7 +464,7 @@ std::vector<Chunk> Chunker::splitIntoTextChunks(std::string text, const std::str
     if (0 < overlap) {
       size_t overlapTokens = 0;
       size_t overlapUnits = 0;
-      while (start + overlapUnits < end && overlapTokens < overlap) {
+      while (start + overlapUnits + 1 < end && overlapTokens < overlap) {
         overlapTokens += units[end - 1 - overlapUnits].tokens;
         overlapUnits++;
       }
@@ -514,6 +556,27 @@ std::string Chunker::normalizeWhitespaces(const std::string &str)
   return s;
 }
 
+
+std::string Chunker::maskOpaqueBlobs(const std::string &text)
+{
+  static const std::regex base64Pattern(R"([A-Za-z0-9+/]{100,}={0,2})", std::regex_constants::optimize);
+  std::string result;
+  result.reserve(text.size());
+  auto begin = std::sregex_iterator(text.begin(), text.end(), base64Pattern);
+  auto end = std::sregex_iterator();
+  size_t lastPos = 0;
+  for (auto it = begin; it != end; ++it) {
+    const auto &m = *it;
+    std::string candidate = m.str();
+    if (!looksLikeOpaqueBlob(candidate)) continue; // skip false positives (long plain words)
+    result.append(text, lastPos, m.position() - lastPos);
+    result += "[opaque data, " + std::to_string(candidate.size()) + " bytes]";
+    lastPos = m.position() + m.length();
+  }
+  result.append(text, lastPos, text.size() - lastPos);
+  return result;
+}
+
 std::vector<std::string> Chunker::splitIntoLines(const std::string &text) const
 {
   auto nTokens = tokenCount(text);
@@ -523,7 +586,8 @@ std::vector<std::string> Chunker::splitIntoLines(const std::string &text) const
     return { s };
   }
   // Line too long - split by words/punctuation
-  auto units = splitUnits(text);
+  auto textUnmasked = maskOpaqueBlobs(text);
+  auto units = splitUnits(textUnmasked);
   std::vector<std::string> result;
   std::string current;
   current.reserve(maxTokens_ * 4);
