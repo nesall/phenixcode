@@ -191,7 +191,7 @@
       </div>
 
       <label class="label">
-        <span class="lable-text">Project Description</span>
+        <span class="label-text">Project Description</span>
         <textarea
           id="project-description"
           class="input"
@@ -305,13 +305,13 @@
 
       {#each projectStore.selected.jsonData.source.paths as path, i}
         <div class="border border-surface-200-800 rounded-md p-4 mb-4">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <label class="label">
+          <div class="flex flex-col md:flex-row gap-4 mb-4">
+            <label class="label flex-4">
               <span class="label-text">Path</span>
               <input type="text" id="path-{i}" class="input" bind:value={path.path} onchange={onChange} />
             </label>
 
-            <label class="label">
+            <label class="label min-w-[10rem] flex-1">
               <span class="label-text">Type</span>
               <select id="type-{i}" class="input" bind:value={path.type} onchange={onChange}>
                 <option value="directory">Directory</option>
