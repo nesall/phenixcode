@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
 #endif
 
 #ifdef _DEBUG
-  //SimpleTokenizer tok{ "D:\\workspace\\projects\\phenixcode\\assets\\bge_tokenizer.json2" };
+  SimpleTokenizer tok{ "D:\\workspace\\projects\\phenixcode\\assets\\bge_tokenizer.json" };
   //Chunker chunker{ tok, 10, 800, 0.25 };
   //auto uri = "D:\\workspace\\projects\\phenixcode\\ui\\clients\\spa-svelte\\src\\lib\\widgets\\ChatPanel.svelte";
   //std::string text;
@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
   //}
   //auto chunks = chunker.chunkText(text, uri);
   //for (const auto &c : chunks) {
-  //  LOG_MSG << c.chunkId << c.raw.size() << c.metadata.tokenCount;
+  //  LOG_MSG << c.chunkId << c.text.size() << c.metadata.tokenCount;
   //}
   runUnitTests();
 #endif

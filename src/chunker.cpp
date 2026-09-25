@@ -581,7 +581,7 @@ std::vector<std::string> Chunker::splitIntoLines(const std::string &text) const
 {
   auto nTokens = tokenCount(text);
   if (nTokens <= maxTokens_) {
-    auto s = text;
+    auto s = maskOpaqueBlobs(text);
     if (!s.ends_with('\n')) s += '\n';
     return { s };
   }
