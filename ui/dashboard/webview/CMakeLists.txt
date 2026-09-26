@@ -49,13 +49,13 @@ if(WIN32)
   FetchContent_MakeAvailable(win_dark)
 endif()
 
+FetchContent_MakeAvailable(httplib utils_log)
+
 FetchContent_Declare(
   sqlite3
   URL https://www.sqlite.org/2024/sqlite-amalgamation-3450300.zip
 )
 FetchContent_MakeAvailable(sqlite3)
-
-FetchContent_MakeAvailable(httplib utils_log)
 
 # Create SQLite3 library
 add_library(sqlite3_lib ${sqlite3_SOURCE_DIR}/sqlite3.c)
@@ -101,7 +101,6 @@ if(APPLE)
 endif()
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-#target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/include/3rdparty")
 target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/ui/shared" "${ROOT_DIR}/include")
 
 option(PROJECTS_FOLDER "Default folder name for user projects" "phenixcode_projects")

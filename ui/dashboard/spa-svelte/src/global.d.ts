@@ -1,3 +1,4 @@
+declare const __BUILD_DATE__: string;
 
 declare interface Window {
   cppApi: {

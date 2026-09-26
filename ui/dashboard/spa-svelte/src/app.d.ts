@@ -1,6 +1,3 @@
-declare global {
-  const __BUILD_DATE__: string;
-}
 
 /**
  * Configuration for the LLM API pricing (Tokens Per Million).
