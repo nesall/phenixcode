@@ -10,21 +10,21 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },
   "devDependencies": {
-    "@skeletonlabs/skeleton": "^4.3.2",
-    "@skeletonlabs/skeleton-svelte": "^4.3.2",
-    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@skeletonlabs/skeleton": "^5.0.1",
+    "@skeletonlabs/skeleton-svelte": "^5.0.1",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tsconfig/svelte": "^5.0.5",
-    "@types/node": "^24.10.1",
-    "svelte": "^5.43.6",
+    "@types/node": "^24.13.6",
+    "svelte": "^5.57.1",
     "svelte-check": "^4.3.4",
     "typescript": "~5.9.3",
     "vite": "^7.2.2"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.7.4",
-    "@lucide/svelte": "^0.553.0",
+    "@lucide/svelte": "^1.48.0",
     "@tailwindcss/vite": "^4.1.17",
-    "dompurify": "^3.3.0",
+    "dompurify": "^3.4.16",
     "marked": "^16.4.1",
     "tailwindcss": "^4.1.17"
   }

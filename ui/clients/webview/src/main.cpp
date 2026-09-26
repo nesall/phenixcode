@@ -2,6 +2,7 @@
 #include "json_shim.h"
 #include <utils_log/logger.hpp>
 #include "wb.h"
+#include "chat_db.h"
 #include "procmngr.h"
 #include "utils.h"
 #include <filesystem>
@@ -438,6 +439,71 @@ int main() {
         return res.dump();
       }
     );
+
+    w.bind("listChats", [](const std::string &data) -> std::string
+      {
+        LOG_MSG << "listChats";
+        try {
+          auto j = nlohmann::json::parse(data);
+          if (j.is_array() && 0 < j.size()) {
+            return ChatDb::instance().listChats(j[0].get<std::string>()).dump();
+          }
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+          return nlohmann::json({ {"status", "error"}, {"message", ex.what()} }).dump();
+        }
+        return "null";
+      }
+    );
+
+    w.bind("saveChat", [](const std::string &data) -> std::string
+      {
+        LOG_MSG << "saveChat";
+        try {
+          auto j = nlohmann::json::parse(data);
+          if (j.is_array() && 0 < j.size()) {
+            auto chat = j[0];
+            return ChatDb::instance().saveChat(chat).dump();
+          }
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+          return nlohmann::json({ {"status", "error"}, {"message", ex.what()} }).dump();
+        }
+        return "null";
+      }
+    );
+
+    w.bind("getChat", [](const std::string &data) -> std::string
+      {
+        LOG_MSG << "getChat";
+        try {
+          auto j = nlohmann::json::parse(data);
+          if (j.is_array() && 0 < j.size()) {
+            return ChatDb::instance().getChat(j[0].get<std::string>()).dump();
+          }
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+          return nlohmann::json({ {"status", "error"}, {"message", ex.what()} }).dump();
+        }
+        return "null";
+      }
+    );
+
+    w.bind("deleteChat", [](const std::string &data) -> std::string
+      {
+        LOG_MSG << "deleteChat";
+        try {
+          auto j = nlohmann::json::parse(data);
+          if (j.is_array() && 0 < j.size()) {
+            return ChatDb::instance().deleteChat(j[0].get<std::string>()).dump();
+          }
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+          return nlohmann::json({ {"status", "error"}, {"message", ex.what()} }).dump();
+        }
+        return "null";
+      }
+    );
     
     w.init(R"(
       window.cppApi = {
@@ -448,6 +514,10 @@ int main() {
         getSettingsFileProjectId,
         startEmbedder,
         stopEmbedder,
+        listChats,
+        saveChat,
+        deleteChat,
+        getChat
       };
       window.addEventListener('error', function(e) {
         console.error('JS Error:', e.message, e.filename, e.lineno);

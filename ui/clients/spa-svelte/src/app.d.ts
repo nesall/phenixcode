@@ -1,7 +1,3 @@
-declare global {
-  const __BUILD_DATE__: string;
-}
-
 interface SettingsType {
   completionApis: ModelItem[];
   currentApi: string;
@@ -41,4 +37,25 @@ interface AppInstance {
   port: number;
   status: string;
   last_heartbeat: number;
+}
+
+interface ChatSummary {
+  id: string;
+  title: string;
+  updated_at: number;
+}
+
+interface SavedChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+  _metaInfoArray?: string[];
+}
+
+interface PersistedChat {
+  id?: string;              // absent/empty => new chat
+  project_id: string;
+  title: string;
+  messages: SavedChatMessage[];
+  created_at?: number;
+  updated_at?: number;
 }

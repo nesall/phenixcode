@@ -1,8 +1,18 @@
 cmake_minimum_required(VERSION 3.16)
-project(phenixcode-ui LANGUAGES CXX)
+project(phenixcode-ui LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 11) 
+
+if(MSVC)
+  message(STATUS "Using MSVC compiler")
+  set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /GS")
+  if(debug)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /RTC1")
+  endif()
+endif()
 
 include(FetchContent)
 
@@ -51,6 +61,16 @@ endif()
 
 FetchContent_MakeAvailable(httplib utils_log)
 
+FetchContent_Declare(
+  sqlite3
+  URL https://www.sqlite.org/2024/sqlite-amalgamation-3450300.zip
+)
+FetchContent_MakeAvailable(sqlite3)
+
+# Create SQLite3 library
+add_library(sqlite3_lib ${sqlite3_SOURCE_DIR}/sqlite3.c)
+target_include_directories(sqlite3_lib PUBLIC ${sqlite3_SOURCE_DIR})
+
 # logging
 add_library(utils_log INTERFACE)
 target_include_directories(utils_log INTERFACE ${utils_log_SOURCE_DIR})
@@ -69,15 +89,17 @@ get_filename_component(ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../" REALPATH
 message("Root directory - ${ROOT_DIR}")
 
 # Main executable
-#add_executable(${PROJECT_NAME} src/main.cpp src/wb.h src/wb.cpp src/wb.mm src/procmngr.h appconfig.json app.rc)
 set(SOURCES
   src/main.cpp
+  src/chat_db.h
+  src/chat_db.cpp
   "${ROOT_DIR}/ui/shared/utils.h"
   "${ROOT_DIR}/ui/shared/utils.cpp"
   "${ROOT_DIR}/ui/shared/wb.h"
   "${ROOT_DIR}/ui/shared/wb.cpp"
   "${ROOT_DIR}/ui/shared/procmngr.h"
   "${ROOT_DIR}/src/cutils.cpp"
+  "${ROOT_DIR}/src/sqlite3_helper.cpp"
   appconfig.json  
 )
 if (WIN32)
@@ -88,7 +110,7 @@ if(APPLE)
 endif()
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/../../../version.cmake")
+include("${ROOT_DIR}/version.cmake")
 
 
 target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/include")
@@ -114,6 +136,7 @@ endif()
 target_link_libraries(${PROJECT_NAME} PRIVATE
   webview::core 
   httplib::httplib 
+  sqlite3_lib
   utils_log 
 )
 

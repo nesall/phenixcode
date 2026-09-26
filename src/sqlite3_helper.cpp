@@ -34,4 +34,15 @@ namespace utils {
 
   }
 #endif
+
+
+  void SqliteStmt::bindText(int i, const std::string &v)
+  {
+    sqlite3_bind_text(ref(), i, v.c_str(), (int)v.size(), SQLITE_TRANSIENT);
+  }
+
+  void SqliteStmt::bindInt64(int i, int64_t v)
+  {
+    sqlite3_bind_int64(ref(), i, v);
+  }
 }

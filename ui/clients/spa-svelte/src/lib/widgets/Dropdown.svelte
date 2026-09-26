@@ -227,9 +227,9 @@
       </div>
     {/if}
     {#if show}
-      <icons.ChevronUp size={16} />
+      <icons.ChevronUp class="size-elem-base"/>
     {:else}
-      <icons.ChevronDown size={16} />
+      <icons.ChevronDown class="size-elem-base" />
     {/if}
   </button>
   {#if show}

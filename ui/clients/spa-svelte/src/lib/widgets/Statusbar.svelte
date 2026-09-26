@@ -168,7 +168,7 @@ const apiOptions = $derived(
         title="Retry connecting to API server"
         onclick={() => tryConnecting()}
       >
-        <icons.RefreshCcw size={16} />
+        <icons.RefreshCcw />
       </button>
     </div>
   {/if}

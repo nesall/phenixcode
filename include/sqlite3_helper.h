@@ -16,5 +16,9 @@ namespace utils {
     std::string getStr(int i) const;
     int getInt(int i) const;
     sqlite3_int64 getInt64(int i) const;
+
+    void bindText(int i, const std::string &v);
+    void bindInt64(int i, int64_t v);
   };
+
 }

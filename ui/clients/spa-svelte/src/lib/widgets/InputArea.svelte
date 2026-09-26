@@ -2,6 +2,7 @@
   import * as icons from "@lucide/svelte";
   import FileAttachments from "./FileAttachments.svelte";
   import ContextFiles from "./ContextFiles.svelte";
+  import { bIncognito } from "../store";
 
   interface Props {
     onSendMessage: (message: string) => void;
@@ -75,7 +76,8 @@
 
 <form class="flex flex-col space-y-2 w-full" onsubmit={onSubmit}>
   <div
-    class="flex flex-col rounded-xl border-1 p-3 w-full bg-surface-50-950 border-surface-200-800 relative"
+    class="flex flex-col rounded-xl p-3 w-full bg-surface-50-950 relative border-1
+    {$bIncognito ? 'border-tertiary-200-800' : 'border-surface-200-800'}"
     role="presentation"
     tabindex="-1"
   >

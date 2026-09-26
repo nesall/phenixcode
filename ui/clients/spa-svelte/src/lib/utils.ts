@@ -142,7 +142,8 @@ export const Consts = {
   ApiOptionsSortedKey: "ApiOptionsSortedKey",
   ApiOptionsGroupedKey: "ApiOptionsGroupedKey",
   EmbedderExecutablePath: "EmbedderExecutablePath",
-  EmbedderSettingsFilePaths: "EmbedderSettingsFilePaths"
+  EmbedderSettingsFilePaths: "EmbedderSettingsFilePaths",
+  RememberChatsKey: "RememberChatsKey"
 };
 
 export async function setPersistentKey(key: string, value: string, sendToCpp = true) {
@@ -204,4 +205,69 @@ export function apiOptionsGroupedSorted(
     return ao.slice().sort((a, b) => a._price - b._price);
   }
   return ao;
+}
+
+
+export function normalizeHeaders(s: string) {
+  return s
+    .replace(/<h[1-5]\b([^>]*)>/gi, (_, attrs) => {
+      const updatedAttrs = attrs.replace(/class="h[1-5]"/gi, 'class="h6"');
+      return `<h5${updatedAttrs}>`;
+    })
+    .replace(/<\/h[1-5]>/gi, "</h6>");
+}
+
+const ChatsKey = "PhenixCode.chats";
+
+function loadLocalChats(): PersistedChat[] {
+  try { return JSON.parse(localStorage.getItem(ChatsKey) || "[]"); }
+  catch { return []; }
+}
+
+function storeLocalChats(chats: PersistedChat[]) {
+  localStorage.setItem(ChatsKey, JSON.stringify(chats));
+}
+
+export function listChats(projectId = ""): Promise<ChatResult> {
+  if (window.cppApi) return window.cppApi.listChats(projectId);
+  const chats = loadLocalChats()
+    .filter(c => !projectId || c.project_id === projectId)
+    .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0))
+    .map(c => ({ id: c.id!, title: c.title, updated_at: c.updated_at ?? 0 }));
+  return Promise.resolve({ status: "success", chats });
+}
+
+export function saveChat(pc: PersistedChat): Promise<ChatResult> {
+  if (window.cppApi) return window.cppApi.saveChat(pc);
+  const now = Math.floor(Date.now() / 1000);
+  const chats = loadLocalChats();
+  const id = pc.id || newUUID();
+  const idx = chats.findIndex(c => c.id === id);
+  const row: PersistedChat = {
+    ...pc, id,
+    created_at: idx >= 0 ? chats[idx].created_at : now,
+    updated_at: now,
+  };
+  if (idx >= 0) chats[idx] = row; else chats.unshift(row);
+  try { storeLocalChats(chats); }
+  catch (e: any) { return Promise.resolve({ status: "error", message: e?.message ?? "quota" }); }
+  return Promise.resolve({ status: "success", id });
+}
+
+export function getChat(id: string): Promise<ChatResult> {
+  if (window.cppApi) return window.cppApi.getChat(id);
+  const chat = loadLocalChats().find(c => c.id === id);
+  return Promise.resolve(chat
+    ? { status: "success", chat }
+    : { status: "error", message: "Chat not found: " + id });
+}
+
+export function deleteChat(id: string): Promise<ChatResult> {
+  if (window.cppApi) return window.cppApi.deleteChat(id);
+  const chats = loadLocalChats();
+  const next = chats.filter(c => c.id !== id);
+  if (next.length === chats.length)
+    return Promise.resolve({ status: "error", message: "Chat not found: " + id });
+  storeLocalChats(next);
+  return Promise.resolve({ status: "success", deleted: 1 });
 }

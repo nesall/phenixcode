@@ -107,7 +107,7 @@
       title="Explicitly insert files as context"
       onclick={onModalOpen}
     >
-      <icons.Plus size={16} />Add context
+      <icons.Plus />Add context
     </button>
     <!-- <div
       class="text-sm relative"

@@ -34,7 +34,7 @@
     }}
     title="Attach file"
   >
-    <icons.Paperclip size={12} />
+    <icons.Paperclip class="size-elem-sm"/>
   </button>
   {#if attachments.length > 0}
     <div
@@ -57,7 +57,7 @@
               attachments = attachments.filter((_, j) => j !== i);
             }}
           >
-            <icons.X size={12} />
+            <icons.X class="size-elem-sm"/>
           </button>
         </div>
       {/each}

@@ -7,9 +7,14 @@
     apiUrl,
     clog,
     Consts,
-    fnv1a64,
+    deleteChat,
+    getChat,
     getLastLogs,
     getPersistentKey,
+    isGoodArray,
+    listChats,
+    newUUID,
+    normalizeHeaders,
     setPersistentKey,
     stripCommonPrefix,
     toaster,
@@ -23,8 +28,14 @@
     curInstance,
     bApisGroupedByLabel,
     bApisSortedByPrice,
+    bIncognito,
+    currentChatId,
+    sessionId,
+    bLoading,
   } from "../store";
   import { slide } from "svelte/transition";
+  import ToggleButton from "./ToggleButton.svelte";
+  import { renderMarkdown } from "../markdown";
 
   interface Props {
     fetchInstances: () => Promise<void>;
@@ -32,7 +43,8 @@
   }
   let { fetchInstances, onClear = () => {} }: Props = $props();
 
-  let openState = $state(false);
+  let openSettingsState = $state(false);
+  let openChatsState = $state(false);
   let curTheme = $state("cerberus");
   let serverUrl = $state("127.0.0.1:8590");
 
@@ -70,11 +82,14 @@
 
   let statsData: StatsType | undefined = $state();
 
+  let chatList: ChatSummary[] = $state([]);
+
   const themeOptions = [
     { label: "Cerberus", value: "cerberus" },
     { label: "Concord", value: "concord" },
     { label: "Hamlindigo", value: "hamlindigo" },
     { label: "Terminus", value: "terminus" },
+    { label: "Dracula", value: "dracula" },
     { label: "Mona", value: "mona" },
     { label: "Wintry", value: "wintry" },
     { label: "Nosh", value: "nosh" },
@@ -167,7 +182,7 @@
   }
 
   async function modalClose() {
-    openState = false;
+    openSettingsState = false;
   }
 
   function onThemeChange(i: number, theme: string) {
@@ -206,14 +221,15 @@
 
   function onDownloadChat() {
     clog("onDownloadChat");
-    const chat = document.getElementById("chat-messages");
-    if (!chat) return;
+    if (!isGoodArray($messages)) {
+      toaster.error({ title: "No messages in the chat." });
+      return;
+    }
     let text = "";
-    chat.querySelectorAll(".message").forEach((msg) => {
-      const role = msg.getAttribute("data-role") || "user";
-      const contentEl = msg.querySelector(".message-content");
-      const content = contentEl ? contentEl.textContent || "" : "";
-      text += role.toUpperCase() + ":\n" + content + "\n\n";
+    $messages.forEach((msg: ChatMessage) => {
+      const role = msg.role;
+      const content = msg.content;
+      text += `## ${role.toUpperCase()}\n\n${content}\n\n\n`;
     });
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -255,7 +271,87 @@
 
   function onClearInternal() {
     messages.set([]);
+    currentChatId.set("");
+    $sessionId = newUUID();
     onClear();
+  }
+
+  async function onSelectChat(chatId: string) {
+    console.log("onSelectChat", chatId);
+    if ($bLoading) {
+      toaster.error({ title: "Wait for the current response to finish." });
+      return;
+    }
+    try {
+      const res = await getChat(chatId); // add getChat to the utils import
+      if (res.status !== "success") {
+        toaster.error({ title: "Failed to load chat.", description: res.message });
+        return;
+      }
+      if (!res.chat) {
+        toaster.error({ title: "Chat load succeeded by chats are empty." });
+        return;
+      }
+      const chat = res.chat;
+
+      const idx = $instances.findIndex((i) => i.project_id === chat.project_id);
+      if (idx >= 0 && $instances[idx].id !== $curInstance) onProjectChange(idx, $instances[idx].id);
+
+      let newMessages: ChatMessage[] = [];
+      for (let m of chat.messages) {
+        newMessages.push({
+          role: m.role,
+          content: m.content,
+          _metaInfoArray: m._metaInfoArray,
+          _html: m.role === "assistant" ? normalizeHeaders(await renderMarkdown(m.content)) : m.content,
+        });
+      }
+      messages.set(newMessages);
+
+      currentChatId.set(chat.id || "");
+      sessionId.set(newUUID()); // fresh server-side session for the next /api/chat
+      openChatsState = false;
+    } catch (e) {
+      toaster.error({ title: "Failed to load chat.", description: String(e) });
+    }
+  }
+
+  function onDeleteChat(chatId: string) {
+    console.log("onDeleteChat", chatId);
+    if ($bLoading) {
+      toaster.error({ title: "Wait for the current response to finish." });
+      return;
+    }
+    deleteChat(chatId).then((res) => {
+      console.log("onDeleteChat", res);
+      if (res.status === "success") {
+        chatList = chatList.filter((c) => c.id !== chatId);
+        if ($currentChatId === chatId) {
+          onClearInternal();
+        }
+      } else {
+        toaster.error({ title: "Failed to delete chat.", description: res.message });
+      }
+    });
+  }
+
+  async function onViewHistory() {
+    listChats().then((res) => {
+      console.log("onViewHistory", res);
+      if (res.status === "success") {
+        if (res.chats) {
+          chatList = res.chats;
+        }
+      } else {
+        toaster.error({ title: "Failed to load chat history.", description: res.message });
+      }
+    });
+    openChatsState = true;
+  }
+
+  function onToggleIncognito(b: boolean) {
+    console.log("onToggleIncognito", b);
+    $bIncognito = b;
   }
 
   function onViewStats() {
@@ -466,7 +562,7 @@
       />
     </span>
   </div>
-  <span class="w-4">&nbsp;</span>
+  <span class="w-4"></span>
   <div class="flex space-x-1 items-center ml-auto">
     <button
       type="button"
@@ -474,16 +570,35 @@
       aria-label="Download"
       onclick={onDownloadChat}
       title="Download chat as text file"
+      disabled={!isGoodArray($messages)}
     >
       <icons.Download />
     </button>
 
     <span class="vr h-6"></span>
 
+    <ToggleButton
+      icon={icons.Eye}
+      iconOn={icons.EyeOff}
+      checked={$bIncognito}
+      onToggle={onToggleIncognito}
+      title="Toggle incognito mode (no chat history saved)"
+    />
+
     <button
       type="button"
       class="btn btn-sm btn-icon hover:preset-tonal"
-      aria-label="Statistics"
+      aria-label="Chat history"
+      onclick={onViewHistory}
+      title="View chat history"
+    >
+      <icons.MessagesSquare />
+    </button>
+
+    <button
+      type="button"
+      class="btn btn-sm btn-icon hover:preset-tonal"
+      aria-label="Chat history"
       onclick={onViewStats}
       title="View statistics"
     >
@@ -497,7 +612,7 @@
         curTheme = document.documentElement.getAttribute("data-theme") || "cerberus";
         await fetchInstances();
         updateRunningEmbedderStatuses();
-        openState = true;
+        openSettingsState = true;
       }}
       title="Edit settings"
     >
@@ -519,12 +634,12 @@
       onclick={onClearInternal}
       title="Clear chat"
     >
-      <icons.Trash2 />
+      <icons.Trash />
     </button>
   </div>
 </div>
 
-<Dialog open={openState} onOpenChange={(e) => (openState = e.open)}>
+<Dialog open={openSettingsState} onOpenChange={(e) => (openSettingsState = e.open)}>
   <Portal>
     <Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
       <Dialog.Content class="card bg-surface-100-900 w-xl p-4 space-y-2 shadow-xl">
@@ -590,7 +705,7 @@
                 <div class="flex items-center space-x-2">
                   <input type="url" class="input" bind:value={serverUrl} onchange={onServerUrlChange} />
                   <button type="button" class="btn preset-tonal flex items-center" onclick={onSaveConnection}>
-                    <icons.CircleCheckBig size={16} />
+                    <icons.CircleCheckBig />
                     Save
                   </button>
                 </div>
@@ -608,9 +723,9 @@
               >
                 <span>Edit Projects and Sources</span>
                 {#if showProjectsAndSources}
-                  <icons.ChevronUp size={16} />
+                  <icons.ChevronUp />
                 {:else}
-                  <icons.ChevronDown size={16} />
+                  <icons.ChevronDown />
                 {/if}
               </button>
             </div>
@@ -646,7 +761,7 @@
                         }}
                         disabled={mapIdToRunningEmbedder[mapPathToId[path]] || mapIdToStartInitiated[mapPathToId[path]]}
                       >
-                        <icons.Trash2 size={16} />
+                        <icons.Trash />
                       </button>
                       <span class=" w-full px-2 text-xs">{path}</span>
                       <button
@@ -662,10 +777,10 @@
                       >
                         {#if mapIdToRunningEmbedder[mapPathToId[path]]}
                           <span class="">Stop</span>
-                          <icons.OctagonX size={16} />
+                          <icons.OctagonX />
                         {:else}
                           <span class="">Run</span>
-                          <icons.Play size={16} />
+                          <icons.Play />
                         {/if}
                       </button>
                     </div>
@@ -717,7 +832,7 @@
         <Dialog.Description>
           <div class="whitespace-pre-wrap font-mono text-xs max-h-[60vh] overflow-y-auto">
             <pre id="log-output">
-          {#each getLastLogs() as log}<div class="flex items-center space-x-1"><span>{log.date}</span><span>&nbsp;</span
+          {#each getLastLogs() as log}<div class="flex items-center space-x-1"><span>{log.date}</span><span> </span
                   ><span>{log.data}</span></div>{/each}
         </pre>
           </div>
@@ -736,7 +851,7 @@
         <Dialog.Title class="text-lg font-bold">Stats</Dialog.Title>
         <hr class="hr" />
         <Dialog.Description>
-          <div class="whitespace-pre-wrap font-mono0 text-xs max-h-[60vh] overflow-y-auto">
+          <div class="whitespace-pre-wrap text-xs max-h-[60vh] overflow-y-auto">
             <div class="flex flex-col">
               <!-- <span class="font-semibold uppercase">Sources:</span> -->
 
@@ -824,6 +939,55 @@
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </Dialog.Description>
+        <Dialog.CloseTrigger class="btn preset-filled w-full">Close</Dialog.CloseTrigger>
+      </Dialog.Content>
+    </Dialog.Positioner>
+  </Portal>
+</Dialog>
+
+<Dialog open={openChatsState} onOpenChange={(e) => (openChatsState = e.open)}>
+  <Portal>
+    <Dialog.Backdrop class="" />
+    <Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
+      <Dialog.Content class="card bg-surface-100-900 w-xl p-4 space-y-2 shadow-xl">
+        <Dialog.Title class="text-lg font-bold">Chat History</Dialog.Title>
+        <hr class="hr" />
+        <Dialog.Description>
+          <div class="whitespace-pre-wrap text-xs max-h-[60vh] overflow-x-hidden overflow-y-auto">
+            <div class="flex flex-col">
+              {#if chatList.length === 0}
+                <p class="text-surface-500 text-center py-4">No chats yet</p>
+              {:else}
+                {#each [...chatList].sort((a: ChatSummary, b: ChatSummary) => b.updated_at - a.updated_at) as chat (chat.id)}
+                  <div class="flex items-center gap-1 min-w-0">
+                    <button
+                      type="button"
+                      class="btn justify-between flex-1 min-w-0 text-left
+                      cursor-pointer hover:bg-surface-200-800 text-xs
+                      w-full
+                      "
+                      onclick={() => onSelectChat(chat.id)}
+                    >
+                      <span class="min-w-0 flex-1 truncate">{chat.title}</span>
+                      <span class="text-surface-500 shrink-0 ml-2 text-xxs" title="Last updated">
+                        {new Date(chat.updated_at * 1000).toLocaleString()}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-icon preset-tonal-error shrink-0"
+                      aria-label="Delete chat"
+                      title="Delete chat"
+                      onclick={() => onDeleteChat(chat.id)}
+                    >
+                      <icons.Trash />
+                    </button>
+                  </div>
+                {/each}
+              {/if}
             </div>
           </div>
         </Dialog.Description>
