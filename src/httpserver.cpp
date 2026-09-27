@@ -1080,6 +1080,7 @@ bool HttpServer::startServer()
         // No request-level preference given; fall back to the project default
         runAutoRouter = imp->app_.settings().generationIsAuto();
       }
+      std::vector<std::string> pendingInfoVec;
       ApiConfig apiConfig;
       if (runAutoRouter) {
         const AutoRouterConfig router = imp->app_.settings().autoRouterConfig();
@@ -1104,6 +1105,7 @@ bool HttpServer::startServer()
             }
             modelId = router.resolveRoutedModelId(tierName);
             LOG_MSG << "Auto-router classifier [internal] picked model" << modelId << "(" << AutoRouterConfig::normalizeTierTag(tierName) << ")";
+            pendingInfoVec.push_back("Internal router classified task as " + tierName);
           } else {
             LOG_MSG << "Auto-router classifier [internal] unavailable, fallback=" << modelId;
           }
@@ -1123,6 +1125,7 @@ bool HttpServer::startServer()
             const std::string raw = clf.generateChat(clfMsgs, router.classifier.temperature, router.classifier.maxTokens);
             modelId = router.resolveRoutedModelId(raw);
             LOG_MSG << "Auto-router classifier picked model" << modelId << "(" << AutoRouterConfig::normalizeTierTag(raw) << ")";
+            pendingInfoVec.push_back("LLM router classified task as " + AutoRouterConfig::normalizeTierTag(raw));
           } catch (const std::exception &e) {
             std::cout << "Classifier failed (" << e.what() << "), fallback=" << modelId << "\n";
           }
@@ -1132,6 +1135,7 @@ bool HttpServer::startServer()
           LOG_MSG << "Auto-router resolved unknown id '" << modelId << "'";
           throw std::runtime_error("auto-router resolved unknown id '" + modelId + "'");
         }
+        pendingInfoVec.push_back("Auto routed to model " + modelId);
         apiConfig = *routed;
       } else {
         apiConfig = getTargetApi(request, imp->app_);
@@ -1185,7 +1189,7 @@ bool HttpServer::startServer()
 
       res.set_chunked_content_provider(
         "text/event-stream",
-        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig]
+        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig, pendingInfoVec]
         (size_t offset, httplib::DataSink &sink) {
 
           auto packPayload = [](std::string data) {
@@ -1209,6 +1213,10 @@ bool HttpServer::startServer()
             const auto [orderedResults, usedTokens] = processInputResults(imp->app_, apiConfig, question, attachments, sources,
               contextSizeRatio, attachedOnly, onInfo
             );
+
+            for (const auto &s: pendingInfoVec) {
+              onInfo(s);
+            }
 
             CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
             const std::string fullResponse = completionClient.generateCompletion(
