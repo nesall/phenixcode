@@ -327,6 +327,7 @@ namespace {
   const std::string &_queryTemplate{ R"(
   You're a helpful software developer assistant, please use the provided context to base your answers on
   for user questions. Answer to the best of your knowledge. Keep your responses short and on point.
+  Do not list the source files or add a "Sources" section at the end of your answer — the application appends that automatically.
   Context:
   __CONTEXT__
 
