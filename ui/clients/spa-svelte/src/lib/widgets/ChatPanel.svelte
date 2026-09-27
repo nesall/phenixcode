@@ -212,6 +212,17 @@
       .replace(/\n+$/, ""); // Remove trailing newlines
   }
 
+  function stripModelEchoedSources(content: string): string {
+    const blocks = [...content.matchAll(/\n*Sources:\s*(?:\n\s*[*_]?[\w./-]+[*_]?\s*)+/gi)];
+    if (blocks.length < 2) return content;
+    // remove every match except the last (the officially-appended one)
+    for (let i = blocks.length - 2; i >= 0; i--) {
+      const m = blocks[i];
+      content = content.slice(0, m.index) + content.slice(m.index! + m[0].length);
+    }
+    return content;
+  }
+
   const metaTagBegin = "[meta]";
 
   function parseFromSSE(chunk: string): { parsed: string; remainder: string } {
@@ -323,15 +334,22 @@
         throw new Error("Failed to send message");
       }
       let appended = false;
+      let leftover = ""; // holds an incomplete trailing SSE frame across reads
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        let bufferToParse = decoder.decode(value, { stream: true });
+        let bufferToParse = leftover + decoder.decode(value, { stream: true });
+        leftover = "";
         while (bufferToParse) {
           const { parsed: chunk, remainder } = parseFromSSE(bufferToParse);
+          if (remainder.length === bufferToParse.length) {
+            // no complete "\n\n" event in here — stash and wait for more data
+            leftover = remainder;
+            break;
+          }
           bufferToParse = remainder;
           if (!chunk && !appended) continue; // skip empty starting text
           if (chunk.includes(metaTagBegin)) {
@@ -363,6 +381,7 @@
       }
       let lm = $messages[$messages.length - 1];
       lm.content = processResponse(lm.content);
+      lm.content = stripModelEchoedSources(lm.content);
       lm._html = normalizeHeaders(await renderMarkdown(lm.content));
       lm._metaInfoArray = [...metaInfoArray];
       $messages = $messages;
