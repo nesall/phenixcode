@@ -453,14 +453,15 @@ std::string CompletionClient::generateCompletion(
   std::string context = buildContext(searchRes);
 
   std::string prompt = _queryTemplate;
-  size_t pos = prompt.find("__CONTEXT__");
-  assert(pos != std::string::npos);
-  prompt.replace(pos, std::string("__CONTEXT__").length(), context);
 
-  pos = prompt.find("__QUESTION__");
+  size_t pos = prompt.find("__QUESTION__");
   assert(pos != std::string::npos);
   std::string question = messagesJson.back()["content"].get<std::string>();
   prompt.replace(pos, std::string("__QUESTION__").length(), question);
+
+  pos = prompt.find("__CONTEXT__");
+  assert(pos != std::string::npos);
+  prompt.replace(pos, std::string("__CONTEXT__").length(), context);
 
   // Assign propmt to the last messagesJson's content field
   nlohmann::json modifiedMessages = messagesJson;
@@ -697,11 +698,21 @@ std::string CompletionClient::generateFim(
   return fullResponse;
 }
 
+std::string CompletionClient::queryTemplate()
+{
+  return _queryTemplate;
+}
+
+std::string CompletionClient::fimTemplate()
+{
+  return _fimTemplate;
+}
+
 std::string CompletionClient::buildContext(const std::vector<SearchResult> &searchRes, bool commentOut, const std::string &fileDivider) const
 {
   const auto labelFmt = app_.settings().generationPrependLabelFormat();
   const auto maxContextTokens = cfg().contextLength;
-  size_t nofTokens = app_.tokenizer().countTokensWithVocab(_queryTemplate);
+  size_t nofTokens = 0;// app_.tokenizer().countTokensWithVocab(_queryTemplate); already addedin httpserver.cpp
   std::string context;
   for (const auto &r : searchRes) {
     std::string filename = std::filesystem::path(r.sourceId).filename().string();

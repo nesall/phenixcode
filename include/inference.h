@@ -60,6 +60,9 @@ public:
     const std::vector<SearchResult> &searchRes
   ) const;
 
+  static std::string queryTemplate();
+  static std::string fimTemplate();
+
 private:
   std::string buildContext(const std::vector<SearchResult> &searchRes, bool commentOut = false, const std::string &fileDivider = {}) const;
 };

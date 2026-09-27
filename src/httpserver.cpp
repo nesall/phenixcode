@@ -28,6 +28,7 @@
 //#include <format>
 #include <filesystem>
 #include <list>
+#include <utility>
 #include <unordered_map>
 
 using json = nlohmann::json;
@@ -69,12 +70,12 @@ namespace {
 
     auto chunks = chunker.chunkText(res, {}, false);
 
-    size_t end = 0;
+    size_t end = res.size();
     size_t tokensSoFar = 0;
     for (const auto &chunk : chunks) {
       if (maxTokens < chunk.metadata.tokenCount + tokensSoFar) {
         assert(chunk.metadata.unit == "char");
-        end = chunk.metadata.end;
+        end = chunk.metadata.start;
         break;
       }
       tokensSoFar += chunk.metadata.tokenCount;
@@ -142,18 +143,18 @@ namespace {
   }
 
   bool isWithinThreshold(const App &app, const std::string &content, size_t maxTokenBudget, size_t usedTokens, float thresholdRatio, size_t *pTokens = nullptr) {
+    if (maxTokenBudget <= usedTokens) return false;
     const auto excerptBudget = maxTokenBudget - usedTokens;
-    if (excerptBudget <= 0) return false;
-    const auto avgChunkTokens = app.settings().chunkingMaxTokens();
     const auto tokens = app.tokenizer().countTokensWithVocab(content);
+    const auto maxAllowed = static_cast<size_t>(excerptBudget * thresholdRatio);
     if (pTokens) *pTokens = tokens;
-    auto threshold = (std::max)(static_cast<size_t>(excerptBudget * thresholdRatio), avgChunkTokens);
+    auto threshold = maxAllowed;
     return tokens <= threshold;
   }
 
-  bool processContent(const App &app, std::string &content, const std::string &src, size_t chunkId, size_t maxTokenBudget, size_t &usedTokens) {
+  bool processContent(const App &app, std::string &content, const std::string &src, size_t chunkId, size_t maxTokenBudget, size_t &usedTokens, std::vector<size_t> &stitchedIds) {
+    if (maxTokenBudget <= usedTokens) return false;
     const auto excerptBudget = maxTokenBudget - usedTokens;
-    if (excerptBudget <= 0) return false;
     // If the source file of the best chunk is too large then we fetch an excerpt of it instead.
     const auto avgChunkTokens = app.settings().chunkingMaxTokens();
     float thresholdRatio = app.settings().generationExcerptThresholdRatio();
@@ -163,21 +164,52 @@ namespace {
         return false;
       }
       const auto ids = app.db().getChunkIdsBySource(src);
-      assert(!ids.empty());
+      if (ids.empty()) return false;
       if (chunkId == -1) {
         chunkId = ids[ids.size() / 2];
       }
       size_t minChunks = app.settings().generationExcerptMinChunks();
       size_t maxChunks = app.settings().generationExcerptMaxChunks();
-      const auto nofNb = calculateNeighborCount(static_cast<size_t>(excerptBudget * thresholdRatio), avgChunkTokens, minChunks, maxChunks);
+      size_t maxAllowed = static_cast<size_t>(excerptBudget * thresholdRatio);
+      const auto nofNb = calculateNeighborCount(maxAllowed, avgChunkTokens, minChunks, maxChunks);
       const auto betterIds = getClosestNeighbors(ids, chunkId, nofNb);
-      std::vector<std::string> chunkhood;
-      for (auto i : betterIds) {
-        auto opt = app.db().getChunkData(i);
-        if (opt.has_value()) {
-          chunkhood.push_back(std::move(opt->content));
-        }
+
+      std::vector<size_t> order;
+      order.reserve(betterIds.size());
+      auto centerIt = std::lower_bound(betterIds.begin(), betterIds.end(), chunkId);
+      size_t center = std::distance(betterIds.begin(), centerIt);
+      if (center < betterIds.size() && betterIds[center] == chunkId) {
+        order.push_back(center);
       }
+      for (size_t d = 1; order.size() < betterIds.size(); ++d) {
+        if (center >= d) order.push_back(center - d);
+        if (center + d < betterIds.size()) order.push_back(center + d);
+      }
+
+      std::map<size_t, std::string> chunkhoodMap;
+      size_t chunkTokens = 0;
+      bool stopLeft = false, stopRight = false;
+      for (size_t idx : order) {
+        if (idx < center && stopLeft) continue;
+        if (idx > center && stopRight) continue;
+        auto i = betterIds[idx];
+        auto opt = app.db().getChunkData(i);
+        const auto tokens = opt ? app.tokenizer().countTokensWithVocab(opt->content) : 0;
+        if (!opt || maxAllowed < chunkTokens + tokens) {
+          if (idx == center) return false;
+          if (idx < center) stopLeft = true;
+          else stopRight = true;
+          continue;
+        }
+        chunkhoodMap.insert({ i, std::move(opt->content) });
+        chunkTokens += tokens;
+        stitchedIds.push_back(i);
+      }
+      std::vector<std::string> chunkhood;
+      for (const auto &t : chunkhoodMap) {
+        chunkhood.push_back(t.second);
+      }
+      if (chunkhood.empty()) return false;
       content = stitchChunks(chunkhood); // Also removes overlaps
       contentTokens = app.tokenizer().countTokensWithVocab(content);
     }
@@ -336,6 +368,7 @@ namespace {
   std::pair<std::vector<SearchResult>, size_t> processInputResults(
     const App &app,
     const ApiConfig &apiConfig,
+    size_t usedTokens,
     const std::string &question,
     std::vector<Attachment> attachments,
     std::vector<std::string> sources,
@@ -347,7 +380,7 @@ namespace {
     if (!onInfo) onInfo = [](std::string_view) {};
     // Preferred order
     std::vector<SearchResult> attachmentResults;
-    std::vector<SearchResult> fullSourceResults;
+    std::vector<SearchResult> directSrcResults;
     std::vector<SearchResult> relatedSrcResults;
     std::vector<SearchResult> filteredChunkResults;
     std::vector<SearchResult> orderedResults; // Final ordered results
@@ -363,12 +396,12 @@ namespace {
     }
 
     //onInfo(fmt::format("Context token budget:", ((maxTokenBudget % 1000) == 0) ? std::to_string(maxTokenBudget) + "k" : std::to_string(maxTokenBudget)));
-    const size_t questionTokens = app.tokenizer().countTokensWithVocab(question);
-    size_t usedTokens = questionTokens;
+    const auto questionTokens = app.tokenizer().countTokensWithVocab(question);
+    const size_t initialTokens = usedTokens;
 
     LOG_MSG << "Total context budget:" << maxTokenBudget;
-
     LOG_MSG << "Budget used for question:" << questionTokens;
+    LOG_MSG << "Budget used for history messages:" << usedTokens - questionTokens;
 
     {
       if (!attachments.empty()) {
@@ -397,7 +430,7 @@ namespace {
         } else {
           auto m = content.length();
           content = truncateToTokens(app.tokenizer(), content, maxAttBudget - usedTokens);
-          usedTokens = maxAttBudget;
+          usedTokens += app.tokenizer().countTokensWithVocab(content);
           auto percent = int((content.length() / double(m)) * 100);
           auto info = fmt::format("Warning: Attachment too large, truncated to {}% of {}", percent, att.filename);
           LOG_MSG << info;
@@ -407,12 +440,12 @@ namespace {
       }
     }
 
-    LOG_MSG << "Budget used for attachments:" << usedTokens - questionTokens;
+    LOG_MSG << "Budget used for attachments:" << usedTokens - initialTokens;
 
     std::vector<std::vector<float>> questionEmbeddingVectors;
     std::unordered_map<std::string, SearchResult> sourceToChunk;
-    std::vector<std::string> allFullSources;
     std::vector<std::string> relSources;
+    std::vector<size_t> usedChunkIds;
 
     EmbeddingClient embeddingClient(app.settings().embeddingCurrentApi(), app.settings().embeddingTimeoutMs());
     const auto questionChunks = app.chunker().chunkText(question, "", false);
@@ -455,15 +488,11 @@ namespace {
         trackedSources.push_back(tf.path);
       }
 
-      allFullSources = sources;
       for (const auto &src : sources) {
         auto relations = app.sourceProcessor().filterRelatedSources(trackedSources, src);
-        //vecAddIfUnique(relSources, relations);
-        //vecAddIfUnique(allFullSources, relations);
         for (const auto &rel : relations) {
           if (!vecContains(sources, rel)) {
             vecAddIfUnique(relSources, rel);
-            vecAddIfUnique(allFullSources, rel);
           }
         }
       }
@@ -472,7 +501,6 @@ namespace {
         onInfo(fmt::format("Adding related file {}", std::filesystem::path(rel).filename().string()));
       }
     } else {
-      allFullSources = sources;
       assert(sourceToChunk.empty());
       assert(filteredChunkResults.empty());
       assert(relSources.empty());
@@ -483,20 +511,34 @@ namespace {
       const auto &src = sources[j];
       // src is either a user-set context file, or a chunk's base file (sourceToChunk).
       auto content = app.sourceProcessor().fetchSource(src).content;
-      if (maxTokenBudget <= usedTokens) break;
+      if (content.empty()) {
+        continue;
+      }
+      if (maxTokenBudget <= usedTokens) {
+        break;
+      }
       size_t contentTokens = 0;
       if (sourceToChunk.count(src)) {
         auto nUsed = usedTokens;
-        if (!processContent(app, content, src, sourceToChunk[src].chunkId, maxTokenBudget, usedTokens)) {
-          break;
+        std::vector<size_t> stitchedIds;
+        if (!processContent(app, content, src, sourceToChunk[src].chunkId, maxTokenBudget, usedTokens, stitchedIds)) {
+          continue;
         }
         srcTokens += usedTokens - nUsed;
+        if (stitchedIds.empty()) {
+          auto ids = app.db().getChunkIdsBySource(src);
+          usedChunkIds.insert(usedChunkIds.end(), ids.cbegin(), ids.cend());
+        } else {
+          usedChunkIds.insert(usedChunkIds.end(), stitchedIds.cbegin(), stitchedIds.cend());
+        }
       } else {
         float thresholdRatio = app.settings().generationExcerptThresholdRatio();
         if (attachedOnly && j == sources.size() - 1) thresholdRatio = 1.0f;
         if (!isWithinThreshold(app, content, maxTokenBudget, usedTokens, thresholdRatio, &contentTokens)) {
           auto info = fmt::format("Processing large file {}", std::filesystem::path(src).filename().string());
           onInfo(info);
+          content.clear();
+          contentTokens = 0;
           auto ids = app.db().getChunkIdsBySource(src);
           if (!ids.empty()) {
             const auto remaining = maxTokenBudget - usedTokens;
@@ -504,32 +546,43 @@ namespace {
             const auto nofMaxChunks = remaining / avgChunkTokens;
             hnswlib::InnerProductSpace space{ app.settings().databaseVectorDim() };
             hnswlib::HierarchicalNSW<float> hnswDB(&space, 1000, 16, 200, 42, true);
-            ids.resize(999);
+            ids.resize(999, std::numeric_limits<size_t>::max());
             std::unordered_map<size_t, std::string> idToContent;
             for (auto id : ids) {
+              if (id == std::numeric_limits<size_t>::max()) break;
               if (auto opt = app.db().getChunkData(id)) {
                 auto vec = app.db().getEmbeddingVector(id);
                 hnswDB.addPoint(vec.data(), id);
                 idToContent[id] = std::move(opt->content);
               }
             }
-            content.clear();
-            contentTokens = 0;
             const auto topK = static_cast<size_t>(nofMaxChunks * thresholdRatio);
             if (0 < topK) {
               assert(!questionEmbeddingVectors.empty());
               content.reserve(questionEmbeddingVectors.size() * topK);
+              std::set<size_t> uniqueLabels;
               int nofFetched = 0;
+              bool bStop = false;
+              size_t chunkTokens = 0;
               for (const auto &v : questionEmbeddingVectors) {
+                if (bStop) break;
                 auto result = hnswDB.searchKnn(v.data(), topK);
                 nofFetched = result.size();
                 std::vector<SearchResult> searchResults;
                 while (!result.empty()) {
                   const auto [distance, label] = result.top();
                   result.pop();
-                  float similarity = 1.0f - distance; // Higher = more similar
-                  auto chunk = idToContent[label];
-                  content += chunk;
+                  if (uniqueLabels.insert(label).second) {
+                    auto chunk = idToContent[label];
+                    auto cn = app.tokenizer().countTokensWithVocab(chunk);
+                    if (maxTokenBudget < usedTokens + chunkTokens + cn) {
+                      bStop = true;
+                      break;
+                    }
+                    chunkTokens += cn;
+                    content += chunk;
+                    usedChunkIds.push_back(static_cast<size_t>(label));
+                  }
                 }
               }
               onInfo(fmt::format("Adding {} relevant chunks from {}", nofFetched, std::filesystem::path(src).filename().string()));
@@ -538,10 +591,13 @@ namespace {
               srcTokens += tokens;
             }
           }
+        } else {
+          auto ids = app.db().getChunkIdsBySource(src);
+          usedChunkIds.insert(usedChunkIds.end(), ids.cbegin(), ids.cend());
         }
       }
       if (!content.empty()) {
-        addToSearchResult(fullSourceResults, src, std::move(content));
+        addToSearchResult(directSrcResults, src, std::move(content));
         usedTokens += contentTokens;
       }
     }
@@ -551,26 +607,52 @@ namespace {
       size_t relTokens = 0;
       for (const auto &rel : relSources) {
         auto content = app.sourceProcessor().fetchSource(rel).content;
+        if (content.empty()) {
+          continue;
+        }
+        if (maxTokenBudget <= usedTokens) break;
         auto nUsed = usedTokens;
-        if (processContent(app, content, rel, -1, maxTokenBudget, usedTokens)) {
+        std::vector<size_t> stitchedIds;
+        if (processContent(app, content, rel, -1, maxTokenBudget, usedTokens, stitchedIds)) {
           relTokens += usedTokens - nUsed;
           addToSearchResult(relatedSrcResults, rel, std::move(content));
+          if (stitchedIds.empty()) {
+            auto ids = app.db().getChunkIdsBySource(rel);
+            usedChunkIds.insert(usedChunkIds.end(), ids.cbegin(), ids.cend());
+          } else {
+            usedChunkIds.insert(usedChunkIds.end(), stitchedIds.cbegin(), stitchedIds.cend());
+          }
         }
       }
       LOG_MSG << "Budget used for related sources:" << relTokens;
 
       filteredChunkResults.erase(std::remove_if(filteredChunkResults.begin(), filteredChunkResults.end(),
-        [&allFullSources](const SearchResult &r) {
-          return vecContains(allFullSources, r.sourceId) && r.chunkId != std::string::npos;
+        [&usedChunkIds](const SearchResult &r) {
+          return r.chunkId != std::string::npos && vecContains(usedChunkIds, r.chunkId);
         }), filteredChunkResults.end());
+
+
+      for (size_t j = 0; j < filteredChunkResults.size(); j ++) {
+        auto chunkTokens = app.tokenizer().countTokensWithVocab(filteredChunkResults[j].content);
+        if (usedTokens + chunkTokens <= maxTokenBudget) {
+          usedTokens += chunkTokens;
+        } else {
+          filteredChunkResults.erase(filteredChunkResults.cbegin() + j);
+          j --;
+        }
+      }
     }
 
     // Assemble final ordered results
     orderedResults.insert(orderedResults.end(), attachmentResults.begin(), attachmentResults.end());
-    orderedResults.insert(orderedResults.end(), fullSourceResults.begin(), fullSourceResults.end());
+    orderedResults.insert(orderedResults.end(), directSrcResults.begin(), directSrcResults.end());
     orderedResults.insert(orderedResults.end(), relatedSrcResults.begin(), relatedSrcResults.end());
     orderedResults.insert(orderedResults.end(), filteredChunkResults.begin(), filteredChunkResults.end());
     if (app.settings().generationMaxChunks() < orderedResults.size()) {
+      size_t lastN = orderedResults.size() - app.settings().generationMaxChunks();
+      for (size_t j = 0; j < lastN; j ++) {
+        usedTokens -= app.tokenizer().countTokensWithVocab(orderedResults[orderedResults.size() - lastN + j].content);
+      }
       orderedResults.resize(app.settings().generationMaxChunks());
     }
     onInfo(fmt::format("Context token budget used {}/{}", usedTokens, maxTokenBudget));
@@ -629,6 +711,19 @@ namespace {
     if (!messages.is_array()) return 0;
     size_t n = 0;
     for (const auto &m : messages) if (m.value("role", "") == "user") ++n;
+    return n;
+  }
+
+  size_t messagesNofTokens(const json &messages, const App &app) {
+    size_t n = 0;
+    for (const auto &m : messages) {
+      if (m.is_object() && m.contains("content") && m["content"].is_string()) {
+        std::string s = m["content"];
+        if (!s.empty()) {
+          n += app.tokenizer().countTokensWithVocab(s);
+        }
+      }
+    }
     return n;
   }
 
@@ -1209,8 +1304,9 @@ bool HttpServer::startServer()
 
 
           try {
-
-            const auto [orderedResults, usedTokens] = processInputResults(imp->app_, apiConfig, question, attachments, sources,
+            size_t initialTokens = imp->app_.tokenizer().countTokensWithVocab(CompletionClient::queryTemplate());
+            initialTokens += messagesNofTokens(messagesJson, imp->app_);
+            const auto [orderedResults, usedTokens] = processInputResults(imp->app_, apiConfig, initialTokens, question, attachments, sources,
               contextSizeRatio, attachedOnly, onInfo
             );
 
@@ -1339,7 +1435,9 @@ bool HttpServer::startServer()
       const float contextSizeRatio = request.value("ctxratio", 0.5f);
       std::vector<std::string> stops = request.value("stop", std::vector<std::string>{});
 
-      const auto searchResults = processInputResults(imp->app_, apiConfig, prefix, {}, { filename }, contextSizeRatio, {}, nullptr);
+      size_t initialTokens = imp->app_.tokenizer().countTokensWithVocab(CompletionClient::fimTemplate());
+      initialTokens += imp->app_.tokenizer().countTokensWithVocab(suffix) + imp->app_.tokenizer().countTokensWithVocab(prefix);
+      const auto searchResults = processInputResults(imp->app_, apiConfig, initialTokens, prefix, {}, { filename }, contextSizeRatio, {}, nullptr);
 
       LOG_MSG << "Generating FIM with prefix length" << prefix.size() << "and suffix length" << suffix.size();
       CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
