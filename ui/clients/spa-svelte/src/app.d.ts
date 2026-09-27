@@ -42,6 +42,7 @@ interface AppInstance {
 interface ChatSummary {
   id: string;
   title: string;
+  project_id: string;
   updated_at: number;
 }
 

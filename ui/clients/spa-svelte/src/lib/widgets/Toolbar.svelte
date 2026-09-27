@@ -962,19 +962,26 @@
                 <p class="text-surface-500 text-center py-4">No chats yet</p>
               {:else}
                 {#each [...chatList].sort((a: ChatSummary, b: ChatSummary) => b.updated_at - a.updated_at) as chat (chat.id)}
-                  <div class="flex items-center gap-1 min-w-0">
+                  <div class="flex items-center gap-1 min-w-0 even:bg-surface-200-800/25 hover:bg-surface-200-800/80">
                     <button
                       type="button"
                       class="btn justify-between flex-1 min-w-0 text-left
-                      cursor-pointer hover:bg-surface-200-800 text-xs
+                      cursor-pointer text-xs
                       w-full
                       "
                       onclick={() => onSelectChat(chat.id)}
                     >
-                      <span class="min-w-0 flex-1 truncate">{chat.title}</span>
-                      <span class="text-surface-500 shrink-0 ml-2 text-xxs" title="Last updated">
-                        {new Date(chat.updated_at * 1000).toLocaleString()}
-                      </span>
+                      <div class="flex flex-col w-full">
+                        <div class="flex items-center justify-between">
+                          <span class="text-surface-500 shrink-0 text-xxs" title="Last updated">
+                            {chat.project_id}
+                          </span>
+                          <span class="text-surface-500 shrink-0 text-xxs" title="Last updated">
+                            {new Date(chat.updated_at * 1000).toLocaleString()}
+                          </span>
+                        </div>
+                        <span class="min-w-0 flex-1 truncate">{chat.title}</span>
+                      </div>
                     </button>
                     <button
                       type="button"

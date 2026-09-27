@@ -131,7 +131,7 @@
   function constructPersistedChat(inst: AppInstance) {
     const persistedChat: PersistedChat = {
       project_id: inst.project_id || "",
-      title: ($messages.find((m) => m.role === "user")?.content || inst.name).slice(0, 60),
+      title: ($messages.find((m) => m.role === "user")?.content || inst.name).slice(0, 100),
       id: $currentChatId,
       messages: $messages.map((m) => ({
         role: m.role,

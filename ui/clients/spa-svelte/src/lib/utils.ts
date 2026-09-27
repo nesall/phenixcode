@@ -233,7 +233,7 @@ export function listChats(projectId = ""): Promise<ChatResult> {
   const chats = loadLocalChats()
     .filter(c => !projectId || c.project_id === projectId)
     .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0))
-    .map(c => ({ id: c.id!, title: c.title, updated_at: c.updated_at ?? 0 }));
+    .map(c => ({ id: c.id!, title: c.title, project_id: c.project_id, updated_at: c.updated_at ?? 0 }));
   return Promise.resolve({ status: "success", chats });
 }
 
