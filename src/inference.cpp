@@ -77,19 +77,24 @@ namespace {
     return body;
   }
 
-  std::string extractDeltaContent(const ApiConfig &cfg, const nlohmann::json &chunk) {
+  std::string extractDeltaContent(const ApiConfig &cfg, const nlohmann::json &chunk, std::string &reasoning) {
     if (isAnthropic(cfg)) {
       if (chunk.value("type", "") == "content_block_delta") {
-        const auto &delta = chunk["delta"];
-        if (delta.value("type", "") == "text_delta") return delta.value("text", "");
+        const auto delta = chunk.value("delta", nlohmann::json::object());
+        const auto type = delta.value("type", "");
+        if (type == "text_delta")
+          return delta.value("text", "");
+        if (type == "thinking_delta")
+          reasoning += delta.value("thinking", "");
       }
       return {};
     }
     if (chunk.contains("choices") && !chunk["choices"].empty()) {
       const auto &d = chunk["choices"][0].value("delta", nlohmann::json::object());
-      if (d.contains("content") && !d["content"].is_null()) return d["content"].get<std::string>();
-      // We do not propagate reasoning to the client. Maybe a future feature.
-      // if (d.contains("reasoning_content") && !d["reasoning_content"].is_null()) return d["reasoning_content"].get<std::string>();
+      if (d.contains("reasoning_content") && d["reasoning_content"].is_string())
+        reasoning += d["reasoning_content"].get<std::string>();
+      if (d.contains("content") && d["content"].is_string())
+        return d["content"].get<std::string>();
     }
     return {};
   }
@@ -109,17 +114,47 @@ namespace {
     return {};
   }
 
-  std::string extractFullContent(const ApiConfig &cfg, const nlohmann::json &res) {
+  //std::string extractFullContent(const ApiConfig &cfg, const nlohmann::json &res, std::string &reasoning) {
+  //  if (isAnthropic(cfg)) {
+  //    if (res.contains("content") && res["content"].is_array() && !res["content"].empty())
+  //      return res["content"][0].value("text", "");
+  //    return {};
+  //  }
+  //  if (!res["choices"].empty()) {
+  //    const auto &c = res["choices"][0];
+  //    if (c.contains("message") && c["message"].contains("content")) return c["message"]["content"].get<std::string>();
+  //  }
+  //  return {};
+  //}
+  std::string extractFullContent(const ApiConfig &cfg, const nlohmann::json &res, std::string &reasoning) {
     if (isAnthropic(cfg)) {
-      if (res.contains("content") && res["content"].is_array() && !res["content"].empty())
-        return res["content"][0].value("text", "");
-      return {};
+      std::string answer;
+      if (res.contains("content") && res["content"].is_array()) {
+        for (const auto &block : res["content"]) {
+          const std::string type = block.value("type", "");
+          if (type == "text") {
+            if (block.contains("text") && block["text"].is_string())
+              answer += block["text"].get<std::string>();
+          } else if (type == "thinking" || type == "reasoning") {
+            if (block.contains("thinking") && block["thinking"].is_string())
+              reasoning += block["thinking"].get<std::string>();
+          }
+        }
+      }
+      return answer;
     }
-    if (!res["choices"].empty()) {
-      const auto &c = res["choices"][0];
-      if (c.contains("message") && c["message"].contains("content")) return c["message"]["content"].get<std::string>();
+    std::string answer;
+    if (res.contains("choices") && !res["choices"].empty()) {
+      const auto &choice = res["choices"][0];
+      if (choice.contains("message") && choice["message"].is_object()) {
+        const auto &msg = choice["message"];
+        if (msg.contains("content") && msg["content"].is_string())
+          answer = msg["content"].get<std::string>();
+        if (msg.contains("reasoning_content") && msg["reasoning_content"].is_string())
+          reasoning += msg["reasoning_content"].get<std::string>();
+      }
     }
-    return {};
+    return answer;
   }
 } // anonymous namespace
 
@@ -193,7 +228,8 @@ std::string InferenceClient::generateChat(const nlohmann::json &messages, float 
   if (res->status != 200)
     throw std::runtime_error(fmt::format("Server returned error: {} - {}", res->status, res->body));
 
-  return extractFullContent(cfg(), nlohmann::json::parse(res->body));
+  std::string reasoning;
+  return extractFullContent(cfg(), nlohmann::json::parse(res->body), reasoning);
 }
 
 const ApiConfig &InferenceClient::cfg() const
@@ -451,6 +487,7 @@ std::string CompletionClient::generateCompletion(
   }
 
   std::string context = buildContext(searchRes);
+  std::string question = messagesJson.back()["content"].get<std::string>();
 
   std::string prompt = _queryTemplate;
 
@@ -462,10 +499,13 @@ std::string CompletionClient::generateCompletion(
   assert(questionPos != std::string::npos);
   assert(contextPos != std::string::npos);
 
-  prompt.replace(contextPos, contextPlaceholder.length(), context);
-
-  std::string question = messagesJson.back()["content"].get<std::string>();
-  prompt.replace(questionPos, questionPlaceholder.length(), question);
+  if (questionPos < contextPos) {
+    prompt.replace(contextPos, contextPlaceholder.length(), context);
+    prompt.replace(questionPos, questionPlaceholder.length(), question);
+  } else {
+    prompt.replace(questionPos, questionPlaceholder.length(), question);
+    prompt.replace(contextPos, contextPlaceholder.length(), context);
+  }
 
   // Assign propmt to the last messagesJson's content field
   nlohmann::json modifiedMessages = messagesJson;
@@ -485,13 +525,14 @@ std::string CompletionClient::generateCompletion(
     std::string buffer;     // holds leftover partial data
     std::string stopReason; // terminal stop/finish reason reported by the API
     std::string lastChunk;  // raw last parsed chunk, for diagnostics
+    std::string reasoningBuffer;
 
     res = httpClient->Post(
       path.c_str(),
       headers,
       std::move(requestStr),
       "application/json",
-      [&fullResponse, &onStream, &buffer, &stopReason, &lastChunk, this](const char *data, size_t len) {
+      [&fullResponse, &reasoningBuffer, &onStream, &buffer, &stopReason, &lastChunk, this](const char *data, size_t len) {
         // llama-server sends SSE format: "data: {...}\n\n"
         buffer.append(data, len);
         size_t pos;
@@ -510,7 +551,7 @@ std::string CompletionClient::generateCompletion(
               std::string reason = extractStopReason(cfg(), chunkJson);
               if (!reason.empty()) stopReason = reason;
 
-              std::string content = extractDeltaContent(cfg(), chunkJson);
+              std::string content = extractDeltaContent(cfg(), chunkJson, reasoningBuffer);
               if (!content.empty()) {
                 fullResponse += content;
                 if (onStream) onStream(content);
@@ -538,6 +579,12 @@ std::string CompletionClient::generateCompletion(
         onStream(fmt::format("[meta]Model stopped with reason: {}", stopReason));
       }
     }
+    if (!reasoningBuffer.empty()) {
+      size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoningBuffer);
+      LOG_MSG << "[completion] Reasoning tokens" << reasoningTokens;
+    } else {
+      LOG_MSG << "[completion] Reasoning tokens 0";
+    }
 
   } else {
     res = httpClient->Post(
@@ -550,7 +597,12 @@ std::string CompletionClient::generateCompletion(
     if (res && res->status == 200) {
       try {
         nlohmann::json jsonRes = nlohmann::json::parse(res->body);
-        fullResponse = extractFullContent(cfg(), jsonRes);
+        std::string reasoning;
+        fullResponse = extractFullContent(cfg(), jsonRes, reasoning);
+        if (!reasoning.empty()) {
+          size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoning);
+          LOG_MSG << "[completion] Reasoning tokens " << reasoningTokens;
+        }
         if (fullResponse.empty()) {
           std::string reason = isAnthropic(cfg())
             ? jsonRes.value("stop_reason", std::string{})
