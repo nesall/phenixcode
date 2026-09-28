@@ -132,6 +132,7 @@ SimpleTokenizer::SimpleTokenizer(const std::string &configPath)
 
 size_t SimpleTokenizer::estimateTokenCount(std::string_view text, bool addSpecialTokens) const
 {
+  if (text.empty() && !addSpecialTokens) return 0;
   std::string padded = padChineseChars(text);
   std::vector<std::string> words = splitSimple(padded);
   size_t totalTokens = addSpecialTokens ? 2 : 0; // [CLS] + [SEP]
@@ -155,8 +156,9 @@ size_t SimpleTokenizer::estimateTokenCount(std::string_view text, bool addSpecia
 
 size_t SimpleTokenizer::countTokensWithVocab(std::string_view text, bool addSpecialTokens) const
 {
+  if (text.empty() && !addSpecialTokens) return 0;
   if (vocab_.empty()) {
-    return estimateTokenCount(text);
+    return estimateTokenCount(text, addSpecialTokens);
   }
   std::string padded = padChineseChars(text);
   std::vector<std::string> words = splitSimple(padded);
