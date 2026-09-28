@@ -454,14 +454,18 @@ std::string CompletionClient::generateCompletion(
 
   std::string prompt = _queryTemplate;
 
-  size_t pos = prompt.find("__QUESTION__");
-  assert(pos != std::string::npos);
-  std::string question = messagesJson.back()["content"].get<std::string>();
-  prompt.replace(pos, std::string("__QUESTION__").length(), question);
+  const std::string questionPlaceholder{ "__QUESTION__" };
+  const std::string contextPlaceholder{ "__CONTEXT__" };
 
-  pos = prompt.find("__CONTEXT__");
-  assert(pos != std::string::npos);
-  prompt.replace(pos, std::string("__CONTEXT__").length(), context);
+  size_t questionPos = prompt.find(questionPlaceholder);
+  size_t contextPos = prompt.find(contextPlaceholder);
+  assert(questionPos != std::string::npos);
+  assert(contextPos != std::string::npos);
+
+  prompt.replace(contextPos, contextPlaceholder.length(), context);
+
+  std::string question = messagesJson.back()["content"].get<std::string>();
+  prompt.replace(questionPos, questionPlaceholder.length(), question);
 
   // Assign propmt to the last messagesJson's content field
   nlohmann::json modifiedMessages = messagesJson;
@@ -602,21 +606,25 @@ std::string CompletionClient::generateFim(
     throw std::runtime_error("Failed to initialize http client");
   }
 
-  std::string context = buildContext(searchRes, true, cfg.fim.fileDivider);
+  std::string context = buildContext(searchRes, true, cfg.fim.fileDivider, true);
 
   bool genericFim = false;
   nlohmann::json messages = nlohmann::json::array();
   if (fimPrefixName.empty() && fimFormat.empty()) {
     auto prompt = _fimTemplate;
-    size_t pos = prompt.find("__CONTEXT__");
-    assert(pos != std::string::npos);
-    prompt.replace(pos, std::string("__CONTEXT__").length(), context);
-    pos = prompt.find("__PREFIX__");
-    assert(pos != std::string::npos);
-    prompt.replace(pos, std::string("__PREFIX__").length(), prefix);
-    pos = prompt.find("__SUFFIX__");
-    assert(pos != std::string::npos);
-    prompt.replace(pos, std::string("__SUFFIX__").length(), suffix);
+    const std::string contextPlaceholder{ "__CONTEXT__" };
+    const std::string prefixPlaceholder{ "__PREFIX__" };
+    const std::string suffixPlaceholder{ "__SUFFIX__" };
+    size_t contextPos = prompt.find(contextPlaceholder);
+    size_t prefixPos = prompt.find(prefixPlaceholder);
+    size_t suffixPos = prompt.find(suffixPlaceholder);
+    assert(contextPos != std::string::npos);
+    assert(prefixPos != std::string::npos);
+    assert(suffixPos != std::string::npos);
+
+    prompt.replace(contextPos, contextPlaceholder.length(), context);
+    prompt.replace(prefixPos, prefixPlaceholder.length(), prefix);
+    prompt.replace(suffixPos, suffixPlaceholder.length(), suffix);
     messages.push_back({
       {"role", "system"},
       {"content", "You are a code completion assistant."}
@@ -708,11 +716,11 @@ std::string CompletionClient::fimTemplate()
   return _fimTemplate;
 }
 
-std::string CompletionClient::buildContext(const std::vector<SearchResult> &searchRes, bool commentOut, const std::string &fileDivider) const
+std::string CompletionClient::buildContext(const std::vector<SearchResult> &searchRes, bool commentOut, const std::string &fileDivider, bool fim) const
 {
   const auto labelFmt = app_.settings().generationPrependLabelFormat();
   const auto maxContextTokens = cfg().contextLength;
-  size_t nofTokens = 0;// app_.tokenizer().countTokensWithVocab(_queryTemplate); already addedin httpserver.cpp
+  size_t nofTokens = fim ? app_.tokenizer().countTokensWithVocab(_fimTemplate) : app_.tokenizer().countTokensWithVocab(_queryTemplate);
   std::string context;
   for (const auto &r : searchRes) {
     std::string filename = std::filesystem::path(r.sourceId).filename().string();
@@ -752,7 +760,7 @@ std::string CompletionClient::buildContext(const std::vector<SearchResult> &sear
     std::string labeledFull = alreadyLabeled ? r.content : (label + r.content);
     if (commentOut) 
       labeledFull = utils::addLineComments(labeledFull, filename);
-    nofTokens += labelTokens + contentTokens;
+    nofTokens += app_.tokenizer().countTokensWithVocab(labeledFull);
     context += fileDivider + labeledFull + "\n\n";
   }
   LOG_MSG << "[context] Total tokens in context:" << nofTokens;

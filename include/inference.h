@@ -64,7 +64,7 @@ public:
   static std::string fimTemplate();
 
 private:
-  std::string buildContext(const std::vector<SearchResult> &searchRes, bool commentOut = false, const std::string &fileDivider = {}) const;
+  std::string buildContext(const std::vector<SearchResult> &searchRes, bool commentOut = false, const std::string &fileDivider = {}, bool fim = false) const;
 };
 
 #endif // _INFERENCE_H_

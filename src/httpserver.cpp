@@ -1305,7 +1305,7 @@ bool HttpServer::startServer()
 
           try {
             size_t initialTokens = imp->app_.tokenizer().countTokensWithVocab(CompletionClient::queryTemplate());
-            initialTokens += messagesNofTokens(messagesJson, imp->app_);
+            initialTokens += messagesNofTokens(messagesJson, imp->app_); // history + question
             const auto [orderedResults, usedTokens] = processInputResults(imp->app_, apiConfig, initialTokens, question, attachments, sources,
               contextSizeRatio, attachedOnly, onInfo
             );
