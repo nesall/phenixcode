@@ -392,12 +392,9 @@ export function helper_readjustProject(newProviders: ProvidersSettings, proj: Pr
 
   // Adjust generation providers
   const oldGenerationApi = proj.jsonData.generation.current_api;
-  const currentGenerationProviders = proj.jsonData.generation.enabled_providers;
+  const enabledProviders = proj.jsonData.generation.enabled_providers;
   const newGenerationProviders = newProviders.generation_providers.map(p => p.id);
-  const removedGenerationProviders = currentGenerationProviders.filter(id => !newGenerationProviders.includes(id));
-  const addedGenerationProviders = newGenerationProviders.filter(id => !currentGenerationProviders.includes(id));
-  proj.jsonData.generation.enabled_providers = currentGenerationProviders.filter(id => !removedGenerationProviders.includes(id)).concat(addedGenerationProviders);
-  // Check if current_api is still included in enabled_providers list. If not assign first one. If no enabled_providers, clear.
+  proj.jsonData.generation.enabled_providers = enabledProviders.filter((id: string) => newGenerationProviders.includes(id));
   if (!proj.jsonData.generation.enabled_providers.includes(oldGenerationApi)) {
     proj.jsonData.generation.current_api = proj.jsonData.generation.enabled_providers.length > 0 ? proj.jsonData.generation.enabled_providers[0] : "";
   }
