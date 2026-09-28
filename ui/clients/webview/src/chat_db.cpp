@@ -117,14 +117,14 @@ nlohmann::json ChatDb::listChats(const std::string &projectId)
   if (!db_) throw std::runtime_error("Chat DB not available");
   utils::SqliteStmt st(db_);
   const char *sql = projectId.empty()
-    ? "SELECT id, title, NULL AS project_id, updated_at FROM chats ORDER BY updated_at DESC LIMIT 500"
+    ? "SELECT id, title, project_id, updated_at FROM chats ORDER BY updated_at DESC LIMIT 500"
     : "SELECT id, title, project_id, updated_at FROM chats WHERE project_id=?1 ORDER BY updated_at DESC LIMIT 500";
   st.stmt_ = prepareOrThrow(db_, sql);
   if (!projectId.empty()) st.bindText(1, projectId);
 
   nlohmann::json arr = nlohmann::json::array();
   while (sqlite3_step(st.ref()) == SQLITE_ROW) {
-    arr.push_back({ {"id", st.getStr(0)}, {"title", st.getStr(1)}, {"updated_at", st.getInt64(2)} });
+    arr.push_back({ {"id", st.getStr(0)}, {"title", st.getStr(1)}, {"project_id", st.getStr(2)}, {"updated_at", st.getInt64(3)} });
   }
   return { {"status", "success"}, {"chats", arr} };
 }
