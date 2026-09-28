@@ -12,40 +12,85 @@
     fetchInstances();
   });
 
-  function fetchSettings() {
-    fetch(apiUrl("/api/settings"))
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        return res.json();
-      })
-      .then(async (data) => {
-        const ss = data as SettingsType;
-        console.log("onMount /api/settings:", ss);
-        let apis = ss.completionApis;
-        const seen = new Set();
-        apis = apis.filter((api) => {
-          if (seen.has(api.id)) {
-            return false;
-          } else {
-            seen.add(api.id);
-            return true;
-          }
-        });
-        apis.sort((a, b) => a.combinedPrice - b.combinedPrice);
-        const currentApi = (await getPersistentKey(Consts.CurrentApiKey)) || ss.currentApi;
-        apis = apis.map((api) => ({
-          ...api,
-          current: api.id === currentApi,
-        }));
-        console.log("Toolbar.onMount apis", $state.snapshot(apis));
-        $settings.completionApis = apis;
-        $settings.currentApi = currentApi;
-        const savedTemp = await getPersistentKey(Consts.TemperatureKey);
-        $temperature = Number(savedTemp) || $temperature;
-      })
-      .catch((err) => {
-        clog("Error fetching /api/settings", err.message || err);
+  // function fetchSettings() {
+  //   fetch(apiUrl("/api/settings"))
+  //     .then((res) => {
+  //       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  //       return res.json();
+  //     })
+  //     .then(async (data) => {
+  //       const ss = data as SettingsType;
+  //       let apis = ss.completionApis;
+  //       const seen = new Set();
+  //       apis = apis.filter((api) => {
+  //         if (seen.has(api.id)) {
+  //           return false;
+  //         } else {
+  //           seen.add(api.id);
+  //           return true;
+  //         }
+  //       });
+  //       apis.sort((a, b) => a.combinedPrice - b.combinedPrice);
+  //       const currentApi = (await getPersistentKey(Consts.CurrentApiKey)) || ss.currentApi;
+  //       apis = apis.map((api) => ({
+  //         ...api,
+  //         current: api.id === currentApi,
+  //       }));
+  //       console.log("Toolbar.onMount apis", $state.snapshot(apis));
+  //       $settings.completionApis = apis;
+  //       $settings.currentApi = currentApi;
+  //       const savedTemp = await getPersistentKey(Consts.TemperatureKey);
+  //       $temperature = Number(savedTemp) || $temperature;
+  //     })
+  //     .catch((err) => {
+  //       clog("Error fetching /api/settings", err.message || err);
+  //     });
+  // }
+
+  async function fetchSettings() {
+    try {
+      const res = await fetch(apiUrl("/api/settings"));
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      const ss = data as SettingsType;
+
+      console.log("fetchSettings", ss);
+
+      let apis = ss.completionApis;
+
+      const seen = new Set();
+      apis = apis.filter((api) => {
+        if (seen.has(api.id)) {
+          return false;
+        } else {
+          seen.add(api.id);
+          return true;
+        }
       });
+
+      apis.sort((a, b) => a.combinedPrice - b.combinedPrice);
+
+      const currentApi = (await getPersistentKey(Consts.CurrentApiKey)) || ss.currentApi;
+
+      apis = apis.map((api) => ({
+        ...api,
+        current: api.id === currentApi,
+      }));
+
+      console.log("fetchSettings", $state.snapshot(apis));
+
+      $settings.completionApis = apis;
+      $settings.currentApi = currentApi;
+
+      const savedTemp = await getPersistentKey(Consts.TemperatureKey);
+      $temperature = Number(savedTemp) || $temperature;
+    } catch (err: any) {
+      clog("Error fetching /api/settings", err.message || err);
+    }
   }
 
   async function fetchInstances() {

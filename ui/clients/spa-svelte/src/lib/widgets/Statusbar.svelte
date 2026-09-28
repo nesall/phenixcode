@@ -6,15 +6,17 @@
   import { bApisGroupedByLabel, bApisSortedByPrice, contextSizeRatio, settings } from "../store";
 
   interface Props {
-    fetchSettings: () => void;
+    fetchSettings: () => Promise<void>;
     onConnectionStatusChange: (ok: boolean) => void;
   }
   let { fetchSettings, onConnectionStatusChange = (ok: boolean) => {} }: Props = $props();
 
   let connected = $state(false);
   let timerId: number | null = $state(null);
-
   let recheckTimerId: number | null = null;
+  let currentApiId = $state("");
+  let currentApiInd = $state(0)
+
 
   onMount(() => {
     tryConnecting();
@@ -33,14 +35,16 @@
     timerId = setInterval(() => {
       attempts++;
       testConnection()
-        .then((res) => {
+        .then(async (res) => {
           connected = res;
           onConnectionStatusChange(connected);
           if (connected) {
             clearInterval(timerId!);
             timerId = null;
-            fetchSettings();
+            await fetchSettings();
+            console.log("tryConnection succeeded.", $state.snapshot($settings));
             recheckConnectionStatus();
+            if (currentApiId) onModelChange(currentApiInd, currentApiId);
           }
         })
         .finally(() => {
@@ -80,6 +84,8 @@
     }));
     clog("Statusbar.onModelChange", modelId);
     $settings.currentApi = modelId;
+    currentApiId = modelId;
+    currentApiInd = i;
   }
 
   function onContextSizeChange(i: number, size: string) {
@@ -88,23 +94,21 @@
     $contextSizeRatio = ratio;
   }
 
-const apiOptions = $derived(
-  apiOptionsGroupedSorted(
-    $settings.completionApis.map((a) => ({
-      value: a.id,
-      label: a.model,
-      hint: `${a.name}${a.model === "auto" ? "" : ` - ${a.model}`} (cost: ${
-        typeof a.combinedPrice === "string"
-          ? a.combinedPrice
-          : a.combinedPrice.toFixed(2)
-      })`,
-      group: a.name,
-      _price: a.combinedPrice,
-    })),
-    $bApisSortedByPrice,
-    $bApisGroupedByLabel,
-  ),
-);
+  const apiOptions = $derived(
+    apiOptionsGroupedSorted(
+      $settings.completionApis.map((a) => ({
+        value: a.id,
+        label: a.model,
+        hint: `${a.name}${a.model === "auto" ? "" : ` - ${a.model}`} (cost: ${
+          typeof a.combinedPrice === "string" ? a.combinedPrice : a.combinedPrice.toFixed(2)
+        })`,
+        group: a.name,
+        _price: a.combinedPrice,
+      })),
+      $bApisSortedByPrice,
+      $bApisGroupedByLabel,
+    ),
+  );
 
   const curApi = $derived(
     -1 != $settings.completionApis.findIndex((a) => a.current)
