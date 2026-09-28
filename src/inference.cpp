@@ -579,11 +579,10 @@ std::string CompletionClient::generateCompletion(
         onStream(fmt::format("[meta]Model stopped with reason: {}", stopReason));
       }
     }
-    if (!reasoningBuffer.empty()) {
-      size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoningBuffer);
-      LOG_MSG << "[completion] Reasoning tokens" << reasoningTokens;
-    } else {
-      LOG_MSG << "[completion] Reasoning tokens 0";
+    size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoningBuffer);
+    LOG_MSG << "[completion] Reasoning tokens" << reasoningTokens;
+    if (onStream) {
+      onStream(fmt::format("[completion] Reasoning token count {}", reasoningTokens));
     }
 
   } else {
@@ -599,9 +598,10 @@ std::string CompletionClient::generateCompletion(
         nlohmann::json jsonRes = nlohmann::json::parse(res->body);
         std::string reasoning;
         fullResponse = extractFullContent(cfg(), jsonRes, reasoning);
-        if (!reasoning.empty()) {
-          size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoning);
-          LOG_MSG << "[completion] Reasoning tokens " << reasoningTokens;
+        size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoning);
+        LOG_MSG << "[completion] Reasoning tokens " << reasoningTokens;
+        if (onStream) {
+          onStream(fmt::format("[completion] Reasoning token count {}", reasoningTokens));
         }
         if (fullResponse.empty()) {
           std::string reason = isAnthropic(cfg())
