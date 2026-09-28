@@ -519,7 +519,7 @@
                 class="btn btn-sm text-surface-500 border-surface-500 flex text-right justify-end"
                 onclick={() => ($messages[i]._metaVisible = !$messages[i]._metaVisible)}
               >
-                <span>Ready</span>
+                <span class="text-xs">Ready</span>
                 {#if msg._metaVisible}
                   <icons.ChevronUp />
                 {:else}
