@@ -1,0 +1,696 @@
+{
+  "per_query": [
+    {
+      "expected_doc_ids": [
+        "include/app.h",
+        "src/app.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 41.2919,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "List CLI commands",
+      "recall_at_k": 0.5,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/app.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/auth.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 45.3572,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
+      "query": "Where is 'Bearer|Basic' password authentication implemented?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/auth.h",
+        "src/httpserver.cpp",
+        "src/auth.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 40.158,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What function does c++ utils define?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/cutils.cpp",
+        "include/cutils.h",
+        "src/sqlite3_helper.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "include/database.h"
+      ],
+      "hit": false,
+      "latency_ms": 48.8031,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "query": "What does the vector<SearchResult> searchWithFilter function do?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/database.cpp",
+        "include/database.h",
+        "src/app.cpp",
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 42.5464,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "port=0 means bind to any available port",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/httpserver.cpp",
+        "src/app.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 45.6147,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Class that is non-copyable, but movable",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/instregistry.h",
+        "include/settings.h",
+        "include/app.h",
+        "src/app.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 52.5407,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What does the vector<std::string> json_keys function do?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/json_shim.h",
+        "src/tokenizer.cpp",
+        "include/app.h",
+        "src/app.cpp",
+        "include/tokenizer.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 42.7837,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What is the purpose of SourceProcessor?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/sourceproc.h",
+        "src/sourceproc.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "include/tokenizer.h"
+      ],
+      "hit": false,
+      "latency_ms": 42.8472,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "query": "What is the purpose of SimpleTokenizer?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/tokenizer.cpp",
+        "include/tokenizer.h",
+        "include/chunker.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 39.7676,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "List Core Functionality PhenixCode Assistant",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "README.md"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 49.1293,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What does the string nextRandomId function do?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/auth.cpp",
+        "include/settings.h",
+        "src/settings.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/cutils.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 43.4215,
+      "mrr": 0.25,
+      "ndcg": 0.43067655807339306,
+      "query": "What string trimming functions are there and where?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/chunker.h",
+        "include/cutils.h",
+        "src/chunker.cpp",
+        "src/cutils.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/database.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 47.285,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "query": "What function is responsible for adding documents into vector db?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/httpserver.cpp",
+        "src/database.cpp",
+        "src/app.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 41.909,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What does the string getRegistryPath function do?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/instregistry.cpp",
+        "include/instregistry.h",
+        "include/settings.h"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/sourceproc.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 43.4765,
+      "mrr": 0.0,
+      "ndcg": 0.0,
+      "query": "What does the string sanitizeUtf8 function do?",
+      "recall_at_k": 0.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/tokenizer.cpp",
+        "src/chunker.cpp",
+        "include/chunker.h",
+        "src/auth.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 47.2485,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Are there unit tests and do you think they are incomplete?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/tests.cpp",
+        "src/main.cpp",
+        "src/app.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 42.3012,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What happens if OpenSSL not found?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "CMakeLists.txt",
+        "src/httpserver.cpp",
+        "src/app.cpp",
+        "src/inference.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 57.0448,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Compute an effective \"combined\" price per million tokens.",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/settings.h",
+        "src/settings.cpp",
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 44.9402,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Purpose of incremental updater is ...",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/app.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/settings.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 60.1216,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "query": "Simple ${VAR} substitution",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/inference.cpp",
+        "src/settings.cpp",
+        "src/app.cpp",
+        "include/inference.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 40.342,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What is the purpose of providers json?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "assets/providers.json",
+        "include/settings.h",
+        "src/settings.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "assets/settings.json"
+      ],
+      "hit": false,
+      "latency_ms": 45.5358,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "query": "What is the purpose of settings json?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/settings.h",
+        "assets/settings.json",
+        "src/settings.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 43.0867,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "How class Chunk is different from class Chunker?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/chunker.h",
+        "src/main.cpp",
+        "src/chunker.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 42.6849,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What is the purpose of sqlite wrapper class?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/sqlite3_helper.cpp",
+        "include/sqlite3_helper.h",
+        "src/database.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 47.8362,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Precompiled optimized regexes (thread-safe after initialization)",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/chunker.cpp",
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/sqlite3_helper.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 44.1499,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "query": "What does the ~SqliteStmt function do?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/sqlite3_helper.h",
+        "src/sqlite3_helper.cpp",
+        "src/database.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 36.8852,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "#define TEST_CHUNKING",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/main.cpp",
+        "src/httpserver.cpp",
+        "include/chunker.h"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "include/inference.h",
+        "src/inference.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 42.0844,
+      "mrr": 1.0,
+      "ndcg": 0.6131471927654584,
+      "query": "What does the string generateCompletion function do?",
+      "recall_at_k": 0.5,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/inference.cpp",
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 51.8097,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Give overview of how token accounting is carried out in API request/context?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/httpserver.cpp",
+        "include/settings.h"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/inference.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 56.6294,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
+      "query": "How does the code distinguish the Anthropic-style API from the OpenAI-style API?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "assets/providers.json",
+        "src/settings.cpp",
+        "src/inference.cpp"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/inference.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 64.4388,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
+      "query": "How does the code decide which API style (Anthropic or OpenAI) is used when building the request body?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/settings.cpp",
+        "src/inference.cpp",
+        "assets/providers.json"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 62.54,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What does the `utf8ToUtf32 returning vector<uint32_t>` function do?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/tokenizer.cpp",
+        "include/database.h",
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 60.8576,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What does `App::embed` do with the sources collected by `SourceProcessor`?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/app.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 54.2406,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Which class decides whether a document should be treated as code, text, or binary?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/chunker.cpp",
+        "include/chunker.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 50.0816,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What file does `AdminAuth` use to store the admin password hash?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/auth.cpp",
+        "include/auth.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 51.5737,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What is the purpose of `VectorDatabase::deleteDocumentsBySource`?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/database.cpp",
+        "include/database.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 49.6119,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What does the `/api/health` endpoint indicate about the server?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 88.6943,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "How does `IncrementalUpdater::detectChanges` determine that a tracked file has been modified?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/app.cpp",
+        "src/database.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 70.6613,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Why does `HnswSqliteVectorDatabase::search` convert cosine and L2 distances into similarity scores differently?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/database.cpp",
+        "include/database.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 74.5882,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What concurrency issue can occur if `App::update` is invoked by both the watch thread and an HTTP endpoint at the same time?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/app.cpp",
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 67.6062,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Why does `EmbeddingClient::generateEmbeddings` throw when the number of returned embeddings does not match the number of input texts?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/inference.cpp",
+        "src/app.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 77.828,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "How does `Settings::validate` ensure that `current_api` refers to an enabled and known generation provider?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/settings.cpp",
+        "include/settings.h"
+      ]
+    },
+    {
+      "expected_doc_ids": [
+        "src/httpserver.cpp"
+      ],
+      "hit": false,
+      "latency_ms": 66.7606,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
+      "query": "What security risk is introduced by `requireAuth` bypassing authentication for requests from localhost?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "include/auth.h",
+        "src/auth.cpp",
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 62.5566,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "Why can Bearer authentication fail after a restart if the JWT secret is generated once per process instead of being persisted?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/auth.cpp",
+        "include/auth.h",
+        "src/httpserver.cpp"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 81.2808,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What consistency problem can occur between SQLite chunk deletion and `hnswlib::markDelete` in `HnswSqliteVectorDatabase::deleteDocumentsBySource`?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/database.cpp",
+        "include/database.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 72.7935,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "How can `HnswSqliteVectorDatabase::clear` leave the vector index and SQLite metadata inconsistent if the transaction is rolled back?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/database.cpp",
+        "include/database.h"
+      ]
+    },
+    {
+      "hit": true,
+      "latency_ms": 82.1358,
+      "mrr": 1.0,
+      "ndcg": 1.0,
+      "query": "What token-accounting bug risk exists when `processInputResults` truncates `orderedResults` to `generationMaxChunks` and then subtracts tokens from the removed entries?",
+      "recall_at_k": 1.0,
+      "results_count": 5,
+      "retrieved_doc_ids": [
+        "src/httpserver.cpp",
+        "include/settings.h"
+      ]
+    }
+  ],
+  "summary": {
+    "mean_latency_ms": 53.35918723404256,
+    "mrr": 0.8457446808510638,
+    "ndcg": 0.8714964260816821,
+    "recall_at_k": 0.9574468085106383,
+    "top_k": 5,
+    "total_queries": 47
+  }
+}
