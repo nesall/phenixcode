@@ -3,7 +3,13 @@
   import UpDownButton from "./misc/UpDownButton.svelte";
   import { slide } from "svelte/transition";
   import { embeddingProviders, generationProviders, projectStore } from "../store.svelte";
-  import { helper_readjustProject, helper_saveProjectSettings, helper_saveProvidersSettings } from "../utils";
+  import {
+    helper_readjustProject,
+    helper_saveProjectSettings,
+    helper_saveProvidersSettings,
+    type Renames,
+  } from "../utils";
+  import type { ProjectItem, ProvidersSettings } from "../../app";
 
   let currentTab = $state(0); // 0=>embedding, 1=>generation
 
@@ -13,38 +19,15 @@
     fetchProviders();
   });
 
-  const jsonStr = $derived(
-    JSON.stringify({ embedding_providers: embeddingProviders, generation_providers: generationProviders }, null, 2),
-  );
+  const stripUi = <T extends { _hidden?: boolean }>(l: T[]) => l.map(({ _hidden, ...rest }) => rest);
 
-  function onChange() {
-    console.log("CentralProviders.onChange ");
-    const providers = {
-      embedding_providers: embeddingProviders,
-      generation_providers: generationProviders,
-    };
-    helper_saveProvidersSettings(providers);
-    let i = -1;
-    if (projectStore.selected) i = projectStore.list.indexOf(projectStore.selected);
-    for (let i = 0; i < projectStore.list.length; i ++) {
-      let p = projectStore.list[i];
-      console.log("CentralProviders.svelte.onChange: project", p.jsonData.source.project_title, p);
-      projectStore.list[i] = helper_readjustProject(providers, p);
-      console.log("Updated proj", $state.snapshot(projectStore.list[i]));
-    }
-    if (i != -1) {
-      projectStore.selected = projectStore.list[i];
-    }
-    projectStore.list = projectStore.list;
-    for (const p of projectStore.list) {
-      console.log("CentralProviders.svelte.onChange: project", p.jsonData.source.project_title, p);
-      helper_saveProjectSettings(p)
-        .then((res) => {
-          console.log("CentralProviders.svelte.onChange: helper_saveProjectSettings", res);
-        })
-        .catch((er) => console.error("CentralProviders.svelte.onChange: helper_saveProjectSettings error", er));
-    }
-  }
+  const jsonStr = $derived(
+    JSON.stringify(
+      { embedding_providers: stripUi(embeddingProviders), generation_providers: stripUi(generationProviders) },
+      null,
+      2,
+    ),
+  );
 
   function moveApiUp(index: number) {
     let activeProviders = currentTab == 0 ? embeddingProviders : generationProviders;
@@ -108,15 +91,67 @@
     });
     onChange();
   }
+
+  // serialize: async onChange runs must not interleave
+  let queue: Promise<void> = Promise.resolve();
+  function commit(renames?: Renames) {
+    queue = queue.then(() => persist(renames)).catch((e) => console.error("CentralProviders.commit", e));
+  }
+
+  // DOM handler for all plain fields: ignores the Event argument
+  function onChange() {
+    commit();
+  }
+  async function persist(renames?: Renames) {
+    const providers = $state.snapshot({
+      embedding_providers: stripUi(embeddingProviders),
+      generation_providers: stripUi(generationProviders),
+    }) as ProvidersSettings;
+
+    await helper_saveProvidersSettings(providers); // throws => projects untouched
+
+    const reindex: string[] = [];
+    const droppedByProject: Record<string, string[]> = {};
+    const saves: Promise<unknown>[] = [];
+
+    for (const p of projectStore.list) {
+      const r = helper_readjustProject(providers, p, renames); // in-place via $state proxy
+      if (!r.changed) continue;
+      const title = p.jsonData.source.project_title;
+      if (r.needsReindex) reindex.push(title);
+      if (r.dropped.length) droppedByProject[title] = r.dropped;
+      saves.push(
+        helper_saveProjectSettings($state.snapshot(p) as ProjectItem).catch((er) =>
+          console.error("save failed:", title, er),
+        ),
+      );
+    }
+    await Promise.all(saves);
+
+    if (reindex.length || Object.keys(droppedByProject).length) {
+      notifyProjectsAdjusted({ reindex, dropped: droppedByProject });
+    }
+  }
+
+  // --- id editing: treat as rename, reject empty/duplicate ---
+  let idBefore = "";
+  function onIdChange(kind: "embedding" | "generation", api: { id: string }) {
+    const list: { id: string }[] = kind === "embedding" ? embeddingProviders : generationProviders;
+    const next = api.id.trim();
+    api.id = next;
+    if (!next || list.filter((p) => p.id === next).length > 1) {
+      api.id = idBefore;
+      return;
+    }
+    if (next === idBefore) return;
+    commit({ [kind]: new Map([[idBefore, next]]) }); // was onChange(...)
+  }
+
   function onCollapseAll() {
-    let activeProviders = currentTab == 0 ? embeddingProviders : generationProviders;
-    activeProviders.forEach((api) => (api._hidden = true));
-    onChange();
+    (currentTab == 0 ? embeddingProviders : generationProviders).forEach((a) => (a._hidden = true));
   }
   function onExpandAll() {
-    let activeProviders = currentTab == 0 ? embeddingProviders : generationProviders;
-    activeProviders.forEach((api) => (api._hidden = false));
-    onChange();
+    (currentTab == 0 ? embeddingProviders : generationProviders).forEach((a) => (a._hidden = false));
   }
 
   let copied = $state(false);
@@ -124,6 +159,10 @@
     await navigator.clipboard.writeText(jsonStr);
     copied = true;
     setTimeout(() => (copied = false), 1500);
+  }
+
+  function notifyProjectsAdjusted(arg: { reindex: string[]; dropped: Record<string, string[]> }) {
+    // TODO:
   }
 </script>
 
@@ -181,11 +220,17 @@
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <label class="label">
                   <span class="label-text">API Name</span>
-                  <input type="text" class="input" bind:value={generationProviders[i].name} onchange={onChange} />
+                  <input type="text" class="input" bind:value={api.name} onchange={onChange} />
                 </label>
                 <label class="label">
                   <span class="label-text">API ID</span>
-                  <input type="text" class="input" bind:value={api.id} onchange={onChange} />
+                  <input
+                    type="text"
+                    class="input"
+                    bind:value={api.id}
+                    onfocus={() => (idBefore = api.id)}
+                    onchange={() => onIdChange("generation", api)}
+                  />
                 </label>
               </div>
 
@@ -359,7 +404,13 @@
 
                 <label class="label">
                   <span class="label-text">API ID</span>
-                  <input type="text" id="api-id-{i}" class="input" bind:value={api.id} onchange={onChange} />
+                  <input
+                    type="text"
+                    class="input"
+                    bind:value={api.id}
+                    onfocus={() => (idBefore = api.id)}
+                    onchange={() => onIdChange("generation", api)}
+                  />
                 </label>
               </div>
 

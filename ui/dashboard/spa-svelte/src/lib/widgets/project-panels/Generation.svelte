@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { helper_saveProjectSettings } from "../../utils";
-  import { generationProviders, projectStore } from "../../store.svelte";
+  import { helper_readjustProject, helper_saveProjectSettings } from "../../utils";
+  import { embeddingProviders, generationProviders, projectStore } from "../../store.svelte";
+    import type { ProvidersSettings } from "../../../app";
 
   interface Props {
     onChanged: any;
@@ -12,21 +13,15 @@
   const jsonData = $derived(projectStore.selected?.jsonData);
   const projectTitle = $derived(projectStore.selected?.jsonData.source.project_title);
 
-  let checkedProviders: string[] = $state([...(projectStore.selected?.jsonData.generation.enabled_providers || [])]);
+  // read-only view of the project's data, no local copy
+  const checkedProviders = $derived(jsonData?.generation.enabled_providers ?? []);
 
-  // Clean any legacy "auto" out of checkedProviders if present
   onMount(() => {
-    if (checkedProviders.includes("auto")) {
-      const filtered = checkedProviders.filter((id) => id !== "auto");
-      checkedProviders = filtered;
-      if (jsonData) {
-        jsonData.generation.enabled_providers = [...filtered];
-        if (jsonData.generation.current_api === "auto") {
-          jsonData.generation.current_api = filtered[0] || "";
-        }
-        onChange();
-      }
-    }
+    const g = jsonData?.generation;
+    if (!g || !g.enabled_providers.includes("auto")) return;
+    g.enabled_providers = g.enabled_providers.filter((id) => id !== "auto");
+    if (g.current_api === "auto") g.current_api = g.enabled_providers[0] ?? "";
+    onChange();
   });
 
   function onCurApiChange(event: Event) {
@@ -46,19 +41,26 @@
 
   function onToggle(api: string) {
     if (!jsonData) return;
-    const index = checkedProviders.indexOf(api);
-    if (index === -1) {
-      checkedProviders.push(api);
-    } else {
-      checkedProviders.splice(index, 1);
-    }
-    jsonData.generation.enabled_providers = [...checkedProviders];
+    const g = jsonData.generation;
+    const next = g.enabled_providers.includes(api)
+      ? g.enabled_providers.filter((id) => id !== api)
+      : [...g.enabled_providers, api];
+    g.enabled_providers = next;
 
     // If current_api was unchecked, point to the first available
-    if (!checkedProviders.includes(jsonData.generation.current_api) && checkedProviders.length > 0) {
-      jsonData.generation.current_api = checkedProviders[0];
+    if (!next.includes(g.current_api) && next.length > 0) {
+      g.current_api = next[0];
     }
-
+    // at the end of onToggle, before onChange()
+    if (projectStore.selected) {
+      helper_readjustProject(
+        $state.snapshot({
+          embedding_providers: embeddingProviders,
+          generation_providers: generationProviders,
+        }) as ProvidersSettings,
+        projectStore.selected,
+      );
+    }
     onChange();
   }
 
@@ -124,11 +126,11 @@
               />
             </label>
             <label class="label">
-              <span class="label-text">Max Context Tokens</span>
+              <span class="label-text">Default Context Tokens</span>
               <input
                 type="number"
                 class="input"
-                bind:value={projectStore.selected.jsonData.generation.max_context_tokens}
+                bind:value={projectStore.selected.jsonData.generation.default_context_length}
                 min="1"
                 onchange={onChange}
               />
@@ -441,8 +443,7 @@
                   <select
                     class="select"
                     bind:value={
-                      projectStore.selected.jsonData.generation.auto_router.routing_rules.tier_2_medium
-                        .direct_model_id
+                      projectStore.selected.jsonData.generation.auto_router.routing_rules.tier_2_medium.direct_model_id
                     }
                     onchange={onChange}
                   >

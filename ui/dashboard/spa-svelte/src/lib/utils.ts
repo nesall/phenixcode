@@ -1,4 +1,4 @@
-import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings } from "../app";
+import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings, EmbeddingSettings, GenerationSettings } from "../app";
 import { createToaster } from '@skeletonlabs/skeleton-svelte';
 
 export const toaster = createToaster();
@@ -70,7 +70,7 @@ const testJsonSettings: SettingsJsonType =
     "max_chunks": 7,
     "max_full_sources": 2,
     "max_related_per_source": 3,
-    "max_context_tokens": 64000,
+    "default_context_length": 64000,
     "default_temperature": 0.1,
     "default_max_tokens": 2048,
     "default_max_tokens_name": "max_tokens",
@@ -136,10 +136,14 @@ const testJsonSettings: SettingsJsonType =
 
 export const Consts = {
   DarkOrLightKey: "darkOrLight",
-  EmbedderExecutablePath: "EmbedderExecutablePath",
+  CoreExecutablePath: "CoreExecutablePath",
+  ProjectsFolderPath: "ProjectsFolderPath",
   WatchForChanges: "WatchForChanges",
   WatchInterval: "WatchInterval",
-};
+  Env: {
+    PHENIXCODE_PROJECTS_FOLDER: "PHENIXCODE_PROJECTS_FOLDER",
+  }
+} as const;
 
 export async function setPersistentKey(key: string, value: string, sendToCpp = true) {
   try {
@@ -171,6 +175,19 @@ export async function getPersistentKey(key: string, readFromCpp = true): Promise
   }
   return null;
 }
+
+export async function getEnv(key: string) {
+  console.log(`getEnv ${key}`, window, window.cppApi);
+  try {
+    if (window.cppApi) {
+      return await window.cppApi.getEnv(key);
+    }
+  } catch (error) {
+    console.log(`Unable to get env var ${key}`, error);
+  }
+  return null;
+}
+
 // Mock data for testing without C++ backend
 let mockProjects: ProjectItem[] = [
   {
@@ -381,24 +398,124 @@ export async function helper_saveProvidersSettings(providers: ProvidersSettings)
   }
 }
 
-export function helper_readjustProject(newProviders: ProvidersSettings, proj: ProjectItem) {
-  console.log("helper_readjustProjects", newProviders, proj);
-  // Adjust embedding providers
-  const oldEmbeddingApi = proj.jsonData.embedding.current_api;
-  const newEmbeddingProviders = newProviders.embedding_providers.map(p => p.id);
-  if (!newEmbeddingProviders.includes(oldEmbeddingApi)) {
-    proj.jsonData.embedding.current_api = 0 < newEmbeddingProviders.length ? newEmbeddingProviders[0] : "";
+export interface Renames {
+  embedding?: Map<string, string>;
+  generation?: Map<string, string>;
+}
+
+function applyRenames(cfg: SettingsJsonType, r: Renames): boolean {
+  let changed = false;
+  const sub = (o: any, k: string, m?: Map<string, string>) => {
+    const v = o?.[k];
+    if (m && typeof v === "string" && m.has(v)) { o[k] = m.get(v); changed = true; }
+  };
+  const subArr = (o: any, k: string, m?: Map<string, string>) => {
+    if (m && Array.isArray(o?.[k])) {
+      const next = o[k].map((v: string) => m.get(v) ?? v);
+      if (next.some((v: string, i: number) => v !== o[k][i])) { o[k] = next; changed = true; }
+    }
+  };
+
+  sub(cfg.embedding, "current_api", r.embedding);
+
+  const g = cfg.generation, m = r.generation;
+  sub(g, "current_api", m);
+  subArr(g, "enabled_providers", m);
+  const ar = g?.auto_router;
+  if (ar) {
+    sub(ar.fallback, "default_model_id", m);
+    if (ar.classifier?.type === "internal") sub(ar.classifier, "api_id", m);
+    for (const rule of Object.values(ar.routing_rules ?? {})) {
+      sub(rule, "direct_model_id", m);
+      subArr(rule, "draft_model_ids", m);
+      sub(rule, "synthesizer_model_id", m);
+    }
+  }
+  return changed;
+}
+
+export interface ReadjustResult {
+  proj: ProjectItem;
+  changed: boolean;
+  needsReindex: boolean;
+  dropped: string[];
+}
+
+export function helper_readjustProject(providers: ProvidersSettings, proj: ProjectItem, renames: Renames = {})
+  : ReadjustResult {
+  const cfg = proj.jsonData;
+  const dropped: string[] = [];
+  let changed = applyRenames(cfg, renames);
+  console.log("auto_router after rename", JSON.stringify(cfg.generation?.auto_router), renames);
+  let needsReindex = false;
+
+  // --- embedding ---
+  const embIds = providers.embedding_providers.map(p => p.id);
+  const emb = (cfg.embedding ??= {} as EmbeddingSettings);
+  if (!embIds.includes(emb.current_api)) {
+    emb.current_api = embIds[0] ?? "";
+    needsReindex = true; // different model => vector space/dim/tokenizer
+    changed = true;
   }
 
-  // Adjust generation providers
-  const oldGenerationApi = proj.jsonData.generation.current_api;
-  const enabledProviders = proj.jsonData.generation.enabled_providers;
-  const newGenerationProviders = newProviders.generation_providers.map(p => p.id);
-  proj.jsonData.generation.enabled_providers = enabledProviders.filter((id: string) => newGenerationProviders.includes(id));
-  if (!proj.jsonData.generation.enabled_providers.includes(oldGenerationApi)) {
-    proj.jsonData.generation.current_api = proj.jsonData.generation.enabled_providers.length > 0 ? proj.jsonData.generation.enabled_providers[0] : "";
+  // --- generation ---
+  const gen = (cfg.generation ??= {} as GenerationSettings);
+  const validIds = new Set(providers.generation_providers.map(p => p.id));
+  const oldEnabled = gen.enabled_providers ?? [];
+  const enabled = [...new Set(oldEnabled)].filter(id => validIds.has(id));
+  dropped.push(...oldEnabled.filter(id => !validIds.has(id)));
+  if (enabled.length !== oldEnabled.length) changed = true;
+  gen.enabled_providers = enabled;
+
+  if (!enabled.includes(gen.current_api)) {
+    gen.current_api = enabled[0] ?? "";
+    changed = true;
   }
-  return proj;
+
+  // --- auto router ---
+  const ar = gen.auto_router;
+  if (ar) {
+    const fallback = gen.current_api; // valid or ""
+    const fix = (id?: string) => (id && enabled.includes(id) ? id : fallback);
+
+    if (ar.fallback) {
+      const v = fix(ar.fallback.default_model_id);
+      if (v !== ar.fallback.default_model_id) { ar.fallback.default_model_id = v; changed = true; }
+    }
+
+    for (const rule of Object.values(ar.routing_rules ?? {})) {
+      if (rule.direct_model_id !== undefined) {
+        const v = fix(rule.direct_model_id);
+        if (v !== rule.direct_model_id) { rule.direct_model_id = v; changed = true; }
+      }
+      if (rule.draft_model_ids) {
+        const drafts = [...new Set(rule.draft_model_ids)].filter(id => enabled.includes(id));
+        if (drafts.length !== rule.draft_model_ids.length) {
+          rule.draft_model_ids = drafts;
+          changed = true;
+        }
+      }
+      if (rule.strategy === "ensemble" && !(rule.draft_model_ids?.length)) {
+        rule.strategy = "direct";
+        rule.direct_model_id = fallback;
+        changed = true;
+      }
+      if (rule.synthesizer_model_id !== undefined) {
+        const v = fix(rule.synthesizer_model_id);
+        if (v !== rule.synthesizer_model_id) { rule.synthesizer_model_id = v; changed = true; }
+      }
+    }
+
+    // classifier only needs to exist in providers, not be in enabled_providers
+    if (ar.classifier?.type === "internal" && !validIds.has(ar.classifier.api_id)) {
+      ar.classifier.api_id = fallback;
+      changed = true;
+    }
+
+    if (!enabled.length && ar.enabled) { ar.enabled = false; changed = true; }
+  }
+
+  return { proj, changed, needsReindex, dropped };
 }
 
 export async function helper_createProject(): Promise<ProjectItem> {

@@ -40,30 +40,36 @@ namespace {
 #ifndef PROJECTS_FOLDER_DEFAULT
 #define PROJECTS_FOLDER_DEFAULT "phenixcode_projects"
 #endif
-  const std::string projectsFolderName() {
+#define _ProjectsFolderPathKey "ProjectsFolderPath"
+  const std::string _projectsFolderName(const shared::AppConfig &p) {
+    auto it = p.uiPrefs.find(_ProjectsFolderPathKey);
+    if (it != p.uiPrefs.cend() && !it->second.empty()) {
+      return it->second;
+    }
     if (const char *env = std::getenv("PHENIXCODE_PROJECTS_FOLDER")) {
       if (*env) return std::string(env);
     }
     return PROJECTS_FOLDER_DEFAULT;
   }
-  const fs::path projectsFolderPath() {
-    return fs::path(shared::getExecutableDir()) / projectsFolderName();
+  const fs::path projectsFolderPath(const shared::AppConfig &p) {
+    return fs::path(shared::getExecutableDir()) / _projectsFolderName(p);
   }
   const fs::path defaultSettingsJsonPath() {
     return (fs::path(shared::getExecutableDir()) / fs::path("settings.default.json"));
   }
-  const fs::path projectRefsPath() {
-    return (projectsFolderPath() / fs::path(PROJECT_REFS_FNAME));
+  const fs::path projectRefsPath(const shared::AppConfig &p) {
+    return (projectsFolderPath(p) / fs::path(PROJECT_REFS_FNAME));
   }
-  const fs::path providersJsonPath() {
-    return (projectsFolderPath() / fs::path("providers.json"));
+  const fs::path providersJsonPath(const shared::AppConfig &p) {
+    return (projectsFolderPath(p) / fs::path("providers.json"));
   }
-  void ensureProjectsFolderExist() {
-    if (!fs::exists(projectsFolderPath())) {
-      if (fs::create_directories(projectsFolderPath())) {
-        LOG_MSG << "Created projects folder at:" << fs::absolute(projectsFolderPath()).string();
+  void ensureProjectsFolderExist(const shared::AppConfig &p) {
+    const auto projPath = projectsFolderPath(p);
+    if (!fs::exists(projPath)) {
+      if (fs::create_directories(projPath)) {
+        LOG_MSG << "Created projects folder at:" << fs::absolute(projPath).string();
       } else {
-        throw std::runtime_error("Failed to create projects folder at: " + fs::absolute(projectsFolderPath()).string());
+        throw std::runtime_error("Failed to create projects folder at: " + fs::absolute(projPath).string());
       }
     }
   }
@@ -262,13 +268,48 @@ int main() {
       }
     );
 
-    w.bind("createProject", [](const std::string &) -> std::string
+    w.bind("getEnv", [&prefs](const std::string &data) -> std::string
+      {
+        LOG_MSG << "getEnv:" << data;
+        try {
+          auto j = nlohmann::json::parse(data);
+          if (j.is_array() && 0 < j.size()) {
+            std::string key = j[0].get<std::string>();
+            const char *value = std::getenv(key.c_str());
+            if (value != nullptr) {
+              return nlohmann::json(value).dump();
+            }
+          }
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+        }
+        return "null";
+      }
+    );
+
+    w.bind("setProjectsFolderPath", [&prefs](const std::string &data) -> std::string
+      {
+        LOG_MSG << "setProjectsFolderPath:" << data;
+        try {
+          auto j = nlohmann::json::parse(data);
+          if (j.is_array() && 0 < j.size()) {
+            std::string path = j[0].get<std::string>();
+            // TODO:
+          }
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+        }
+        return "null";
+      }
+    );
+
+    w.bind("createProject", [&prefs](const std::string &) -> std::string
       {
         LOG_MSG << "createProject";
         nlohmann::json res;
         try {
-          ensureProjectsFolderExist();
-          const auto prv = providersJsonPath();
+          ensureProjectsFolderExist(prefs);
+          const auto prv = providersJsonPath(prefs);
           if (!fs::exists(prv)) {
             throw std::runtime_error("Providers file not found at: " + prv.string());
           }
@@ -277,8 +318,8 @@ int main() {
             throw std::runtime_error("Default settings file not found at: " + src.string());
           }
           std::string fname = "settings_" + shared::generateRandomId(12) + ".json";
-          auto ffname = [&fname]() {
-            return projectsFolderPath() / fs::path(fname);
+          auto ffname = [&fname, &prefs]() {
+            return projectsFolderPath(prefs) / fs::path(fname);
             };
           size_t n = 0;
           while (fs::exists(ffname())) {
@@ -334,7 +375,7 @@ int main() {
       }
     );
 
-    w.bind("importProject", [](const std::string &data) -> std::string
+    w.bind("importProject", [&prefs](const std::string &data) -> std::string
       {
         LOG_MSG << "importProject:" << data;
         nlohmann::json res;
@@ -347,15 +388,16 @@ int main() {
           if (!fs::exists(path)) {
             throw std::runtime_error("Import settings file not found: " + path);
           }
-          ensureProjectsFolderExist();
+          ensureProjectsFolderExist(prefs);
+          const auto projRefsPath = projectRefsPath(prefs);
           nlohmann::json jRefs;
           jRefs["refs"] = nlohmann::json::array();
-          if (!fs::exists(projectRefsPath())) {            
-            std::ofstream file(projectRefsPath());
+          if (!fs::exists(projRefsPath)) {
+            std::ofstream file(projRefsPath);
             file << jRefs.dump(2) << std::endl;
-            LOG_MSG << "Created project refs file at:" << fs::absolute(projectRefsPath()).string();
+            LOG_MSG << "Created project refs file at:" << fs::absolute(projRefsPath).string();
           } else {
-            std::ifstream file(projectRefsPath());
+            std::ifstream file(projRefsPath);
             file >> jRefs;
           }
           if (jRefs.contains("refs")) {
@@ -368,7 +410,7 @@ int main() {
           nlohmann::json ref;
           ref["path"] = path;
           jRefs["refs"].push_back(ref);
-          std::ofstream file(projectRefsPath());
+          std::ofstream file(projRefsPath);
           file << jRefs.dump(2) << std::endl;
           res["status"] = "success";
         } catch (const std::exception &ex) {
@@ -380,7 +422,7 @@ int main() {
       }
     );
 
-    w.bind("getProjectList", [](const std::string &) -> std::string
+    w.bind("getProjectList", [&prefs](const std::string &) -> std::string
       {
         LOG_MSG << "getProjectList";
         nlohmann::json res;
@@ -403,7 +445,7 @@ int main() {
               LOG_MSG << "Path not a project settings. Skipped. [" << path << "]";
             }
             };
-          auto ppath = projectsFolderPath();
+          auto ppath = projectsFolderPath(prefs);
           if (fs::exists(ppath) && fs::is_directory(ppath)) {
             for (const auto &entry : fs::directory_iterator(ppath)) {
               if (entry.is_regular_file() && entry.path().extension() == ".json" && entry.path().filename() != PROJECT_REFS_FNAME) {
@@ -414,10 +456,10 @@ int main() {
                 }
               }
             }
-            if (fs::exists(projectRefsPath())) {
+            if (fs::exists(projectRefsPath(prefs))) {
               nlohmann::json jRefs;
               {
-                std::ifstream file(projectRefsPath());
+                std::ifstream file(projectRefsPath(prefs));
                 file >> jRefs;
               }
               if (jRefs.contains("refs") && jRefs["refs"].is_array()) {
@@ -445,12 +487,12 @@ int main() {
       }
     );
 
-    w.bind("saveProject", [](const std::string &data) -> std::string
+    w.bind("saveProject", [&prefs](const std::string &data) -> std::string
       {
         LOG_MSG << "saveProject";
         nlohmann::json res;
         try {
-          const auto prv = providersJsonPath();
+          const auto prv = providersJsonPath(prefs);
           if (!fs::exists(prv)) {
             throw std::runtime_error("Providers file not found at: " + prv.string());
           }
@@ -479,12 +521,12 @@ int main() {
       }
     );
 
-    w.bind("saveProviders", [](const std::string &data) -> std::string
+    w.bind("saveProviders", [&prefs](const std::string &data) -> std::string
       {
         LOG_MSG << "saveProviders";
         nlohmann::json res;
         try {
-          const auto prv = providersJsonPath();
+          const auto prv = providersJsonPath(prefs);
           if (!fs::exists(prv)) {
             throw std::runtime_error("Providers file not found at: " + prv.string());
           }
@@ -508,12 +550,12 @@ int main() {
       }
     );
 
-    w.bind("getProviders", [](const std::string &) -> std::string
+    w.bind("getProviders", [&prefs](const std::string &) -> std::string
       {
         LOG_MSG << "getProviders";
         nlohmann::json res;
         try {
-          const auto prv = providersJsonPath();
+          const auto prv = providersJsonPath(prefs);
           if (!fs::exists(prv)) {
             throw std::runtime_error("Providers file not found at: " + prv.string());
           }
@@ -546,7 +588,7 @@ int main() {
         return res.dump();
       }
     );
-    w.bind("startServe", [](const std::string &data) -> std::string
+    w.bind("startServe", [&prefs](const std::string &data) -> std::string
       {
         LOG_MSG << "startServe";
         nlohmann::json res;
@@ -555,11 +597,10 @@ int main() {
           if (!j.is_array() || j.size() < 2) {
             throw std::runtime_error("Invalid parameters");
           }
-          auto jProj = j[0];
-          if (validateProjectItemArg(jProj)) {
-            auto providersPath = providersJsonPath().lexically_normal().generic_string();
-            auto configPath = jProj["settingsFilePath"].get<std::string>();
+          if (validateProjectItemArg(j[0])) {
+            auto configPath = j[0]["settingsFilePath"].get<std::string>();
             auto exePath = j[1].get<std::string>();
+            auto providersPath = providersJsonPath(prefs).lexically_normal().generic_string();
 #ifdef _WIN32
             if (!exePath.empty() && !exePath.ends_with(".exe")) {
               exePath += ".exe";
@@ -665,12 +706,12 @@ int main() {
       }
     );
 
-    w.bind("pickSettingsJsonFile", [](const std::string &) -> std::string
+    w.bind("pickSettingsJsonFile", [&prefs](const std::string &) -> std::string
       {
         LOG_MSG << "pickSettingsJsonFile";
         nlohmann::json res;
         try {
-          const auto prv = providersJsonPath();
+          const auto prv = providersJsonPath(prefs);
           if (!fs::exists(prv)) {
             throw std::runtime_error("Providers file not found at: " + prv.string());
           }
@@ -733,6 +774,8 @@ int main() {
       window.cppApi = {
         setPersistentKey,
         getPersistentKey,
+        getEnv,
+        setProjectsFolderPath,
         createProject,
         deleteProject,
         importProject,

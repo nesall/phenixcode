@@ -4,6 +4,7 @@ declare interface Window {
   cppApi: {
     setPersistentKey: (key: string, value: string) => Promise<void>;
     getPersistentKey: (key: string) => Promise<string | null>;
+    getEnv: (key: string) => Promise<string|null>;
 
     createProject: () => Promise<ProjectItem>;
     deleteProject: (project: ProjectItem) => Promise<{ status: string; message: string }>;

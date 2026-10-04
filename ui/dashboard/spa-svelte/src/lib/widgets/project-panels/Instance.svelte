@@ -65,7 +65,7 @@
     await tick();
     if (0 < fileValidationResults.length) return;
     beingStarted = true;
-    const execPath = await getPersistentKey(Consts.EmbedderExecutablePath);
+    const execPath = await getPersistentKey(Consts.CoreExecutablePath);
     if (!execPath) {
       toaster.error({ title: "Empty executable path is set in the Settings tab" });
       return;

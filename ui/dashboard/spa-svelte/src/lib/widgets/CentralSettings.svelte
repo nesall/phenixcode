@@ -1,63 +1,107 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Consts, getPersistentKey, helper_checkPathExists, setPersistentKey } from "../utils";
+  import { Consts, getEnv, getPersistentKey, helper_checkPathExists, setPersistentKey } from "../utils";
 
-  let embedderExecutablePath = $state("");
-  let valid = $state(false);
-  let invalidMessage = $state("");
+  let coreExecutablePathInput = $state("");
+  let projectsFolderPathInput = $state("");
+  let invalidExecPathMessage = $state("");
+  let invalidPrjPathMessage = $state("");
 
-  onMount(() => {
-    getPersistentKey(Consts.EmbedderExecutablePath).then((path) => {
-      embedderExecutablePath = path || "./phenixcode-core";
-      if (!path) {
-        setPersistentKey(Consts.EmbedderExecutablePath, embedderExecutablePath);
-      }
-      console.log("embedderExecutablePath", $state.snapshot(embedderExecutablePath));
-    });
+  let projectsFolderEnv: string | null = "";
+
+  onMount(async () => {
+    projectsFolderEnv = await getEnv(Consts.Env.PHENIXCODE_PROJECTS_FOLDER);
+    const path = await getPersistentKey(Consts.CoreExecutablePath);
+    coreExecutablePathInput = path || "./phenixcode-core";
+    if (!path) {
+      setPersistentKey(Consts.CoreExecutablePath, coreExecutablePathInput);
+    }
+    console.log("coreExecutablePathInput", $state.snapshot(coreExecutablePathInput));
+
+    initProjectPath();
   });
 
-  $effect(() => {
-    isValidExecutablePath(embedderExecutablePath).then((res: any) => {
-      if (res.status !== "success") {
-        valid = false;
-        invalidMessage = res.message || "Invalid executable path.";
-      } else {
-        valid = true;
-        invalidMessage = "";
-      }
-      console.log("valid", $state.snapshot(valid));
-    });
-  });
+  async function initProjectPath() {
+    const defProjPath = "./phenixcode-projects";
+    const path = await getPersistentKey(Consts.ProjectsFolderPath);
+    projectsFolderPathInput = path || projectsFolderEnv || defProjPath;
+    console.log("projectsFolderPathInput", $state.snapshot(projectsFolderPathInput));
+  }
 
   function onCorePathChange(e: Event) {
     const ev = e as InputEvent;
     if (ev && ev.target) {
-      setPersistentKey(Consts.EmbedderExecutablePath, (ev.target as HTMLInputElement).value);
-      embedderExecutablePath = (ev.target as HTMLInputElement).value;
+      setPersistentKey(Consts.CoreExecutablePath, (ev.target as HTMLInputElement).value);
+      coreExecutablePathInput = (ev.target as HTMLInputElement).value;
+      isValidPath(coreExecutablePathInput).then((res: any) => {
+        if (res.status !== "success") {
+          invalidExecPathMessage = res.message || "Invalid executable path";
+        } else {
+          invalidExecPathMessage = "";
+        }
+      });
     }
   }
 
-  async function isValidExecutablePath(path: string | undefined | null) {
+  function onProjectsPathChange(e: Event) {
+    const ev = e as InputEvent;
+    if (ev && ev.target) {
+      const val = (ev.target as HTMLInputElement).value;
+      setPersistentKey(Consts.ProjectsFolderPath, val);
+      projectsFolderPathInput = val;
+      isValidPath(projectsFolderPathInput).then((res: any) => {
+        if (res.status !== "success") {
+          invalidPrjPathMessage = res.message || "Invalid projects folder path";
+        } else {
+          invalidPrjPathMessage = "";
+        }
+      });
+    }
+  }
+
+  async function onResetProjPath() {
+    await setPersistentKey(Consts.ProjectsFolderPath, "");
+    initProjectPath();
+    invalidPrjPathMessage = "";
+  }
+
+  async function isValidPath(path: string | undefined | null) {
     if (!path) return false;
     return await helper_checkPathExists(path);
   }
 </script>
 
-<div>
+<div class="flex flex-col gap-4">
   <div class="text-right text-xs">Build date: {__BUILD_DATE__}</div>
   <label class="label">
-    <span class="label-text">PhenixCode Executable path</span>
+    <span class="label-text">PhenixCode Executable Path</span>
     <div class="flex items-center space-x-1">
       <input
         type="text"
-        id="core-executable-path"
-        class="input max-w-xl {!valid ? 'outline-2 outline-red-500' : ''}"
+        id="input-core-executable-path"
+        class="input max-w-xl {!!invalidExecPathMessage ? 'outline-2 outline-red-500' : ''}"
         oninput={onCorePathChange}
-        value={embedderExecutablePath}
+        value={coreExecutablePathInput}
       />
     </div>
-    {#if !valid}
-      <div class="text-xs italic">{invalidMessage}</div>
+    {#if !!invalidExecPathMessage}
+      <div class="text-xs italic text-error-700-300">{invalidExecPathMessage}</div>
+    {/if}
+  </label>
+  <label class="label">
+    <span class="label-text">PhenixCode Projects Path</span>
+    <div class="flex items-center space-x-1">
+      <input
+        type="text"
+        id="input-projects-path"
+        class="input max-w-xl {!!invalidPrjPathMessage ? 'outline-2 outline-red-500' : ''}"
+        oninput={onProjectsPathChange}
+        value={projectsFolderPathInput}
+      />
+      <button type="button" class="btn preset-tonal" onclick={onResetProjPath}>Reset to default</button>
+    </div>
+    {#if !!invalidPrjPathMessage}
+      <div class="text-xs italic text-error-700-300">{invalidPrjPathMessage}</div>
     {/if}
   </label>
 </div>

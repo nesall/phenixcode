@@ -79,7 +79,7 @@ export interface GenerationSettings {
   max_chunks: number;
   max_full_sources: number;
   max_related_per_source: number;
-  max_context_tokens: number;
+  default_context_length: number;
   default_temperature: number;
   default_max_tokens: number;
   default_max_tokens_name: string;

@@ -22,6 +22,19 @@
 
   function onChange() {
     if (projectStore.selected) {
+      // Ensure file-type paths don't include directory-only fields
+      for (const path of projectStore.selected.jsonData.source.paths) {
+        if (path.type === "file") {
+          delete (path as any).exclude;
+          delete (path as any).extensions;
+          delete (path as any).recursive;
+        } else {
+          // Ensure directory-type paths have these fields
+          if (!path.exclude) path.exclude = [];
+          if (!path.extensions) path.extensions = [];
+          if (path.recursive === undefined) path.recursive = true;
+        }
+      }
       helper_saveProjectSettings(projectStore.selected);
       onChanged(projectStore.selected);
     }
