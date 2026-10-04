@@ -59,7 +59,7 @@
     "max_chunks": 7,
     "max_full_sources": 2,
     "max_related_per_source": 3,
-    "max_context_tokens": 64000,
+    "default_context_length": 64000,
     "default_temperature": 0.1,
     "default_max_tokens": 2048,
     "default_max_tokens_name": "max_tokens",

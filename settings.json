@@ -31,7 +31,7 @@
     "auto_router": {
       "enabled": true,
       "classifier": {
-        "_comment":  "type=internal means no LLM calls.",
+        "_comment": "type=internal means no LLM calls.",
         "type": "internal",
         "api_id": "mistral-small",
         "max_tokens": 20,
@@ -85,7 +85,7 @@
       "threshold_ratio": 0.75
     },
     "max_chunks": 7,
-    "max_context_tokens": 64000,
+    "default_context_length": 64000,
     "max_full_sources": 2,
     "max_related_per_source": 3,
     "prepend_label_format": "[Source: {}]\n",
