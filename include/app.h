@@ -33,6 +33,10 @@ public:
   void chat();
   void serve(int port, bool watch = false, int interval = 60, const std::string &infoFile = {});
   void providers(const std::string &testProvider);
+  void eval(const std::string &datasetPath, size_t topK = 5);
+  void evalInit(const std::string &outputPath, size_t numSamples = 10);
+  void evalList();
+  void evalDetail(const std::string &docId);
 
   const Settings &settings() const;
   Settings &refSettings();

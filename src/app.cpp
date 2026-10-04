@@ -326,6 +326,103 @@ namespace {
     return it != ext_map.end() ? it->second : "Other";
   }
 
+  struct EvalMetrics {
+    double recallAtK = 0;
+    double mrr = 0;
+    double ndcg = 0;
+  };
+
+  EvalMetrics computeMetrics(const std::vector<SearchResult> &results, const std::set<std::string> &expectedIds) {
+    EvalMetrics m;
+    if (expectedIds.empty()) return m;
+
+    // Deduplicate by sourceId — keep first (best-ranked) occurrence
+    std::vector<std::string> uniqueSourceIds;
+    std::unordered_set<std::string> seen;
+    for (const auto &r : results) {
+      if (seen.insert(r.sourceId).second) {
+        uniqueSourceIds.push_back(r.sourceId);
+      }
+    }
+
+    // Recall@k
+    size_t found = 0;
+    for (const auto &id : uniqueSourceIds) {
+      if (expectedIds.count(id)) found++;
+    }
+    m.recallAtK = static_cast<double>(found) / expectedIds.size();
+
+    // MRR — rank of first relevant result
+    for (size_t j = 0; j < uniqueSourceIds.size(); ++j) {
+      if (expectedIds.count(uniqueSourceIds[j])) {
+        m.mrr = 1.0 / (j + 1);
+        break;
+      }
+    }
+
+    // NDCG — binary relevance on deduplicated list
+    double dcg = 0;
+    for (size_t j = 0; j < uniqueSourceIds.size(); ++j) {
+      if (expectedIds.count(uniqueSourceIds[j])) {
+        dcg += 1.0 / std::log2(static_cast<double>(j) + 2.0);
+      }
+    }
+    double idealDcg = 0;
+    size_t idealCount = (std::min)(expectedIds.size(), uniqueSourceIds.size());
+    for (size_t j = 0; j < idealCount; ++j) {
+      idealDcg += 1.0 / std::log2(static_cast<double>(j) + 2.0);
+    }
+    m.ndcg = idealDcg > 0 ? dcg / idealDcg : 0;
+
+    return m;
+  }
+
+  std::string generateQueryFromContent(const std::string &content, const std::string &filename) {
+    // Look for common patterns: function signatures, comments, class names
+    std::istringstream stream(content);
+    std::string line;
+    std::vector<std::string> candidates;
+
+    while (std::getline(stream, line)) {
+      // Match patterns like: "void App::embed(", "class Chunker", "// Search for..."
+      std::string trimmed = line;
+      // trim leading whitespace
+      trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+
+      if (trimmed.rfind("//", 0) == 0 && trimmed.length() > 10) {
+        // Comment — strip "// " and use as query
+        std::string comment = trimmed.substr(2);
+        // trim
+        comment.erase(0, comment.find_first_not_of(" "));
+        if (comment.length() > 10)
+          candidates.push_back(comment);
+      }
+      // Look for function-like declarations
+      if (trimmed.find("::") != std::string::npos &&
+        trimmed.find("(") != std::string::npos &&
+        trimmed.find(";") == std::string::npos) {
+        // e.g. "void App::embed(bool noPrompt)" → "embed"
+        auto colons = trimmed.find("::");
+        auto paren = trimmed.find("(");
+        if (colons != std::string::npos && paren != std::string::npos) {
+          auto nameStart = trimmed.rfind(' ', colons);
+          std::string funcName = trimmed.substr(
+            colons + 2, paren - colons - 2);
+          if (funcName.length() > 3)
+            candidates.push_back(
+              "What does the " + funcName + " function do?");
+        }
+      }
+    }
+
+    if (!candidates.empty()) {
+      // Pick the first meaningful candidate
+      return candidates[0];
+    }
+    // Fallback
+    return "What is the purpose of " + filename + "?";
+  }
+
   json computeStats(VectorDatabase &db) {
     auto trackedFiles = db.getTrackedFiles();
 
@@ -960,6 +1057,273 @@ void App::providers(const std::string &testProvider)
   }
 }
 
+void App::evalInit(const std::string &outputPath, size_t numSamples)
+{
+  auto trackedFiles = imp->db_->getTrackedFiles();
+  if (trackedFiles.empty()) {
+    LOG_MSG << "No indexed files found. Run 'embed' first.";
+    return;
+  }
+
+  size_t count = (std::min)(numSamples, trackedFiles.size());
+  json evalArray = json::array();
+
+  for (size_t i = 0; i < count; ++i) {
+    size_t idx = i * trackedFiles.size() / count;
+    const auto &file = trackedFiles[idx];
+    std::string filename = fs::path(file.path).filename().string();
+
+    // Extract meaningful tokens from the file content
+    // to generate a more realistic query
+    std::string content;
+    SourceProcessor::readFile(file.path, content);
+
+    // Pull function/class names or comments as query seeds
+    std::string query = generateQueryFromContent(content, filename);
+
+    json expectedIds = json::array();
+    expectedIds.push_back(file.path);
+
+    evalArray.push_back({
+      {"query", query},
+      {"expected_doc_ids", expectedIds}
+      });
+  }
+
+  std::ofstream out(outputPath);
+  out << std::setw(2) << evalArray;
+  out.close();
+
+  LOG_MSG << "Generated template:" << outputPath;
+  LOG_MSG << "Created" << evalArray.size() << "sample queries.";
+  LOG_MSG << "Please review and correct expected_doc_ids before running eval.";
+  LOG_MSG << "Use 'eval --list' to see available document IDs.";
+}
+
+void App::evalList()
+{
+  auto trackedFiles = imp->db_->getTrackedFiles();
+  auto chunkCounts = imp->db_->getChunkCountsBySources();
+
+  std::cout << "\nAvailable document IDs (" << trackedFiles.size() << " files):\n";
+  std::cout << std::string(80, '-') << "\n";
+  for (const auto &file : trackedFiles) {
+    size_t chunks = chunkCounts.count(file.path) ? chunkCounts.at(file.path) : 0;
+    std::cout << "  " << file.path << "  (" << chunks << " chunks)\n";
+  }
+  std::cout << std::endl;
+}
+
+void App::evalDetail(const std::string &docId)
+{
+  auto trackedFiles = imp->db_->getTrackedFiles();
+  auto chunkCounts = imp->db_->getChunkCountsBySources();
+
+  for (const auto &file : trackedFiles) {
+    if (file.path == docId) {
+      size_t chunks = chunkCounts.count(file.path) ? chunkCounts.at(file.path) : 0;
+      std::cout << "\nDocument ID:     " << file.path << "\n";
+      std::cout << "Chunks:          " << chunks << "\n";
+      std::cout << "Size:            " << file.fileSize << " bytes\n";
+      std::cout << "Lines:           " << file.nofLines << "\n";
+      std::cout << "Last modified:   " << file.lastModified << "\n";
+      return;
+    }
+  }
+  LOG_MSG << "Document not found:" << docId;
+  LOG_MSG << "Use 'eval --list' to see available IDs.";
+}
+
+void App::eval(const std::string &datasetPath, size_t topK)
+{
+  // Read dataset
+  std::ifstream f(datasetPath);
+  if (!f.is_open()) {
+    LOG_MSG << "Cannot open dataset file:" << datasetPath;
+    return;
+  }
+  json dataset;
+  try {
+    f >> dataset;
+  } catch (const std::exception &e) {
+    LOG_MSG << "Invalid JSON in dataset:" << e.what();
+    return;
+  }
+  f.close();
+
+  if (!dataset.is_array() || dataset.empty()) {
+    LOG_MSG << "Dataset must be a non-empty JSON array.";
+    return;
+  }
+
+  LOG_MSG << "Running evaluation on" << dataset.size() << "queries (top_k=" << topK << ")";
+
+  EmbeddingClient ec{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
+
+  double totalRecall = 0, totalMRR = 0, totalNDCG = 0, totalLatency = 0;
+  size_t validEntries = 0;
+  json perQuery = json::array();
+
+  std::set<std::string> universe;
+
+  for (size_t i = 0; i < dataset.size(); ++i) {
+    const auto &entry = dataset[i];
+    if (!entry.contains("query") || !entry.contains("expected_doc_ids")) {
+      LOG_MSG << "Skipping entry" << i << ": missing query or expected_doc_ids";
+      continue;
+    }
+
+    std::string query = entry["query"];
+    std::set<std::string> expectedIds;
+    for (const auto &id : entry["expected_doc_ids"]) {
+      expectedIds.insert(id.get<std::string>());
+    }
+    if (expectedIds.empty()) {
+      LOG_MSG << "Skipping entry" << i << ": empty expected_doc_ids";
+      continue;
+    }
+
+    // Embed + search
+    auto start = std::chrono::steady_clock::now();
+    std::vector<float> queryEmbedding;
+    ec.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
+    auto results = imp->db_->search(queryEmbedding, topK);
+    auto end = std::chrono::steady_clock::now();
+    double latencyMs = std::chrono::duration<double, std::milli>(end - start).count();
+
+    auto m = computeMetrics(results, expectedIds);
+
+
+
+    // Collect unique retrieved source IDs (in rank order)
+    json retrievedWithScores = json::array();
+    {
+      std::unordered_set<std::string> seen;
+      for (const auto &r : results) {
+        if (seen.insert(r.sourceId).second) {
+          retrievedWithScores.push_back({
+            {"doc_id", r.sourceId},
+            {"score", r.similarityScore}
+            });
+          universe.insert(r.sourceId);
+        }
+      }
+    }
+    universe.insert(expectedIds.begin(), expectedIds.end());
+
+    totalRecall += m.recallAtK;
+    totalMRR += m.mrr;
+    totalNDCG += m.ndcg;
+    totalLatency += latencyMs;
+    validEntries++;
+
+    const bool idealHit = (m.recallAtK == 1.0 && m.mrr == 1.0 && m.ndcg == 1.0);
+
+    json outEntry = {
+      {"query", query},
+      {"recall_at_k", m.recallAtK},
+      {"mrr", m.mrr},
+      {"ndcg", m.ndcg},
+      {"latency_ms", latencyMs},
+      {"results_count", results.size()},
+      {"retrieved", retrievedWithScores},
+      {"hit", idealHit}
+    };
+
+    if (!idealHit) {
+      // Probe deeper to find where expected docs actually rank
+      size_t probeK = topK * 20;
+      auto wideResults = imp->db_->search(queryEmbedding, probeK);
+
+      json missInfo;
+      json expectedArr = json::array();
+      for (const auto &id : expectedIds) expectedArr.push_back(id);
+      missInfo["expected_doc_ids"] = expectedArr;
+
+      json probeResults = json::array();
+      {
+        std::unordered_set<std::string> seen;
+        for (const auto &r : wideResults) {
+          if (seen.insert(r.sourceId).second) {
+            probeResults.push_back({
+              {"doc_id", r.sourceId},
+              {"score", r.similarityScore}
+              });
+          }
+        }
+      }
+      missInfo["probe_results"] = probeResults;
+
+      // Find actual rank of expected docs
+      json actualRanks;
+      for (const auto &id : expectedIds) {
+        for (size_t j = 0; j < probeResults.size(); ++j) {
+          if (probeResults[j]["doc_id"] == id) {
+            actualRanks[id] = {
+              {"rank", j + 1},
+              {"score", probeResults[j]["score"]}
+            };
+            break;
+          }
+        }
+        if (!actualRanks.contains(id)) {
+          actualRanks[id] = { {"rank", -1}, {"score", 0.0} }; // not even in probe
+        }
+      }
+      missInfo["actual_ranks"] = actualRanks;
+
+      outEntry["miss"] = missInfo;
+    }
+
+    perQuery.push_back(outEntry);
+
+    std::cout << "[" << i + 1 << "/" << dataset.size() << "]"
+      << " recall=" << m.recallAtK
+      << " mrr=" << m.mrr
+      << " ndcg=" << m.ndcg
+      << " latency=" << latencyMs << "ms\n";
+  }
+
+  const std::string prefix = utils::commonDirPrefix(universe);
+  if (!prefix.empty()) {
+    for (auto &q : perQuery) {
+      for (const char *key : { "retrieved_doc_ids", "expected_doc_ids" }) {
+        if (!q.contains(key)) continue;
+        for (auto &id : q[key])
+          utils::stripPrefix(id.get_ref<std::string &>(), prefix);
+      }
+    }
+  }
+
+  if (validEntries == 0) {
+    LOG_MSG << "No valid entries to evaluate.";
+    return;
+  }
+
+  // Summary report
+  json report = {
+    {"summary", {
+      {"total_queries", validEntries},
+      {"top_k", topK},
+      {"recall_at_k", totalRecall / validEntries},
+      {"mrr", totalMRR / validEntries},
+      {"ndcg", totalNDCG / validEntries},
+      {"mean_latency_ms", totalLatency / validEntries}
+    }},
+    {"per_query", perQuery}
+  };
+
+  std::cout << "\n=== Evaluation Report ===\n";
+  std::cout << std::setw(2) << report << "\n";
+
+  // Optionally write to file
+  std::string reportPath = datasetPath + ".report.json";
+  std::ofstream out(reportPath);
+  out << std::setw(2) << report;
+  out.close();
+  LOG_MSG << "Report saved to" << reportPath;
+}
+
 size_t App::update()
 {
   LOG_MSG << "Checking for changes...";
@@ -1129,7 +1493,7 @@ size_t App::lastUpdateTimestamp() const
 
 void App::printUsage()
 {
-  std::cout << "Usage: embedder <command> [options]\n\n";
+  std::cout << "Usage: phenixcode-core <command> [options]\n\n";
   std::cout << "Commands:\n";
   std::cout << "  embed              - Process and embed all configured sources\n";
   std::cout << "  update             - Incrementally update changed files only\n";
@@ -1141,6 +1505,10 @@ void App::printUsage()
   std::cout << "  chat               - Chat mode\n";
   std::cout << "  serve [options]    - Start HTTP API server\n";
   std::cout << "  providers [--test openai]   - List (or test) embedding and completion providers\n";
+  std::cout << "  eval --init <output.json> [--samples N] - Generate evaluation dataset template\n";
+  std::cout << "  eval --list        - List available document IDs\n";
+  std::cout << "  eval --detail <doc_id> - Show details for a specific document ID\n";
+  std::cout << "  eval <dataset.json> [--top <k>] - Run evaluation on a dataset\n";
   std::cout << "\nServe options:\n";
   std::cout << "  --port <port>      - Server port (default: 8081)\n";
   std::cout << "  --watch [--interval seconds]  - Enable auto-update (default: 60s)\n";
@@ -1153,9 +1521,9 @@ void App::printUsage()
   std::cout << "  reset-password-interactive  - Reset password (interactive)\n";
   std::cout << "  password-status             - Check password status\n";
   std::cout << "\nExamples:\n";
-  std::cout << "  embedder serve --port 8081 --watch --interval 30   # Run server and update every 30 seconds\n";
-  std::cout << "  embedder serve --watch    # Use defaults\n";
-  std::cout << "  embedder watch 120    # Watch mode without server\n";
+  std::cout << "  phenixcode-core serve --port 8081 --watch --interval 30   # Run server and update every 30 seconds\n";
+  std::cout << "  phenixcode-core serve --watch    # Use defaults\n";
+  std::cout << "  phenixcode-core watch 120    # Watch mode without server\n";
   std::cout << std::endl;
 
   std::cout << std::endl;
@@ -1334,8 +1702,8 @@ std::string App::findConfigFile(const std::string &filename)
       filename,                          // Current dir
       "../" + filename,                  // Parent
       "../../" + filename,               // Grandparent
-      std::string(std::getenv("HOME") ? std::getenv("HOME") : ".") + "/.config/embedder/" + filename,  // User config
-      "/etc/embedder/" + filename        // System-wide (Linux)
+      std::string(std::getenv("HOME") ? std::getenv("HOME") : ".") + "/.config/phenixcode/" + filename,  // User config
+      "/etc/phenixcode/" + filename        // System-wide (Linux)
   };
 
   for (const auto &path : searchPaths) {
@@ -1419,7 +1787,7 @@ int App::run(int argc, char *argv[])
   std::string configPath = "settings.json";
   app.add_option("-c,--config", configPath, "Config file path")->envname("PHENIXCODE_PROJECT_CONFIG")->check(CLI::ExistingFile);
 
-  std::string providersPath = "providers.json";
+  std::string providersPath;
   app.add_option("-w,--providers-config", providersPath, "Providers file path")->envname("PHENIXCODE_PROVIDERS_CONFIG")->check(CLI::ExistingFile);
 
   bool noStartupTests = false;
@@ -1493,6 +1861,23 @@ int App::run(int argc, char *argv[])
   std::string testProvider;
   cmdProviders->add_option("--test", testProvider, "Test call to a given provider");
 
+  auto cmdEval = app.add_subcommand("eval", "Evaluate retrieval quality");
+  std::string evalDatasetPath;
+  bool evalInitFlag = false;
+  std::string evalOutputPath = "eval.json";
+  size_t evalSamples = 10;
+  bool evalListFlag = false;
+  std::string evalDetailId;
+  size_t evalTopK = 5;
+
+  cmdEval->add_option("--dataset", evalDatasetPath, "Path to eval.json dataset");
+  cmdEval->add_flag("--init", evalInitFlag, "Generate template eval.json");
+  cmdEval->add_option("--output", evalOutputPath, "Output path for --init")->default_val("eval.json");
+  cmdEval->add_option("--samples", evalSamples, "Number of sample queries for --init")->default_val(10);
+  cmdEval->add_flag("--list", evalListFlag, "List available document IDs");
+  cmdEval->add_option("--detail", evalDetailId, "Show details for a document ID");
+  cmdEval->add_option("--top", evalTopK, "Top-k for search metrics")->default_val(5);
+
   try {
     app.parse(argc, argv);
 
@@ -1501,9 +1886,22 @@ int App::run(int argc, char *argv[])
       LOG_MSG << "No config file found. Exiting.";
       return 1;
     }
+
+    const bool isReadOnlyEval = cmdEval->parsed() && !evalDatasetPath.empty() == false; // init, list, detail — no dataset run
+    if (!isReadOnlyEval && providersPath.empty()) {
+      providersPath = findConfigFile("providers.json");
+      if (providersPath.empty()) {
+        LOG_MSG << "No providers.json found. Use -w <path> to specify one.";
+        return 1;
+      }
+    }
+
     std::unique_ptr<Settings> settings;
     try {
-      settings = std::make_unique<Settings>(configPath, providersPath);
+      if (isReadOnlyEval && providersPath.empty())
+        settings = std::make_unique<Settings>(configPath);
+      else
+        settings = std::make_unique<Settings>(configPath, providersPath);
       settings->initProjectIdIfMissing(true);
       settings->initProjectTitleIfMissing(true);
     } catch (const std::exception &ex) {
@@ -1558,7 +1956,7 @@ int App::run(int argc, char *argv[])
     appInstance.initialize();
 
     if (!noStartupTests) {
-      if (!appInstance.testSettings()) {
+      if (!isReadOnlyEval && !appInstance.testSettings()) {
         LOG_MSG << "Wrong/incomplete settings. Exiting.";
         return 1;
       }
@@ -1583,6 +1981,22 @@ int App::run(int argc, char *argv[])
       appInstance.chat();
     } else if (cmdProviders->parsed()) {
       appInstance.providers(testProvider);
+    } else if (cmdEval->parsed()) {
+      if (evalInitFlag) {
+        appInstance.evalInit(evalOutputPath, evalSamples);
+      } else if (evalListFlag) {
+        appInstance.evalList();
+      } else if (!evalDetailId.empty()) {
+        appInstance.evalDetail(evalDetailId);
+      } else if (!evalDatasetPath.empty()) {
+        appInstance.eval(evalDatasetPath, evalTopK);
+      } else {
+        LOG_MSG << "Specify --dataset <path>, --init, --list, or --detail <id>";
+        LOG_MSG << "  eval --init --output eval.json    Generate template";
+        LOG_MSG << "  eval --list                       Show available doc IDs";
+        LOG_MSG << "  eval --detail <doc_id>            Show doc details";
+        LOG_MSG << "  eval --dataset eval.json          Run evaluation";
+      }
     } else if (cmdServe->parsed()) {
       if (!serveNoConfirm && appInstance.auth().isDefaultPassword()) {
         std::cout << "\n  WARNING: You are using the default admin password!\n";
