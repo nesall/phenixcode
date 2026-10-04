@@ -4,6 +4,7 @@
 #include <chrono>
 #include <algorithm>
 #include <filesystem>
+#include <utility>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -35,6 +36,23 @@ namespace {
     trimmedViewLeading(v);
     trimmedViewTrailing(v);
   }
+
+  template <class Range>
+  std::string commonDirPrefix(const Range &paths) {
+    if (paths.empty()) return {};
+    auto it = paths.begin();
+    std::string_view prefix = *it;
+    for (++it; it != paths.end() && !prefix.empty(); ++it) {
+      std::string_view s = *it;
+      size_t j = 0;
+      while (j < prefix.size() && j < s.size() && prefix[j] == s[j]) ++j;
+      prefix = prefix.substr(0, j);
+    }
+    auto sep = prefix.find_last_of("/\\");
+    if (sep == std::string_view::npos) return {};
+    return std::string(prefix.substr(0, sep + 1));
+  }
+
 } // anonymous namespace
 
 const std::filesystem::path &utils::getExecutableDir()
@@ -296,4 +314,34 @@ std::size_t utils::strFindIn(std::string_view in, std::string_view t, bool caseS
       return std::string_view::npos;
     }
   }
+}
+
+std::string utils::commonDirPrefix(const std::set<std::string> &paths)
+{
+  return ::commonDirPrefix(paths); // your existing template, renamed e.g. detail::commonDirPrefixImpl
+}
+
+void utils::stripPrefix(std::string &s, const std::string &prefix)
+{
+  if (!prefix.empty() && s.compare(0, prefix.size(), prefix) == 0) s.erase(0, prefix.size());
+}
+
+void utils::stripCommonPathPrefix(std::vector<std::string> &paths)
+{
+  const std::string prefix = ::commonDirPrefix(paths);
+  if (prefix.empty()) return;
+  for (auto &s : paths) stripPrefix(s, prefix);
+}
+
+void utils::stripCommonPathPrefix(std::set<std::string> &paths)
+{
+  const std::string prefix = commonDirPrefix(paths);
+  if (prefix.empty()) return;
+  std::set<std::string> out;
+  for (const auto &s : paths) {
+    std::string t{ s };
+    stripPrefix(t, prefix);
+    out.insert(out.end(), t);
+  }
+  paths = std::move(out);
 }
