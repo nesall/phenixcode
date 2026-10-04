@@ -632,9 +632,9 @@
       class="btn btn-sm btn-icon flex hover:preset-tonal"
       aria-label="New Chat"
       onclick={onClearInternal}
-      title="Clear chat"
+      title="New chat"
     >
-      <icons.Trash />
+      <icons.MessageSquarePlus />
     </button>
   </div>
 </div>
