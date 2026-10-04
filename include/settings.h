@@ -162,6 +162,7 @@ public:
   explicit Settings(const nlohmann::json &prj, const nlohmann::json &prv);
   explicit Settings(const nlohmann::json &prj, const std::string &providersPath);
   explicit Settings(const std::string &path, const std::string &providersPath);
+  explicit Settings(const std::string &path); // providers missing - special use case only
 
   void updateFromConfig(const nlohmann::json &config);
   void updateFromPath(const std::string &path);
