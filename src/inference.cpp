@@ -582,7 +582,7 @@ std::string CompletionClient::generateCompletion(
     size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoningBuffer);
     LOG_MSG << "[completion] Reasoning tokens" << reasoningTokens;
     if (onStream) {
-      onStream(fmt::format("[completion] Reasoning token count {}", reasoningTokens));
+      onStream(fmt::format("[meta]Reasoning token count {}", reasoningTokens));
     }
 
   } else {
@@ -601,7 +601,7 @@ std::string CompletionClient::generateCompletion(
         size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoning);
         LOG_MSG << "[completion] Reasoning tokens " << reasoningTokens;
         if (onStream) {
-          onStream(fmt::format("[completion] Reasoning token count {}", reasoningTokens));
+          onStream(fmt::format("[meta]Reasoning token count {}", reasoningTokens));
         }
         if (fullResponse.empty()) {
           std::string reason = isAnthropic(cfg())
