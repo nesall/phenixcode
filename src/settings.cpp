@@ -68,7 +68,7 @@ namespace {
     cfg.temperature = item.value("temperature", 0.f);
     cfg.enabled = item.value("enabled", true);
     cfg.stream = item.value("stream", true);
-    cfg.contextLength = item.value("context_length", section.value("max_context_tokens", 32000));
+    cfg.contextLength = item.value("context_length", section.value("default_context_length", 32000));
     if (item.contains("pricing_tpm")) {
       auto pricing = item["pricing_tpm"];
       if (pricing.is_object()) {
@@ -282,6 +282,11 @@ Settings::Settings(const std::string &path, const std::string &providersPath)
   updateFromPath(path);
   providers_.loadFromFile(providersPath);
   validate();
+}
+
+Settings::Settings(const std::string &path)
+{
+  updateFromPath(path);
 }
 
 void Settings::updateFromConfig(const nlohmann::json &config)
