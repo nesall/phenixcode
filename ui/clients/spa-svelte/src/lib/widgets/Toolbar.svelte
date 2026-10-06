@@ -311,6 +311,12 @@
       currentChatId.set(chat.id || "");
       sessionId.set(newUUID()); // fresh server-side session for the next /api/chat
       openChatsState = false;
+
+      setTimeout(() => {
+        if (window.HLJS_CUSTOM && window.HLJS_CUSTOM.initHljs) {
+          window.HLJS_CUSTOM.initHljs();
+        }
+      }, 250);
     } catch (e) {
       toaster.error({ title: "Failed to load chat.", description: String(e) });
     }
@@ -551,7 +557,7 @@
   <!-- <img src="/logo.png" alt="Logo" class="h-6 w-6" />
   <span class="text-sm">Project</span> -->
   <div class="flex items-center space-x-0">
-    <span class="text-xs text-surface-700-900" title="Select Project/Instance">
+    <span class="text-xs" title="Select Project/Instance">
       <Dropdown
         values={$instances}
         value={$curInstance}
