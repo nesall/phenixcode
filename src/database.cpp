@@ -1,4 +1,5 @@
 #include "database.h"
+#include "chunker.h"
 #include "cutils.h"
 #include "sqlite3_helper.h"
 #include <hnswlib/hnswlib.h>
@@ -8,12 +9,71 @@
 #include <filesystem>
 #include <mutex>
 #include <fstream>
+#include <cstdint>
 #include <iterator>
+#include <cassert>
 #include "utils_log/logger.hpp"
 #include "3rdparty/fmt/core.h"
-
+#include <cctype>
+#include <unordered_set>
 
 namespace {
+
+  bool isIdentifierLike(const std::string &t) {
+    bool hasLower = false, hasInnerUpper = false, hasDigit = false, hasAlpha = false;
+    for (size_t i = 0; i < t.size(); ++i) {
+      unsigned char c = t[i];
+      if (c == '_') return true;
+      if (std::isdigit(c)) hasDigit = true;
+      if (std::isalpha(c)) hasAlpha = true;
+      if (std::islower(c)) hasLower = true;
+      if (i > 0 && std::isupper(c)) hasInnerUpper = true;
+    }
+    return (hasLower && hasInnerUpper) || (hasDigit && hasAlpha);
+  }
+
+  //std::string buildFtsQuery(const std::string &text) {
+    //static const std::unordered_set<std::string> stop = {
+    //  "what", "does", "do", "is", "are", "the", "a", "an", "how", "why", "of", "to",
+    //  "in", "function", "class", "method", "this", "that", "and", "or", "for", "with" };
+  //  std::vector<std::string> ids, words;
+  //  std::string tok;
+  //  auto flush = [&]() {
+  //    if (tok.empty()) return;
+  //    if (isIdentifierLike(tok)) {
+  //      ids.push_back(tok);
+  //    } else {
+  //      std::string lower = tok;
+  //      std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+  //      if (!stop.count(lower)) words.push_back(tok);
+  //    }
+  //    tok.clear();
+  //    };
+  //  for (unsigned char c : text) {
+  //    if (std::isalnum(c) || c == '_' || c >= 0x80) tok += static_cast<char>(c);
+  //    else flush();
+  //  }
+  //  flush();
+  //  const auto &use = ids.empty() ? words : ids;
+  //  std::string out;
+  //  for (const auto &t : use) {
+  //    if (!out.empty()) out += " OR ";
+  //    out += '"' + t + '"';
+  //  }
+  //  return out;
+  //}
+
+  //bool queryHasIdentifier(const std::string &text) {
+  //  std::string tok;
+  //  bool found = false;
+  //  auto flush = [&]() { if (!tok.empty() && isIdentifierLike(tok)) found = true; tok.clear(); };
+  //  for (unsigned char c : text) {
+  //    if (std::isalnum(c) || c == '_' || c >= 0x80) tok += static_cast<char>(c);
+  //    else flush();
+  //  }
+  //  flush();
+  //  return found;
+  //}
 
   size_t countLines(const std::string &path) {
     std::ifstream file(path);
@@ -51,6 +111,11 @@ struct HnswSqliteVectorDatabase::Impl {
   size_t maxElements_ = 0;
   std::string dbPath_;
   std::string indexPath_;
+
+  // For index db
+  std::vector<size_t> pendingDeletes_;
+  std::vector<std::pair<size_t, std::vector<float>>> pendingAdds_;
+  bool inSqlTransaction_ = false;
 };
 
 
@@ -68,7 +133,8 @@ HnswSqliteVectorDatabase::HnswSqliteVectorDatabase(
   initializeVectorIndex();
 }
 
-HnswSqliteVectorDatabase::~HnswSqliteVectorDatabase() {
+HnswSqliteVectorDatabase::~HnswSqliteVectorDatabase()
+{
   if (imp->db_) {
     sqlite3_close(imp->db_);
     _checkErr = nullptr;
@@ -82,13 +148,28 @@ size_t HnswSqliteVectorDatabase::addDocument(const Chunk &chunk, const std::vect
     throw std::runtime_error(fmt::format("Embedding dimension mismatch: actual {}, claimed {}", embedding.size(), imp->vectorDim_));
   }
   size_t chunkId = insertMetadata(chunk);
+  {
+    const char *ftsInsertSql = R"(
+      INSERT INTO chunks_fts(rowid, content, source_id) VALUES (?, ?, ?)
+    )";
+    utils::SqliteStmt ftsStmt;
+    _checkErr = sqlite3_prepare_v2(imp->db_, ftsInsertSql, -1, &ftsStmt.ref(), nullptr);
+    _checkErr = sqlite3_bind_int64(ftsStmt.ref(), 1, static_cast<int64_t>(chunkId));
+    _checkErr = sqlite3_bind_text(ftsStmt.ref(), 2, chunk.text.c_str(), -1, SQLITE_STATIC);
+    _checkErr = sqlite3_bind_text(ftsStmt.ref(), 3, chunk.docUri.c_str(), -1, SQLITE_STATIC);
+    _checkErr = sqlite3_step(ftsStmt.ref());
+  }
   try {
     size_t nofLines = countLines(chunk.docUri);
     upsertFileMetadata(chunk.docUri, utils::getFileModificationTime(chunk.docUri), std::filesystem::file_size(chunk.docUri), nofLines);
   } catch (const std::exception &ex) {
     LOG_MSG << "Error during upserting a chunk:" << ex.what();
   }
-  imp->index_->addPoint(embedding.data(), chunkId, true);
+  if (imp->inSqlTransaction_) {
+    imp->pendingAdds_.emplace_back(chunkId, embedding);
+  } else {
+    imp->index_->addPoint(embedding.data(), chunkId, true);
+  }
   return chunkId;
 }
 
@@ -170,6 +251,222 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::searchWithFilter(const std::
   return filtered;
 }
 
+std::vector<SearchResult> HnswSqliteVectorDatabase::bm25SearchRaw(const std::string &query, size_t top_k) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (query.empty()) return {};
+
+  const char *bm25Sql = R"(
+    SELECT f.rowid, c.content, c.source_id, c.unit, c.type,
+           c.start_pos, c.end_pos, bm25(chunks_fts) AS rank
+    FROM chunks_fts f
+    JOIN chunks c ON c.id = f.rowid
+    WHERE chunks_fts MATCH ?
+    ORDER BY rank
+    LIMIT ?
+  )";
+
+  utils::SqliteStmt stmt;
+  _checkErr = sqlite3_prepare_v2(imp->db_, bm25Sql, -1, &stmt.ref(), nullptr);
+  _checkErr = sqlite3_bind_text(stmt.ref(), 1, query.c_str(), -1, SQLITE_STATIC);
+  _checkErr = sqlite3_bind_int64(stmt.ref(), 2, static_cast<int64_t>(top_k));
+
+  auto colText = [&](int i) {
+    auto p = sqlite3_column_text(stmt.ref(), i);
+    return p ? std::string(reinterpret_cast<const char *>(p)) : std::string();
+    };
+  int rc;
+
+  std::vector<SearchResult> results;
+  while ((rc = sqlite3_step(stmt.ref())) == SQLITE_ROW) {
+    SearchResult sr;
+    sr.chunkId = sqlite3_column_int64(stmt.ref(), 0);
+    sr.content = colText(1);
+    sr.sourceId = colText(2);
+    sr.chunkUnit = colText(3);
+    sr.chunkType = colText(4);
+    sr.start = sqlite3_column_int64(stmt.ref(), 5);
+    sr.end = sqlite3_column_int64(stmt.ref(), 6);
+    // bm25() returns negative (lower = better), negate to make higher = better
+    sr.bm25Score = -static_cast<float>(sqlite3_column_double(stmt.ref(), 7));
+    results.push_back(sr);
+  }
+  if (rc != SQLITE_DONE) {
+    LOG_MSG << "bm25SearchRaw failed:" << sqlite3_errmsg(imp->db_);
+  }
+  return results;
+}
+
+HnswSqliteVectorDatabase::QueryPlan HnswSqliteVectorDatabase::planQuery(const std::string &text) const
+{
+  static const std::unordered_set<std::string> stop = {
+  "what", "does", "do", "is", "are", "the", "a", "an", "how", "why", "of", "to",
+  "in", "function", "class", "method", "this", "that", "and", "or", "for", "with" };
+
+  std::vector<std::string> tokens;
+  {
+    std::string tok;
+    auto flush = [&]() {
+      if (tok.empty()) return;
+      std::string lower = tok;
+      std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+      if (!stop.count(lower) && std::find(tokens.begin(), tokens.end(), tok) == tokens.end()) tokens.push_back(tok);
+      tok.clear();
+      };
+    for (unsigned char c : text) {
+      if (std::isalnum(c) || c == '_' || c >= 0x80) tok += static_cast<char>(c);
+      else flush();
+    }
+    flush();
+  }
+
+  QueryPlan plan;
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto countRows = [&](const char *sql, const std::string &match) -> int64_t {
+    utils::SqliteStmt stmt;
+    _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
+    if (!match.empty()) _checkErr = sqlite3_bind_text(stmt.ref(), 1, match.c_str(), -1, SQLITE_TRANSIENT);
+    return sqlite3_step(stmt.ref()) == SQLITE_ROW ? sqlite3_column_int64(stmt.ref(), 0) : 0;
+    };
+  const int64_t nChunks = countRows("SELECT count(*) FROM chunks", "");
+  const int64_t maxDf = std::clamp<int64_t>(nChunks / 20, 3, 30);
+
+  plan.fts.clear();
+  std::vector<std::string> idTerms, otherTerms;
+  for (const auto &tok : tokens) {
+    const std::string quoted = '"' + tok + '"';
+    const int64_t df = countRows("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", quoted);
+#ifdef _DEBUG
+    //LOG_MSG << "fts token" << tok << "df =" << df;   // calibrate maxDf from this
+#endif
+    if (df == 0 || df > maxDf) continue;
+    (isIdentifierLike(tok) ? idTerms : otherTerms).push_back(quoted);
+  }
+  plan.hasRareIdentifier = !idTerms.empty();
+  const auto &use = plan.hasRareIdentifier ? idTerms : otherTerms;
+  for (size_t i = 0; i < use.size(); ++i) {
+    if (i) plan.fts += " OR ";
+    plan.fts += use[i];
+  }
+  return plan;
+}
+
+std::vector<SearchResult> HnswSqliteVectorDatabase::bm25Search(const std::string &query, size_t top_k) const
+{
+  const auto plan = planQuery(query);
+  if (plan.fts.empty()) return {};
+  return bm25SearchRaw(plan.fts, top_k);
+}
+
+std::vector<SearchResult> HnswSqliteVectorDatabase::hybridSearch(
+  const std::vector<float> &queryEmbedding, const std::string &textQuery, size_t top_k, float bm25Weight) const
+{
+  if (queryEmbedding.size() != imp->vectorDim_) {
+    throw std::runtime_error(fmt::format("Query embedding dimension mismatch: actual {}, claimed {}", queryEmbedding.size(), imp->vectorDim_));
+  }
+  if (top_k == 0) return {};
+
+  const auto plan = planQuery(textQuery);
+  constexpr float kProseBm25Weight = 0.0f; // try 0.15 / 0.3 later
+  //float wBm25 = plan.fts.empty() ? 0.0f : std::clamp(bm25Weight, 0.0f, 1.0f);
+  //if (0 < wBm25) {
+  //  wBm25 = plan.hasRareIdentifier ? (std::max)(wBm25, 0.75f) : (std::min)(wBm25, kProseBm25Weight);
+  //}
+  //const float wVector = 1.0f - wBm25;
+  float wBm25 = plan.fts.empty() ? 0.0f : std::clamp(bm25Weight, 0.0f, 1.0f);
+  if (!plan.hasRareIdentifier) {
+    wBm25 = (std::min)(wBm25, kProseBm25Weight);   // 0 for now
+  }
+  const float wVector = 1.0f - wBm25;
+
+  constexpr size_t maxPerDoc = 2;
+  const size_t candidateK = top_k * 4;
+
+  std::vector<SearchResult> vectorResults, bm25Results;
+  if (wVector > 0.0f) vectorResults = search(queryEmbedding, candidateK);
+  if (wBm25 > 0.0f) {
+    bm25Results = bm25Search(plan.fts, candidateK);
+#ifdef _DEBUG
+    //LOG_MSG << "hybridSearch | wBm25" << wBm25 << "| #hits" << bm25Results.size() << "| plan.fts" << plan.fts;
+#endif
+  }
+  if (vectorResults.empty() && bm25Results.empty()) return {};
+
+  constexpr float rrfK = 60.0f;
+  struct Merged { SearchResult r; float fused = 0.0f; bool hasVector = false; };
+  std::unordered_map<size_t, Merged> merged;
+
+  for (size_t rank = 0; rank < vectorResults.size(); ++rank) {
+    auto &m = merged[vectorResults[rank].chunkId];
+    m.r = vectorResults[rank];
+    m.hasVector = true;
+    m.fused += wVector / (rrfK + static_cast<float>(rank) + 1.0f);
+  }
+  for (size_t rank = 0; rank < bm25Results.size(); ++rank) {
+    auto [it, inserted] = merged.try_emplace(bm25Results[rank].chunkId);
+    auto &m = it->second;
+    if (inserted) m.r = bm25Results[rank];
+    m.r.bm25Score = bm25Results[rank].bm25Score;
+    m.fused += wBm25 / (rrfK + static_cast<float>(rank) + 1.0f);
+  }
+
+  // BM25-only hits have no cosine score; compute it so downstream thresholds stay meaningful.
+  // Assumes normalized vectors with the Cosine (inner product) metric, same as search().
+  auto cosineTo = [&](size_t id) -> float {
+    if (imp->metric_ != DistanceMetric::Cosine) return 0.0f;
+    try {
+      auto v = getEmbeddingVector(id);
+      if (v.size() != queryEmbedding.size()) return 0.0f;
+      float dot = 0.0f;
+      for (size_t i = 0; i < v.size(); ++i) dot += v[i] * queryEmbedding[i];
+      return dot;
+    } catch (...) {
+      return 0.0f;
+    }
+    };
+
+  std::vector<SearchResult> ranked;
+  ranked.reserve(merged.size());
+  for (auto &[id, m] : merged) {
+    if (!m.hasVector) m.r.similarityScore = cosineTo(id);
+    m.r.fusedScore = m.fused;
+    ranked.push_back(std::move(m.r));
+  }
+  std::sort(ranked.begin(), ranked.end(),
+    [](const SearchResult &a, const SearchResult &b) { return a.fusedScore > b.fusedScore; });
+
+  // Per-doc cap, then truncate to top_k
+  std::vector<SearchResult> res;
+  //std::unordered_map<std::string, size_t> perDoc;
+  //for (auto &r : ranked) {
+  //  if (perDoc[r.sourceId] >= maxPerDoc) continue;
+  //  ++perDoc[r.sourceId];
+  //  res.push_back(std::move(r));
+  //  if (res.size() >= top_k) break;
+  //}
+
+  constexpr size_t reserveVector = 2;
+  std::unordered_set<size_t> reserved;
+  for (size_t i = 0; i < (std::min)(reserveVector, vectorResults.size()); ++i)
+    reserved.insert(vectorResults[i].chunkId);
+
+  std::unordered_map<std::string, size_t> perDoc;
+  std::unordered_set<size_t> taken;
+  auto take = [&](const SearchResult &r) {
+    if (res.size() >= top_k || taken.count(r.chunkId)) return;
+    if (perDoc[r.sourceId] >= maxPerDoc) return;
+    ++perDoc[r.sourceId];
+    taken.insert(r.chunkId);
+    res.push_back(r);
+    };
+  for (const auto &r : ranked) if (reserved.count(r.chunkId)) take(r);  // guaranteed first
+  for (const auto &r : ranked) take(r);                                  // then fill by fused score
+  std::sort(res.begin(), res.end(),
+    [](const SearchResult &a, const SearchResult &b) { return a.fusedScore > b.fusedScore; });
+
+  return res;
+}
+
 void HnswSqliteVectorDatabase::clear()
 {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -177,6 +474,7 @@ void HnswSqliteVectorDatabase::clear()
     beginTransaction();
     executeSql("DELETE FROM chunks");
     executeSql("DELETE FROM files_metadata");
+    executeSql("DELETE FROM chunks_fts");
     // Just recreate index - simpler than unmarking everything
     if (imp->metric_ == DistanceMetric::Cosine) {
       imp->space_ = std::make_unique<hnswlib::InnerProductSpace>(imp->vectorDim_);
@@ -227,6 +525,15 @@ void HnswSqliteVectorDatabase::initializeDatabase()
         )
     )";
     executeSql(filesTable);
+
+    const char *ftsTable = R"(
+      CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+          content, -- chunk text
+          source_id UNINDEXED,
+          tokenize='porter unicode61'
+      )
+    )";
+    executeSql(ftsTable);
   }
   auto files = getTrackedFiles();
   LOG_MSG << "Loaded metadata with" << files.size() << "files";
@@ -334,17 +641,31 @@ size_t HnswSqliteVectorDatabase::deleteDocumentsBySource(const std::string &sour
   std::lock_guard<std::mutex> lock(mutex_);
   auto chunkIds = getChunkIdsBySource(sourceId);
   if (chunkIds.empty()) return 0;
+
   utils::SqliteStmt stmt;
   const char *sql = "DELETE FROM chunks WHERE source_id = ?";
   _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
   _checkErr = sqlite3_bind_text(stmt.ref(), 1, sourceId.c_str(), -1, SQLITE_STATIC);
   _checkErr = sqlite3_step(stmt.ref());
   size_t n = sqlite3_changes(imp->db_);
-  for (size_t id : chunkIds) {
-    try {
-      imp->index_->markDelete(id);
-    } catch (const std::runtime_error &e) {
-      LOG_MSG << "Label" << id << "might already be deleted or not exist." << e.what();
+
+  {
+    const char *ftsDeleteSql = "DELETE FROM chunks_fts WHERE source_id = ?";
+    utils::SqliteStmt ftsStmt;
+    _checkErr = sqlite3_prepare_v2(imp->db_, ftsDeleteSql, -1, &ftsStmt.ref(), nullptr);
+    _checkErr = sqlite3_bind_text(ftsStmt.ref(), 1, sourceId.c_str(), -1, SQLITE_STATIC);
+    _checkErr = sqlite3_step(ftsStmt.ref());
+  }
+
+  if (imp->inSqlTransaction_) {
+    imp->pendingDeletes_.insert(imp->pendingDeletes_.end(), chunkIds.begin(), chunkIds.end());
+  } else {
+    for (size_t id : chunkIds) {
+      try {
+        imp->index_->markDelete(id);
+      } catch (const std::runtime_error &e) {
+        LOG_MSG << "Label" << id << "might already be deleted or not exist." << e.what();
+      }
     }
   }
   return n;
@@ -413,6 +734,36 @@ std::vector<float> HnswSqliteVectorDatabase::getEmbeddingVector(size_t chunkId) 
   return imp->index_->getDataByLabel<float>(chunkId);
 }
 
+void HnswSqliteVectorDatabase::beginTransaction()
+{
+  executeSql("BEGIN TRANSACTION"); 
+  imp->inSqlTransaction_ = true;
+  assert(imp->pendingDeletes_.empty());
+  assert(imp->pendingAdds_.empty());
+  imp->pendingDeletes_.clear();
+  imp->pendingAdds_.clear();
+}
+
+void HnswSqliteVectorDatabase::commit()
+{
+  executeSql("COMMIT");
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto id : imp->pendingDeletes_)
+    imp->index_->markDelete(id);
+  for (auto &p : imp->pendingAdds_)
+    imp->index_->addPoint(p.second.data(), p.first, true);
+  imp->pendingDeletes_.clear();
+  imp->pendingAdds_.clear();
+  imp->inSqlTransaction_ = false;
+}
+
+void HnswSqliteVectorDatabase::rollback()
+{
+  executeSql("ROLLBACK");
+  imp->pendingDeletes_.clear();
+  imp->pendingAdds_.clear();
+  imp->inSqlTransaction_ = false;
+}
 
 bool HnswSqliteVectorDatabase::fileExistsInMetadata(const std::string &path) const
 {
