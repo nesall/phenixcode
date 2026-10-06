@@ -60,11 +60,14 @@ const renderer: RendererObject = {
     return `
       <div class="relative my-4">
         <button
-          class="absolute top-2 right-2 bg-surface-200-800 hover:bg-surface-300-700 text-xs px-2 py-1 rounded shadow"
-          onclick="navigator.clipboard.writeText(document.getElementById('${codeId}').innerText)">
+          type="button"
+          class="copy-code cursor-pointer absolute top-2 right-2 bg-surface-200-800 hover:bg-surface-300-700 text-xs px-2 py-1 rounded shadow"
+          data-code-id="${codeId}">
           Copy
         </button>
-        <pre class="bg-surface-100-900 py-4 px-8 rounded leading-none"><code id="${codeId}" class="code text-xs whitespace-pre-wrap break-words">${text}</code></pre>
+        <pre class="bg-surface-100-900 py-4 px-8 rounded leading-none">
+          <code id="${codeId}" class="code text-xs whitespace-pre-wrap break-words">${text}</code>
+        </pre>
       </div>
     `;
   },
@@ -92,3 +95,42 @@ export function renderMarkdown(content: string, urlProcessor?: (url: string) => 
   }
   return marked.parse(content);
 }
+
+document.addEventListener('click', async (event) => {
+  const target = event.target as HTMLElement;
+  const button = target.closest<HTMLButtonElement>('.copy-code');
+
+  if (!button) {
+    return;
+  }
+
+  const codeId = button.dataset.codeId;
+  if (!codeId) {
+    return;
+  }
+
+  const code = document.getElementById(codeId);
+  if (!code) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(code.innerText);
+
+    const originalText = button.textContent;
+    button.textContent = '✓ Copied';
+
+    setTimeout(() => {
+      button.textContent = originalText;
+    }, 1500);
+  } catch (error) {
+    console.error('Failed to copy code:', error);
+
+    const originalText = button.textContent;
+    button.textContent = '✗ Failed';
+
+    setTimeout(() => {
+      button.textContent = originalText;
+    }, 1500);
+  }
+});
