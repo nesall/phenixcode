@@ -462,8 +462,9 @@ namespace {
     if (!attachedOnly) {
       std::set<size_t> uniqueChunkResults;
       std::unordered_map<std::string, float> sourcesRank;
-      for (const auto &embedding : questionEmbeddingVectors) {
-        auto res = app.db().search(embedding, app.settings().embeddingTopK());
+      assert(questionEmbeddingVectors.size() == questionTexts.size());
+      for (size_t j = 0; j < questionEmbeddingVectors.size(); j ++) {
+        auto res = app.retrieve(questionTexts[j], questionEmbeddingVectors[j], app.settings().embeddingTopK());
         for (const auto &r : res) {
           sourcesRank[r.sourceId] += r.similarityScore;
           if (uniqueChunkResults.insert(r.chunkId).second) {
@@ -958,7 +959,7 @@ bool HttpServer::startServer()
       std::vector<float> queryEmbedding;
       EmbeddingClient embeddingClient(imp->app_.settings().embeddingCurrentApi(), imp->app_.settings().embeddingTimeoutMs());
       embeddingClient.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
-      auto results = imp->app_.db().search(queryEmbedding, top_k);
+      auto results = imp->app_.retrieve(query, queryEmbedding, top_k);
       json response = json::array();
       for (const auto &result : results) {
         response.push_back({

@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 #include "json_shim.h"
 
 class Chunker;
@@ -14,6 +15,8 @@ class EmbeddingClient;
 class CompletionClient;
 class SimpleTokenizer;
 class InstanceRegistry;
+struct SearchResult;
+
 
 class App {
   struct Impl;
@@ -37,6 +40,9 @@ public:
   void evalInit(const std::string &outputPath, size_t numSamples = 10);
   void evalList();
   void evalDetail(const std::string &docId);
+
+  // Helper
+  std::vector<SearchResult> retrieve(const std::string &text, const std::vector<float> &embedding, size_t topK) const;
 
   const Settings &settings() const;
   Settings &refSettings();
@@ -73,6 +79,7 @@ private:
   static std::string findConfigFile(const std::string &filename);
   static int handleInteractivePasswordReset();
   static int handlePasswordStatus();
+  void evalRobust(const std::string &datasetPath, size_t topK, bool useHybrid);
 };
 
 #endif // _APP_H_

@@ -559,6 +559,29 @@ void App::initialize(/*const std::string &configPath*/)
   imp->updater_ = std::make_unique<IncrementalUpdater>(this, imp->settings_->embeddingBatchSize());
 
   imp->httpServer_ = std::make_unique<HttpServer>(*this);
+
+#ifdef _DEBUG
+  {
+    const std::vector<std::string> queries{ 
+      "What does sanitizeUtf8 function do?", 
+      "What does looksLikeOpaqueBlob function do?", 
+      "What does detectApiStyle function do?", 
+      "Where is isPunctuation function defined?", 
+      "What is CODE_RATIO_STRONG used for?", 
+      "how is registry stored" 
+    };
+    for (const auto &query : queries) {
+      EmbeddingClient embeddingClient{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
+      std::vector<float> queryEmbedding;
+      embeddingClient.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
+      auto testRes = retrieve(query, queryEmbedding, 5);
+      LOG_MSG << "\nquery:" << query << ", nof res:" << testRes.size();
+      for (const auto &res : testRes) {
+        LOG_MSG << "Test search result:" << res.chunkId << res.sourceId << "(similarityScore:" << res.similarityScore << ", fusedScore:" << res.fusedScore << ")";
+      }
+    }
+  }
+#endif
 }
 
 bool App::testSettings() const
@@ -788,7 +811,7 @@ void App::search(const std::string &query, size_t topK)
   EmbeddingClient embeddingClient{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
   std::vector<float> queryEmbedding;
   embeddingClient.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
-  auto results = imp->db_->search(queryEmbedding, topK);
+  auto results = retrieve(query, queryEmbedding, topK);
 
   std::cout << "\nFound " << results.size() << " results:" << std::endl;
   std::cout << std::string(80, '-') << std::endl;
@@ -885,7 +908,7 @@ void App::chat()
 
       std::vector<float> queryEmbedding;
       embeddingClient.generateEmbeddings(userInput, queryEmbedding, EmbeddingClient::EncodeType::Query);
-      auto searchResults = imp->db_->search(queryEmbedding, 5);
+      auto searchResults = retrieve(userInput, queryEmbedding, 5);
 
       CompletionClient completionClient{ apiCfg, settings().generationTimeoutMs(), *this };
       std::cout << "\nAssistant: " << std::flush;
@@ -1136,6 +1159,12 @@ void App::evalDetail(const std::string &docId)
 
 void App::eval(const std::string &datasetPath, size_t topK)
 {
+  evalRobust(datasetPath, topK, false);
+  evalRobust(datasetPath, topK, true);
+}
+
+void App::evalRobust(const std::string &datasetPath, size_t topK, bool useHybrid)
+{
   // Read dataset
   std::ifstream f(datasetPath);
   if (!f.is_open()) {
@@ -1156,7 +1185,7 @@ void App::eval(const std::string &datasetPath, size_t topK)
     return;
   }
 
-  LOG_MSG << "Running evaluation on" << dataset.size() << "queries (top_k=" << topK << ")";
+  LOG_MSG << "\nRunning evaluation on" << dataset.size() << "queries (top_k =" << topK << ", hybrid =" << useHybrid << ")";
 
   EmbeddingClient ec{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
 
@@ -1187,7 +1216,7 @@ void App::eval(const std::string &datasetPath, size_t topK)
     auto start = std::chrono::steady_clock::now();
     std::vector<float> queryEmbedding;
     ec.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
-    auto results = imp->db_->search(queryEmbedding, topK);
+    auto results = useHybrid ? retrieve(query, queryEmbedding, topK) : imp->db_->search(queryEmbedding, topK);
     auto end = std::chrono::steady_clock::now();
     double latencyMs = std::chrono::duration<double, std::milli>(end - start).count();
 
@@ -1203,7 +1232,8 @@ void App::eval(const std::string &datasetPath, size_t topK)
         if (seen.insert(r.sourceId).second) {
           retrievedWithScores.push_back({
             {"doc_id", r.sourceId},
-            {"score", r.similarityScore}
+            {"similarityScore", r.similarityScore},
+            {"fusedScore", r.fusedScore}
             });
           universe.insert(r.sourceId);
         }
@@ -1231,47 +1261,49 @@ void App::eval(const std::string &datasetPath, size_t topK)
     };
 
     if (!idealHit) {
-      // Probe deeper to find where expected docs actually rank
-      size_t probeK = topK * 20;
-      auto wideResults = imp->db_->search(queryEmbedding, probeK);
 
       json missInfo;
       json expectedArr = json::array();
       for (const auto &id : expectedIds) expectedArr.push_back(id);
       missInfo["expected_doc_ids"] = expectedArr;
 
-      json probeResults = json::array();
-      {
-        std::unordered_set<std::string> seen;
-        for (const auto &r : wideResults) {
-          if (seen.insert(r.sourceId).second) {
-            probeResults.push_back({
-              {"doc_id", r.sourceId},
-              {"score", r.similarityScore}
-              });
+      if (m.recallAtK < 1.0) {
+        // Probe deeper to find where expected docs actually rank
+        size_t probeK = topK * 10;
+        auto wideResults = useHybrid ? retrieve(query, queryEmbedding, probeK) : imp->db_->search(queryEmbedding, probeK);
+        json probeResults = json::array();
+        {
+          std::unordered_set<std::string> seen;
+          for (const auto &r : wideResults) {
+            if (seen.insert(r.sourceId).second) {
+              probeResults.push_back({
+                {"doc_id", r.sourceId},
+                {"similarityScore", r.similarityScore},
+                {"fusedScore", r.fusedScore}
+                });
+            }
           }
         }
-      }
-      missInfo["probe_results"] = probeResults;
-
-      // Find actual rank of expected docs
-      json actualRanks;
-      for (const auto &id : expectedIds) {
-        for (size_t j = 0; j < probeResults.size(); ++j) {
-          if (probeResults[j]["doc_id"] == id) {
-            actualRanks[id] = {
-              {"rank", j + 1},
-              {"score", probeResults[j]["score"]}
-            };
-            break;
+        missInfo["probe_results"] = probeResults;
+        // Find actual rank of expected docs
+        json actualRanks;
+        for (const auto &id : expectedIds) {
+          for (size_t j = 0; j < probeResults.size(); ++j) {
+            if (probeResults[j]["doc_id"] == id) {
+              actualRanks[id] = {
+                {"rank", j + 1},
+                {"similarityScore", probeResults[j]["similarityScore"]},
+                {"fusedScore", probeResults[j]["fusedScore"]},
+              };
+              break;
+            }
+          }
+          if (!actualRanks.contains(id)) {
+            actualRanks[id] = { {"rank", -1}, {"score", 0.0} }; // not even in probe
           }
         }
-        if (!actualRanks.contains(id)) {
-          actualRanks[id] = { {"rank", -1}, {"score", 0.0} }; // not even in probe
-        }
+        missInfo["actual_ranks"] = actualRanks;
       }
-      missInfo["actual_ranks"] = actualRanks;
-
       outEntry["miss"] = missInfo;
     }
 
@@ -1313,11 +1345,11 @@ void App::eval(const std::string &datasetPath, size_t topK)
     {"per_query", perQuery}
   };
 
-  std::cout << "\n=== Evaluation Report ===\n";
-  std::cout << std::setw(2) << report << "\n";
+  std::cout << "\n=== Evaluation Report Summary ===\n";
+  std::cout << std::setw(2) << report["summary"] << "\n";
 
   // Optionally write to file
-  std::string reportPath = datasetPath + ".report.json";
+  std::string reportPath = fmt::format("{}_report_{}.json", datasetPath, (useHybrid ? "hybridSearch" : "search"));
   std::ofstream out(reportPath);
   out << std::setw(2) << report;
   out.close();
@@ -1381,6 +1413,11 @@ void App::watch(int intervalSeconds)
       LOG_MSG << "Error during update: " << e.what();
     }
   }
+}
+
+std::vector<SearchResult> App::retrieve(const std::string &text, const std::vector<float> &embedding, size_t topK) const
+{
+  return db().hybridSearch(embedding, text, topK);
 }
 
 const Settings &App::settings() const
