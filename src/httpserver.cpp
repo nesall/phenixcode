@@ -1369,14 +1369,13 @@ bool HttpServer::startServer()
                 sourcesJson.push_back(result.sourceId);
               }
             }
-            // Add effective model as a source too
-            sourcesJson.push_back("[model: " + apiConfig.model + "]");
 
             // Send sources information as a separate SSE message
             nlohmann::json sourcesPayload = {
               {"sources", sourcesJson},
               {"type", "context_sources"},
-              {"empty_result", emptyResult}
+              {"empty_result", emptyResult},
+              {"model", apiConfig.model}
             };
             std::string sourcesSse = "data: " + sourcesPayload.dump() + "\n\n";
             sink.write(sourcesSse.data(), sourcesSse.size());
