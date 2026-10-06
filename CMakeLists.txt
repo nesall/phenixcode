@@ -70,6 +70,7 @@ FetchContent_MakeAvailable(jwt-cpp)
 # Create SQLite3 library
 add_library(sqlite3_lib ${sqlite3_SOURCE_DIR}/sqlite3.c)
 target_include_directories(sqlite3_lib PUBLIC ${sqlite3_SOURCE_DIR})
+target_compile_definitions(sqlite3_lib PRIVATE SQLITE_ENABLE_FTS5 SQLITE_THREADSAFE=1)
 
 # logging
 add_library(utils_log INTERFACE)
