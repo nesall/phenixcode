@@ -255,6 +255,9 @@
           for (const a of sources as string[]) {
             fullResponse += `*${a}*  \n`;
           }
+          if (chunkJson.model) {
+            fullResponse += `\n\n<span class="text-surface-500 text-xs">Model: ${chunkJson.model}</span>  \n`;
+          }
         } else if (chunkJson.error) {
           fullResponse += `\n\nError: ${chunkJson.error}  \n`;
           return { parsed: fullResponse, remainder: buffer };
@@ -399,7 +402,7 @@
     } finally {
       resetUi();
       setTimeout(() => {
-        if (window.HLJS_CUSTOM && window.HLJS_CUSTOM.initHljs) window.HLJS_CUSTOM.initHljs();
+        initHljs();
       }, 250);
 
       persistChat(inst);
@@ -474,6 +477,13 @@
     // This is a placeholder; actual implementation may vary
     toaster.info({ title: `Feedback received: ${feedback}` });
   }
+
+  function initHljs() {
+    if (window.HLJS_CUSTOM && window.HLJS_CUSTOM.initHljs) {
+      window.HLJS_CUSTOM.initHljs();
+    }
+  }
+
 </script>
 
 <div class="chat-panel p-3 w-full h-full flex flex-col space-y-8 overflow-y-auto">
@@ -536,7 +546,7 @@
             </div>
           {/if}
           <div
-            class="text-sm border2 border-surface-100-900 bg-surface-500/5 shadow2 rounded-xl whitespace-normal p-4 break-normal text-left message-content"
+            class="text-sm border2 border-surface-100-900 bg-surface-500/5 shadow2 rounded-xl whitespace-normal p-4 pb-1 break-normal text-left message-content"
           >
             {#if msg._html}
               {@html DOMPurify.sanitize(msg._html, {
