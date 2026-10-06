@@ -1,34 +1,220 @@
 {
   "per_query": [
     {
-      "hit": true,
-      "latency_ms": 62.3921,
+      "hit": false,
+      "latency_ms": 38.1141,
+      "miss": {
+        "actual_ranks": {
+          "D:/workspace/projects/phenixcode/README.md": {
+            "fusedScore": 0.014705882407724857,
+            "rank": 3,
+            "similarityScore": 0.4434252381324768
+          },
+          "D:/workspace/projects/phenixcode/include/app.h": {
+            "fusedScore": 0.013333333656191826,
+            "rank": 4,
+            "similarityScore": 0.42472803592681885
+          },
+          "D:/workspace/projects/phenixcode/src/app.cpp": {
+            "fusedScore": 0.016393441706895828,
+            "rank": 1,
+            "similarityScore": 0.5148172974586487
+          }
+        },
+        "expected_doc_ids": [
+          "D:/workspace/projects/phenixcode/README.md",
+          "D:/workspace/projects/phenixcode/include/app.h",
+          "D:/workspace/projects/phenixcode/src/app.cpp"
+        ],
+        "probe_results": [
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
+            "fusedScore": 0.016393441706895828,
+            "similarityScore": 0.5148172974586487
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/eval/README.md",
+            "fusedScore": 0.01515151560306549,
+            "similarityScore": 0.463240385055542
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/README.md",
+            "fusedScore": 0.014705882407724857,
+            "similarityScore": 0.4434252381324768
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/app.h",
+            "fusedScore": 0.013333333656191826,
+            "similarityScore": 0.42472803592681885
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
+            "fusedScore": 0.012048192322254181,
+            "similarityScore": 0.39546382427215576
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/cutils.cpp",
+            "fusedScore": 0.0117647061124444,
+            "similarityScore": 0.3928849697113037
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
+            "fusedScore": 0.011627906933426857,
+            "similarityScore": 0.3926910161972046
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/CMakeLists.txt",
+            "fusedScore": 0.009900989942252636,
+            "similarityScore": 0.3694087266921997
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
+            "fusedScore": 0.009615384973585606,
+            "similarityScore": 0.36490052938461304
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/assets/settings.json",
+            "fusedScore": 0.009433962404727936,
+            "similarityScore": 0.36355060338974
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/instregistry.cpp",
+            "fusedScore": 0.008849557489156723,
+            "similarityScore": 0.35713833570480347
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/settings.cpp",
+            "fusedScore": 0.008547008968889713,
+            "similarityScore": 0.35616934299468994
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/main.cpp",
+            "fusedScore": 0.008403361774981022,
+            "similarityScore": 0.3552621603012085
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/assets/providers.json",
+            "fusedScore": 0.00826446246355772,
+            "similarityScore": 0.3543959856033325
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
+            "fusedScore": 0.008196720853447914,
+            "similarityScore": 0.35323578119277954
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/inference.h",
+            "fusedScore": 0.008064515888690948,
+            "similarityScore": 0.35219597816467285
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/sourceproc.cpp",
+            "fusedScore": 0.007518797181546688,
+            "similarityScore": 0.3456975817680359
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/auth.cpp",
+            "fusedScore": 0.006896551698446274,
+            "similarityScore": 0.3370586633682251
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/cutils.h",
+            "fusedScore": 0.006756756920367479,
+            "similarityScore": 0.3352757692337036
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/sourceproc.h",
+            "fusedScore": 0.006329114083200693,
+            "similarityScore": 0.3300729990005493
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/database.h",
+            "fusedScore": 0.006289307959377766,
+            "similarityScore": 0.32907187938690186
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/tests.cpp",
+            "fusedScore": 0.005988024175167084,
+            "similarityScore": 0.3204301595687866
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/auth.h",
+            "fusedScore": 0.005917159840464592,
+            "similarityScore": 0.3198683261871338
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
+            "fusedScore": 0.005291005130857229,
+            "similarityScore": 0.30884456634521484
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/instregistry.h",
+            "fusedScore": 0.005235602147877216,
+            "similarityScore": 0.30847251415252686
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/sqlite3_helper.cpp",
+            "fusedScore": 0.005102040711790323,
+            "similarityScore": 0.3056334853172302
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/src/tokenizer.cpp",
+            "fusedScore": 0.004999999888241291,
+            "similarityScore": 0.3044127821922302
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/chunker.h",
+            "fusedScore": 0.0045045046135783195,
+            "similarityScore": 0.296112596988678
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/sqlite3_helper.h",
+            "fusedScore": 0.004310344811528921,
+            "similarityScore": 0.2882276177406311
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/httpserver.h",
+            "fusedScore": 0.004291845485568047,
+            "similarityScore": 0.2880675792694092
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/tokenizer.h",
+            "fusedScore": 0.004048583097755909,
+            "similarityScore": 0.27801012992858887
+          },
+          {
+            "doc_id": "D:/workspace/projects/phenixcode/include/json_shim.h",
+            "fusedScore": 0.0038610037881881,
+            "similarityScore": 0.26265645027160645
+          }
+        ]
+      },
       "mrr": 1.0,
-      "ndcg": 1.0,
+      "ndcg": 0.7039180890341347,
       "query": "List CLI commands",
-      "recall_at_k": 1.0,
+      "recall_at_k": 0.6666666666666666,
       "results_count": 5,
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.01623731479048729,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5148172974586487
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/README.md",
-          "fusedScore": 0.014206981286406517,
-          "similarityScore": 0.4355597496032715
+          "doc_id": "D:/workspace/projects/phenixcode/eval/README.md",
+          "fusedScore": 0.01515151560306549,
+          "similarityScore": 0.463240385055542
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/include/app.h",
-          "fusedScore": 0.013878787867724895,
-          "similarityScore": 0.42472803592681885
+          "doc_id": "D:/workspace/projects/phenixcode/README.md",
+          "fusedScore": 0.014705882407724857,
+          "similarityScore": 0.4434252381324768
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 52.3524,
+      "latency_ms": 48.4364,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/src/auth.cpp"
@@ -47,19 +233,19 @@
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/auth.cpp",
-          "fusedScore": 0.016052227467298508,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.4902760982513428
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.01579861156642437,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.4824024438858032
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 50.9462,
+      "latency_ms": 43.9872,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What function does c++ utils define?",
@@ -89,28 +275,23 @@
       ]
     },
     {
-      "hit": false,
-      "latency_ms": 59.3918,
-      "miss": {
-        "expected_doc_ids": [
-          "D:/workspace/projects/phenixcode/include/database.h"
-        ]
-      },
-      "mrr": 0.5,
-      "ndcg": 0.6309297535714575,
+      "hit": true,
+      "latency_ms": 55.5322,
+      "mrr": 1.0,
+      "ndcg": 1.0,
       "query": "What does the vector<SearchResult> searchWithFilter function do?",
       "recall_at_k": 1.0,
       "results_count": 5,
       "retrieved": [
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.016065027564764023,
-          "similarityScore": 0.5343292951583862
-        },
-        {
           "doc_id": "D:/workspace/projects/phenixcode/include/database.h",
           "fusedScore": 0.015971552580595016,
           "similarityScore": 0.4745950698852539
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
+          "fusedScore": 0.004098360426723957,
+          "similarityScore": 0.5711865425109863
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
@@ -121,7 +302,7 @@
     },
     {
       "hit": false,
-      "latency_ms": 48.3795,
+      "latency_ms": 55.4421,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/src/httpserver.cpp"
@@ -134,25 +315,25 @@
       "results_count": 5,
       "retrieved": [
         {
-          "doc_id": "D:/workspace/projects/phenixcode/include/httpserver.h",
-          "fusedScore": 0.01585553213953972,
-          "similarityScore": 0.45557963848114014
+          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.49023985862731934
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.01579861156642437,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.4638589024543762
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.011475409381091595,
-          "similarityScore": 0.49023985862731934
+          "doc_id": "D:/workspace/projects/phenixcode/include/httpserver.h",
+          "fusedScore": 0.015625,
+          "similarityScore": 0.45557963848114014
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 56.5276,
+      "latency_ms": 47.0254,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Class that is non-copyable, but movable",
@@ -166,29 +347,29 @@
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.3567006587982178
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/app.h",
-          "fusedScore": 0.011111111380159855,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.3527218699455261
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.34958845376968384
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.01076923031359911,
+          "fusedScore": 0.015384615398943424,
           "similarityScore": 0.3325573801994324
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 54.2979,
+      "latency_ms": 56.4925,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does the vector<std::string> json_keys function do?",
@@ -224,7 +405,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 43.9199,
+      "latency_ms": 42.402,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What is the purpose of SourceProcessor?",
@@ -233,96 +414,96 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/sourceproc.h",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5849426984786987
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/sourceproc.cpp",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.5736990571022034
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.010447761043906212,
+          "fusedScore": 0.014925372786819935,
           "similarityScore": 0.44997042417526245
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.010294117033481598,
+          "fusedScore": 0.014705882407724857,
           "similarityScore": 0.4461555480957031
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 51.2086,
+      "latency_ms": 45.5041,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/include/tokenizer.h"
         ]
       },
-      "mrr": 0.3333333333333333,
-      "ndcg": 0.5,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
       "query": "What is the purpose of SimpleTokenizer?",
       "recall_at_k": 1.0,
       "results_count": 5,
       "retrieved": [
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.013668032363057137,
-          "similarityScore": 0.38367122411727905
-        },
-        {
           "doc_id": "D:/workspace/projects/phenixcode/src/tokenizer.cpp",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5678369402885437
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/tokenizer.h",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.5493685007095337
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/chunker.h",
-          "fusedScore": 0.01076923031359911,
+          "fusedScore": 0.015384615398943424,
           "similarityScore": 0.48712074756622314
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
+          "fusedScore": 0.01515151560306549,
+          "similarityScore": 0.4828454852104187
         }
       ]
     },
     {
-      "hit": true,
-      "latency_ms": 49.3144,
-      "mrr": 1.0,
-      "ndcg": 1.0,
+      "hit": false,
+      "latency_ms": 46.175,
+      "miss": {
+        "expected_doc_ids": [
+          "D:/workspace/projects/phenixcode/README.md"
+        ]
+      },
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
       "query": "List Core Functionality PhenixCode Assistant",
       "recall_at_k": 1.0,
       "results_count": 5,
       "retrieved": [
         {
+          "doc_id": "D:/workspace/projects/phenixcode/eval/README.md",
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.5456315875053406
+        },
+        {
           "doc_id": "D:/workspace/projects/phenixcode/README.md",
-          "fusedScore": 0.01594982109963894,
-          "similarityScore": 0.52376389503479
+          "fusedScore": 0.016129031777381897,
+          "similarityScore": 0.5244256258010864
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.01455669291317463,
-          "similarityScore": 0.4728689193725586
-        },
-        {
-          "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
-          "fusedScore": 0.013755980879068375,
-          "similarityScore": 0.4323628544807434
-        },
-        {
-          "doc_id": "D:/workspace/projects/phenixcode/eval/README.md",
-          "fusedScore": 0.011475409381091595,
-          "similarityScore": 0.5456315875053406
+          "fusedScore": 0.014925372786819935,
+          "similarityScore": 0.4926426410675049
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 56.5695,
+      "latency_ms": 49.4533,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does the string nextRandomId function do?",
@@ -353,7 +534,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 53.5788,
+      "latency_ms": 46.931,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What string trimming functions are there and where?",
@@ -362,60 +543,55 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/cutils.cpp",
-          "fusedScore": 0.016020864248275757,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5344981551170349
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/include/cutils.h",
-          "fusedScore": 0.015415111556649208,
-          "similarityScore": 0.5180805325508118
-        },
-        {
-          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.014507073909044266,
-          "similarityScore": 0.46416664123535156
-        },
-        {
           "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
-          "fusedScore": 0.011111111380159855,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.5235855579376221
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/include/cutils.h",
+          "fusedScore": 0.015625,
+          "similarityScore": 0.5180805325508118
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 62.6511,
+      "latency_ms": 53.8132,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/src/database.cpp"
         ]
       },
-      "mrr": 0.3333333333333333,
-      "ndcg": 0.5,
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
       "query": "What function is responsible for adding documents into vector db?",
       "recall_at_k": 1.0,
       "results_count": 5,
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.01616290956735611,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.577246904373169
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.015687262639403343,
-          "similarityScore": 0.5624078512191772
+          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
+          "fusedScore": 0.016129031777381897,
+          "similarityScore": 0.571938157081604
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.011290322057902813,
-          "similarityScore": 0.571938157081604
+          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
+          "fusedScore": 0.015384615398943424,
+          "similarityScore": 0.5624078512191772
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 59.8998,
+      "latency_ms": 47.2939,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does the string getRegistryPath function do?",
@@ -446,7 +622,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 49.9152,
+      "latency_ms": 44.6889,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does sanitizeUtf8 function do?",
@@ -472,7 +648,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 58.7226,
+      "latency_ms": 50.0023,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Are there unit tests and do you think they are incomplete?",
@@ -481,60 +657,55 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/tests.cpp",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.46768271923065186
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.4490823745727539
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/main.cpp",
-          "fusedScore": 0.011111111380159855,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.4315233826637268
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.010606060735881329,
+          "fusedScore": 0.01515151560306549,
           "similarityScore": 0.41717982292175293
         }
       ]
     },
     {
-      "hit": false,
-      "latency_ms": 46.2997,
-      "miss": {
-        "expected_doc_ids": [
-          "D:/workspace/projects/phenixcode/CMakeLists.txt"
-        ]
-      },
-      "mrr": 0.5,
-      "ndcg": 0.6309297535714575,
+      "hit": true,
+      "latency_ms": 41.3914,
+      "mrr": 1.0,
+      "ndcg": 1.0,
       "query": "What happens if OpenSSL not found?",
       "recall_at_k": 1.0,
       "results_count": 5,
       "retrieved": [
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.013699469156563282,
-          "similarityScore": 0.3727703094482422
-        },
-        {
           "doc_id": "D:/workspace/projects/phenixcode/CMakeLists.txt",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.4909844398498535
         },
         {
+          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
+          "fusedScore": 0.01587301678955555,
+          "similarityScore": 0.4149284362792969
+        },
+        {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.41375255584716797
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 50.0431,
+      "latency_ms": 47.7631,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Compute an effective \"combined\" price per million tokens.",
@@ -543,29 +714,29 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-          "fusedScore": 0.016208354383707047,
-          "similarityScore": 0.38057827949523926
-        },
-        {
-          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.01479558739811182,
-          "similarityScore": 0.3500051498413086
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.48819518089294434
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.011111111380159855,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.3630387783050537
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/settings.cpp",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.3588813543319702
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
+          "fusedScore": 0.01515151560306549,
+          "similarityScore": 0.35043370723724365
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 48.7763,
+      "latency_ms": 39.4631,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Purpose of incremental updater is ...",
@@ -574,24 +745,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.01623731479048729,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.49828362464904785
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.010606060735881329,
+          "fusedScore": 0.01515151560306549,
           "similarityScore": 0.42983829975128174
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/instregistry.cpp",
-          "fusedScore": 0.010447761043906212,
+          "fusedScore": 0.014925372786819935,
           "similarityScore": 0.42831116914749146
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 42.2332,
+      "latency_ms": 36.3536,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Simple ${VAR} substitution",
@@ -604,25 +775,25 @@
           "similarityScore": 0.41528797149658203
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-          "fusedScore": 0.013636363670229912,
-          "similarityScore": 0.34718644618988037
-        },
-        {
           "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.41062813997268677
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.3664208650588989
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
+          "fusedScore": 0.015384615398943424,
+          "similarityScore": 0.36492419242858887
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 44.5313,
+      "latency_ms": 52.5248,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What is the purpose of providers json?",
@@ -631,24 +802,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/assets/providers.json",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5537933707237244
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.5153648853302002
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/settings.cpp",
-          "fusedScore": 0.01076923031359911,
+          "fusedScore": 0.015384615398943424,
           "similarityScore": 0.5145277380943298
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 43.9051,
+      "latency_ms": 43.4385,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/assets/settings.json"
@@ -662,24 +833,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5618644952774048
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/settings.cpp",
-          "fusedScore": 0.011111111380159855,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.5456346273422241
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/assets/settings.json",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.5402288436889648
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 47.452,
+      "latency_ms": 45.8609,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "How class Chunk is different from class Chunker?",
@@ -688,29 +859,29 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/chunker.h",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5700789093971252
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/main.cpp",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.5292806625366211
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
-          "fusedScore": 0.011111111380159855,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.5074622631072998
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.01014492753893137,
+          "fusedScore": 0.014492753893136978,
           "similarityScore": 0.47007060050964355
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 44.6296,
+      "latency_ms": 43.7716,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What is the purpose of sqlite wrapper class?",
@@ -719,29 +890,29 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/sqlite3_helper.cpp",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5238735675811768
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/sqlite3_helper.h",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.5126031041145325
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.011111111380159855,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.48896557092666626
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/instregistry.cpp",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.4784277081489563
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 55.9988,
+      "latency_ms": 50.2826,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Precompiled optimized regexes (thread-safe after initialization)",
@@ -750,24 +921,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
-          "fusedScore": 0.01631411910057068,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5801333785057068
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/cutils.cpp",
-          "fusedScore": 0.013161765411496162,
-          "similarityScore": 0.4300229549407959
+          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
+          "fusedScore": 0.015625,
+          "similarityScore": 0.46150898933410645
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.010937499813735485,
-          "similarityScore": 0.46150898933410645
+          "doc_id": "D:/workspace/projects/phenixcode/include/sourceproc.h",
+          "fusedScore": 0.014925372786819935,
+          "similarityScore": 0.44853705167770386
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 44.9095,
+      "latency_ms": 44.9786,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/src/sqlite3_helper.cpp"
@@ -803,7 +974,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 42.6871,
+      "latency_ms": 41.1697,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "#define TEST_CHUNKING",
@@ -834,7 +1005,7 @@
     },
     {
       "hit": false,
-      "latency_ms": 44.7781,
+      "latency_ms": 46.7586,
       "miss": {
         "actual_ranks": {
           "D:/workspace/projects/phenixcode/include/inference.h": {
@@ -1040,7 +1211,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 81.8605,
+      "latency_ms": 285.6443,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Give overview of how token accounting is carried out in API request/context?",
@@ -1049,29 +1220,29 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.4260389804840088
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/auth.h",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.4153987169265747
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/auth.cpp",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.3915014863014221
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-          "fusedScore": 0.01076923031359911,
+          "fusedScore": 0.015384615398943424,
           "similarityScore": 0.383878231048584
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 64.8039,
+      "latency_ms": 82.4948,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/src/inference.cpp",
@@ -1079,7 +1250,7 @@
         ]
       },
       "mrr": 1.0,
-      "ndcg": 0.8772153153380493,
+      "ndcg": 0.8503449055347546,
       "query": "How does the code distinguish the Anthropic-style API from the OpenAI-style API?",
       "recall_at_k": 1.0,
       "results_count": 5,
@@ -1090,32 +1261,37 @@
           "similarityScore": 0.5496692657470703
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/assets/providers.json",
-          "fusedScore": 0.01563682220876217,
-          "similarityScore": 0.5510382652282715
-        },
-        {
           "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-          "fusedScore": 0.015636105090379715,
+          "fusedScore": 0.015828117728233337,
           "similarityScore": 0.5253596305847168
         },
         {
+          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
+          "fusedScore": 0.011904762126505375,
+          "similarityScore": 0.34824368357658386
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/assets/providers.json",
+          "fusedScore": 0.004098360426723957,
+          "similarityScore": 0.5510382652282715
+        },
+        {
           "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
-          "fusedScore": 0.015395894646644592,
+          "fusedScore": 0.004032257944345474,
           "similarityScore": 0.5501991510391235
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 98.2959,
+      "latency_ms": 92.4052,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/src/inference.cpp"
         ]
       },
-      "mrr": 0.25,
-      "ndcg": 0.43067655807339306,
+      "mrr": 0.2,
+      "ndcg": 0.38685280723454163,
       "query": "How does the code decide which API style (Anthropic or OpenAI) is used when building the request body?",
       "recall_at_k": 1.0,
       "results_count": 5,
@@ -1127,24 +1303,29 @@
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-          "fusedScore": 0.015636105090379715,
+          "fusedScore": 0.015828117728233337,
           "similarityScore": 0.5043733716011047
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/assets/providers.json",
-          "fusedScore": 0.015506716445088387,
-          "similarityScore": 0.5276467800140381
+          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
+          "fusedScore": 0.011904762126505375,
+          "similarityScore": 0.30067935585975647
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/README.md",
+          "fusedScore": 0.01171875,
+          "similarityScore": 0.3712884485721588
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
-          "fusedScore": 0.015269886702299118,
-          "similarityScore": 0.5204446911811829
+          "fusedScore": 0.004098360426723957,
+          "similarityScore": 0.5371488332748413
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 93.457,
+      "latency_ms": 84.5154,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does the `utf8ToUtf32 returning vector<uint32_t>` function do?",
@@ -1170,7 +1351,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 57.0353,
+      "latency_ms": 89.0985,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does `App::embed` do with the sources collected by `SourceProcessor`?",
@@ -1179,29 +1360,29 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.01602914370596409,
-          "similarityScore": 0.5412072539329529
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.6049551367759705
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/sourceproc.h",
-          "fusedScore": 0.01076923031359911,
+          "fusedScore": 0.015384615398943424,
           "similarityScore": 0.5298237800598145
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/sourceproc.cpp",
-          "fusedScore": 0.01014492753893137,
+          "fusedScore": 0.014492753893136978,
           "similarityScore": 0.5109004974365234
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/app.h",
-          "fusedScore": 0.009999999776482582,
+          "fusedScore": 0.014285714365541935,
           "similarityScore": 0.5082395076751709
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 64.8117,
+      "latency_ms": 83.1574,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Which class decides whether a document should be treated as code, text, or binary?",
@@ -1210,29 +1391,29 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
-          "fusedScore": 0.016052227467298508,
-          "similarityScore": 0.5052444338798523
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.5086228847503662
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/chunker.h",
-          "fusedScore": 0.014772728085517883,
+          "fusedScore": 0.01515151560306549,
           "similarityScore": 0.4518125653266907
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.014144869521260262,
-          "similarityScore": 0.405703067779541
+          "doc_id": "D:/workspace/projects/phenixcode/src/sourceproc.cpp",
+          "fusedScore": 0.014705882407724857,
+          "similarityScore": 0.4126129150390625
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/sourceproc.cpp",
-          "fusedScore": 0.010294117033481598,
-          "similarityScore": 0.4126129150390625
+          "doc_id": "D:/workspace/projects/phenixcode/include/sourceproc.h",
+          "fusedScore": 0.014285714365541935,
+          "similarityScore": 0.4074658155441284
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 62.6906,
+      "latency_ms": 69.3894,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What file does `AdminAuth` use to store the admin password hash?",
@@ -1241,24 +1422,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/auth.cpp",
-          "fusedScore": 0.01579861156642437,
-          "similarityScore": 0.49022918939590454
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.5022441744804382
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.011290322057902813,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.49563556909561157
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/auth.h",
-          "fusedScore": 0.010606060735881329,
+          "fusedScore": 0.01515151560306549,
           "similarityScore": 0.44859611988067627
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 45.9304,
+      "latency_ms": 73.6411,
       "miss": {
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/src/database.cpp"
@@ -1277,19 +1458,19 @@
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.014661740511655807,
+          "fusedScore": 0.014812646433711052,
           "similarityScore": 0.6542114019393921
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.014610390178859234,
+          "fusedScore": 0.014785215258598328,
           "similarityScore": 0.48290157318115234
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 45.3163,
+      "latency_ms": 66.1641,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does the `/api/health` endpoint indicate about the server?",
@@ -1298,24 +1479,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.015977822244167328,
-          "similarityScore": 0.48826611042022705
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.5213162899017334
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/README.md",
-          "fusedScore": 0.014777187258005142,
-          "similarityScore": 0.41390419006347656
+          "fusedScore": 0.014492753893136978,
+          "similarityScore": 0.41762399673461914
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/instregistry.cpp",
-          "fusedScore": 0.00909090880304575,
+          "fusedScore": 0.012987012974917889,
           "similarityScore": 0.3850572109222412
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 49.5899,
+      "latency_ms": 75.3277,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "How does `IncrementalUpdater::detectChanges` determine that a tracked file has been modified?",
@@ -1324,29 +1505,29 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.016003023833036423,
-          "similarityScore": 0.4307934045791626
+          "fusedScore": 0.016003122553229332,
+          "similarityScore": 0.5854108333587646
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.015226287767291069,
+          "fusedScore": 0.004032257944345474,
           "similarityScore": 0.43782687187194824
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/instregistry.cpp",
-          "fusedScore": 0.011904762126505375,
-          "similarityScore": 0.36592522263526917
+          "doc_id": "D:/workspace/projects/phenixcode/src/sourceproc.cpp",
+          "fusedScore": 0.003846153849735856,
+          "similarityScore": 0.4289854168891907
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/README.md",
-          "fusedScore": 0.01056338008493185,
-          "similarityScore": 0.2887367010116577
+          "doc_id": "D:/workspace/projects/phenixcode/include/sourceproc.h",
+          "fusedScore": 0.0036231884732842445,
+          "similarityScore": 0.41301679611206055
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 62.7369,
+      "latency_ms": 98.1356,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Why does `HnswSqliteVectorDatabase::search` convert cosine and L2 distances into similarity scores differently?",
@@ -1355,24 +1536,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.01587301678955555,
-          "similarityScore": 0.5948899984359741
-        },
-        {
-          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.015719961374998093,
-          "similarityScore": 0.5446268916130066
+          "fusedScore": 0.015937019139528275,
+          "similarityScore": 0.5988896489143372
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/database.h",
-          "fusedScore": 0.015269804745912552,
+          "fusedScore": 0.014925372786819935,
           "similarityScore": 0.5742567777633667
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/assets/settings.json",
+          "fusedScore": 0.012295082211494446,
+          "similarityScore": 0.34344011545181274
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 55.2934,
+      "latency_ms": 96.5736,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What concurrency issue can occur if `App::update` is invoked by both the watch thread and an HTTP endpoint at the same time?",
@@ -1381,24 +1562,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.011475409381091595,
+          "fusedScore": 0.016393441706895828,
           "similarityScore": 0.5859143733978271
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.5333784818649292
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/httpserver.h",
-          "fusedScore": 0.009859154932200909,
+          "fusedScore": 0.014084506779909134,
           "similarityScore": 0.49282366037368774
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 62.0143,
+      "latency_ms": 90.9257,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Why does `EmbeddingClient::generateEmbeddings` throw when the number of returned embeddings does not match the number of input texts?",
@@ -1407,24 +1588,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
-          "fusedScore": 0.014993215911090374,
-          "similarityScore": 0.5299491882324219
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.6320022940635681
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.011111111380159855,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.5602807998657227
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.010937499813735485,
+          "fusedScore": 0.015625,
           "similarityScore": 0.5553629398345947
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 51.7571,
+      "latency_ms": 89.2192,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "How does `Settings::validate` ensure that `current_api` refers to an enabled and known generation provider?",
@@ -1433,29 +1614,29 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/settings.cpp",
-          "fusedScore": 0.016263335943222046,
-          "similarityScore": 0.5745643973350525
-        },
-        {
-          "doc_id": "D:/workspace/projects/phenixcode/assets/settings.json",
-          "fusedScore": 0.015008224174380302,
-          "similarityScore": 0.4678274393081665
+          "fusedScore": 0.016195133328437805,
+          "similarityScore": 0.656715989112854
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-          "fusedScore": 0.014715719036757946,
+          "fusedScore": 0.01520979031920433,
           "similarityScore": 0.5436581373214722
         },
         {
+          "doc_id": "D:/workspace/projects/phenixcode/assets/settings.json",
+          "fusedScore": 0.015194235369563103,
+          "similarityScore": 0.4678274393081665
+        },
+        {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.013795045204460621,
+          "fusedScore": 0.014407790265977383,
           "similarityScore": 0.4710073471069336
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 44.8752,
+      "latency_ms": 76.366,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What security risk is introduced by `requireAuth` bypassing authentication for requests from localhost?",
@@ -1464,24 +1645,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.016065027564764023,
-          "similarityScore": 0.47393083572387695
+          "fusedScore": 0.015971552580595016,
+          "similarityScore": 0.44241559505462646
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/README.md",
-          "fusedScore": 0.015269804745912552,
-          "similarityScore": 0.44426095485687256
+          "doc_id": "D:/workspace/projects/phenixcode/include/auth.h",
+          "fusedScore": 0.004098360426723957,
+          "similarityScore": 0.4931058883666992
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.012295082211494446,
-          "similarityScore": 0.3836922347545624
+          "doc_id": "D:/workspace/projects/phenixcode/src/auth.cpp",
+          "fusedScore": 0.004032257944345474,
+          "similarityScore": 0.49029892683029175
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 51.5793,
+      "latency_ms": 86.2119,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Why can Bearer authentication fail after a restart if the JWT secret is generated once per process instead of being persisted?",
@@ -1494,20 +1675,20 @@
           "similarityScore": 0.5276091694831848
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.015456730499863625,
-          "similarityScore": 0.4268282651901245
+          "doc_id": "D:/workspace/projects/phenixcode/include/auth.h",
+          "fusedScore": 0.01587301678955555,
+          "similarityScore": 0.5009241700172424
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/include/auth.h",
-          "fusedScore": 0.015396825969219208,
-          "similarityScore": 0.5009241700172424
+          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
+          "fusedScore": 0.015384615398943424,
+          "similarityScore": 0.4268282651901245
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 64.0254,
+      "latency_ms": 110.1602,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What consistency problem can occur between SQLite chunk deletion and `hnswlib::markDelete` in `HnswSqliteVectorDatabase::deleteDocumentsBySource`?",
@@ -1521,19 +1702,19 @@
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.015283140353858471,
+          "fusedScore": 0.015475152060389519,
           "similarityScore": 0.5133293271064758
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/database.h",
-          "fusedScore": 0.013186813332140446,
-          "similarityScore": 0.5590006113052368
+          "fusedScore": 0.014483503997325897,
+          "similarityScore": 0.5115991830825806
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 55.6705,
+      "latency_ms": 91.9173,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "How can `HnswSqliteVectorDatabase::clear` leave the vector index and SQLite metadata inconsistent if the transaction is rolled back?",
@@ -1542,24 +1723,24 @@
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.01536579430103302,
-          "similarityScore": 0.5804599523544312
+          "fusedScore": 0.016393441706895828,
+          "similarityScore": 0.6794828772544861
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/database.h",
-          "fusedScore": 0.010606060735881329,
+          "fusedScore": 0.01515151560306549,
           "similarityScore": 0.5873530507087708
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/sqlite3_helper.cpp",
-          "fusedScore": 0.00909090880304575,
+          "fusedScore": 0.012987012974917889,
           "similarityScore": 0.4804762601852417
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 78.2171,
+      "latency_ms": 110.1356,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What token-accounting bug risk exists when `processInputResults` truncates `orderedResults` to `generationMaxChunks` and then subtracts tokens from the removed entries?",
@@ -1572,20 +1753,25 @@
           "similarityScore": 0.5771263837814331
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-          "fusedScore": 0.011363636702299118,
-          "similarityScore": 0.4226619303226471
+          "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
+          "fusedScore": 0.011538461782038212,
+          "similarityScore": 0.40322303771972656
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.011029412038624287,
-          "similarityScore": 0.3569081425666809
+          "fusedScore": 0.00390625,
+          "similarityScore": 0.44794762134552
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/include/chunker.h",
+          "fusedScore": 0.003846153849735856,
+          "similarityScore": 0.44200313091278076
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 36.4551,
+      "latency_ms": 67.5488,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does looksLikeOpaqueBlob function do?",
@@ -1611,7 +1797,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 39.5251,
+      "latency_ms": 58.1594,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does detectApiStyle function do?",
@@ -1642,7 +1828,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 44.2657,
+      "latency_ms": 59.6637,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does isPunctuation function do?",
@@ -1673,7 +1859,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 35.5191,
+      "latency_ms": 58.6645,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "What does CODE_RATIO_STRONG function do?",
@@ -1699,7 +1885,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 35.5414,
+      "latency_ms": 48.3194,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Where is json_str_val defined?",
@@ -1730,7 +1916,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 33.9949,
+      "latency_ms": 43.4423,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Explain what evalList is for.",
@@ -1761,7 +1947,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 32.2357,
+      "latency_ms": 46.2755,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Explain what setPassword is for.",
@@ -1786,23 +1972,28 @@
       ]
     },
     {
-      "hit": true,
-      "latency_ms": 40.4033,
-      "mrr": 1.0,
-      "ndcg": 1.0,
+      "hit": false,
+      "latency_ms": 50.0684,
+      "miss": {
+        "expected_doc_ids": [
+          "D:/workspace/projects/phenixcode/src/chunker.cpp"
+        ]
+      },
+      "mrr": 0.5,
+      "ndcg": 0.6309297535714575,
       "query": "What does the splitIntoSemanticChunks function do?",
       "recall_at_k": 1.0,
       "results_count": 5,
       "retrieved": [
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
-          "fusedScore": 0.016263335943222046,
-          "similarityScore": 0.5002564787864685
-        },
-        {
           "doc_id": "D:/workspace/projects/phenixcode/include/chunker.h",
           "fusedScore": 0.016003023833036423,
           "similarityScore": 0.49740588665008545
+        },
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
+          "fusedScore": 0.004098360426723957,
+          "similarityScore": 0.54454505443573
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
@@ -1813,7 +2004,7 @@
     },
     {
       "hit": true,
-      "latency_ms": 28.1635,
+      "latency_ms": 46.1168,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Explain what strFindIn is for.",
@@ -1836,241 +2027,72 @@
           "similarityScore": 0.29831722378730774
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/settings.cpp",
-          "fusedScore": 0.012096773833036423,
-          "similarityScore": 0.30067723989486694
+          "doc_id": "D:/workspace/projects/phenixcode/include/inference.h",
+          "fusedScore": 0.004032257944345474,
+          "similarityScore": 0.3781379461288452
         }
       ]
     },
     {
       "hit": false,
-      "latency_ms": 29.7391,
+      "latency_ms": 44.3117,
       "miss": {
-        "actual_ranks": {
-          "D:/workspace/projects/phenixcode/src/database.cpp": {
-            "fusedScore": 0.012422360479831696,
-            "rank": 5,
-            "similarityScore": 0.3504115343093872
-          }
-        },
         "expected_doc_ids": [
           "D:/workspace/projects/phenixcode/src/database.cpp"
-        ],
-        "probe_results": [
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-            "fusedScore": 0.015395894646644592,
-            "similarityScore": 0.44953739643096924
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-            "fusedScore": 0.014812646433711052,
-            "similarityScore": 0.46101051568984985
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
-            "fusedScore": 0.01303598377853632,
-            "similarityScore": 0.3218604326248169
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/database.h",
-            "fusedScore": 0.012432795949280262,
-            "similarityScore": 0.3692847490310669
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
-            "fusedScore": 0.012422360479831696,
-            "similarityScore": 0.3504115343093872
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/README.md",
-            "fusedScore": 0.01171875,
-            "similarityScore": 0.2667428255081177
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/settings.cpp",
-            "fusedScore": 0.0037313431967049837,
-            "similarityScore": 0.42739105224609375
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/instregistry.cpp",
-            "fusedScore": 0.0035211266949772835,
-            "similarityScore": 0.4193531274795532
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
-            "fusedScore": 0.0033783784601837397,
-            "similarityScore": 0.4112420082092285
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/instregistry.h",
-            "fusedScore": 0.0027173913549631834,
-            "similarityScore": 0.3894655704498291
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/tokenizer.cpp",
-            "fusedScore": 0.0026041667442768812,
-            "similarityScore": 0.38872861862182617
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/app.h",
-            "fusedScore": 0.002577319508418441,
-            "similarityScore": 0.3886318802833557
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/sourceproc.cpp",
-            "fusedScore": 0.0020000000949949026,
-            "similarityScore": 0.36895930767059326
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/inference.h",
-            "fusedScore": 0.0018939394503831863,
-            "similarityScore": 0.36418044567108154
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/eval/README.md",
-            "fusedScore": 0.001879699295386672,
-            "similarityScore": 0.3630636930465698
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/sourceproc.h",
-            "fusedScore": 0.0018115942366421223,
-            "similarityScore": 0.35990816354751587
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/auth.h",
-            "fusedScore": 0.0016891892300918698,
-            "similarityScore": 0.3563271164894104
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/chunker.cpp",
-            "fusedScore": 0.0016778523568063974,
-            "similarityScore": 0.35615551471710205
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/auth.cpp",
-            "fusedScore": 0.001623376621864736,
-            "similarityScore": 0.352144718170166
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/cutils.cpp",
-            "fusedScore": 0.0015432098880410194,
-            "similarityScore": 0.35038483142852783
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/main.cpp",
-            "fusedScore": 0.001479289960116148,
-            "similarityScore": 0.3486708402633667
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/src/sqlite3_helper.cpp",
-            "fusedScore": 0.00147058826405555,
-            "similarityScore": 0.34788262844085693
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/tokenizer.h",
-            "fusedScore": 0.0013812155229970813,
-            "similarityScore": 0.3429049253463745
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/sqlite3_helper.h",
-            "fusedScore": 0.0013586956774815917,
-            "similarityScore": 0.33969515562057495
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/httpserver.h",
-            "fusedScore": 0.001308900536969304,
-            "similarityScore": 0.3362419605255127
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/assets/providers.json",
-            "fusedScore": 0.0011737089371308684,
-            "similarityScore": 0.3264230489730835
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/chunker.h",
-            "fusedScore": 0.0011467889416962862,
-            "similarityScore": 0.3234999179840088
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/assets/settings.json",
-            "fusedScore": 0.0011415524641051888,
-            "similarityScore": 0.32221925258636475
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/json_shim.h",
-            "fusedScore": 0.0010373444529250264,
-            "similarityScore": 0.30886149406433105
-          },
-          {
-            "doc_id": "D:/workspace/projects/phenixcode/include/cutils.h",
-            "fusedScore": 0.0010080644860863686,
-            "similarityScore": 0.3016987442970276
-          }
         ]
       },
-      "mrr": 0.0,
-      "ndcg": 0.0,
+      "mrr": 0.3333333333333333,
+      "ndcg": 0.5,
       "query": "How does getStats work?",
-      "recall_at_k": 0.0,
+      "recall_at_k": 1.0,
       "results_count": 5,
       "retrieved": [
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.015395894646644592,
+          "fusedScore": 0.016129031777381897,
           "similarityScore": 0.44953739643096924
         },
         {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.014812646433711052,
+          "fusedScore": 0.015461997129023075,
           "similarityScore": 0.46101051568984985
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
-          "fusedScore": 0.011904762126505375,
-          "similarityScore": 0.32186052203178406
+          "doc_id": "D:/workspace/projects/phenixcode/src/database.cpp",
+          "fusedScore": 0.011538461782038212,
+          "similarityScore": 0.3504112660884857
         }
       ]
     },
     {
-      "hit": false,
-      "latency_ms": 29.0852,
-      "miss": {
-        "expected_doc_ids": [
-          "D:/workspace/projects/phenixcode/src/httpserver.cpp"
-        ]
-      },
-      "mrr": 0.5,
-      "ndcg": 0.6309297535714575,
+      "hit": true,
+      "latency_ms": 42.8901,
+      "mrr": 1.0,
+      "ndcg": 1.0,
       "query": "How does startServer work?",
       "recall_at_k": 1.0,
       "results_count": 5,
       "retrieved": [
+        {
+          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
+          "fusedScore": 0.016129031777381897,
+          "similarityScore": 0.5008243322372437
+        },
         {
           "doc_id": "D:/workspace/projects/phenixcode/include/httpserver.h",
           "fusedScore": 0.01602642610669136,
           "similarityScore": 0.464949369430542
         },
         {
-          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.015751007944345474,
-          "similarityScore": 0.5008243322372437
-        },
-        {
           "doc_id": "D:/workspace/projects/phenixcode/src/app.cpp",
-          "fusedScore": 0.015506716445088387,
+          "fusedScore": 0.01587301678955555,
           "similarityScore": 0.4834144115447998
-        },
-        {
-          "doc_id": "D:/workspace/projects/phenixcode/src/inference.cpp",
-          "fusedScore": 0.011363636702299118,
-          "similarityScore": 0.3099242150783539
         }
       ]
     },
     {
       "hit": true,
-      "latency_ms": 39.6682,
+      "latency_ms": 43.8629,
       "mrr": 1.0,
       "ndcg": 1.0,
       "query": "Where is timeoutMs defined?",
@@ -2091,20 +2113,15 @@
           "doc_id": "D:/workspace/projects/phenixcode/include/settings.h",
           "fusedScore": 0.01171875,
           "similarityScore": 0.36462822556495667
-        },
-        {
-          "doc_id": "D:/workspace/projects/phenixcode/src/httpserver.cpp",
-          "fusedScore": 0.011538461782038212,
-          "similarityScore": 0.35309484601020813
         }
       ]
     }
   ],
   "summary": {
-    "mean_latency_ms": 51.54013898305084,
-    "mrr": 0.8686440677966102,
-    "ndcg": 0.8917161517906134,
-    "recall_at_k": 0.9745762711864406,
+    "mean_latency_ms": 63.828077966101695,
+    "mrr": 0.8875706214689265,
+    "ndcg": 0.9046679091120277,
+    "recall_at_k": 0.9858757062146892,
     "top_k": 5,
     "total_queries": 59
   }

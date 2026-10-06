@@ -1,0 +1,250 @@
+[
+  {
+    "query": "Where is json_str_val defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/include/json_shim.h"
+    ],
+    "slice": "identifier_function",
+    "symbol": "json_str_val"
+  },
+  {
+    "query": "Explain what evalList is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "App::evalList"
+  },
+  {
+    "query": "Explain what setPassword is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/auth.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "AdminAuth::setPassword"
+  },
+  {
+    "query": "What does the splitIntoSemanticChunks function do?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "Chunker::splitIntoSemanticChunks"
+  },
+  {
+    "query": "Explain what strFindIn is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/cutils.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "utils::strFindIn"
+  },
+  {
+    "query": "How does getStats work?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "HnswSqliteVectorDatabase::getStats"
+  },
+  {
+    "query": "How does startServer work?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "HttpServer::startServer"
+  },
+  {
+    "query": "Where is timeoutMs defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "InferenceClient::timeoutMs"
+  },
+  {
+    "query": "How does getActiveInstances work?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/instregistry.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "InstanceRegistry::getActiveInstances"
+  },
+  {
+    "query": "Where is saveToPath defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/settings.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "Settings::saveToPath"
+  },
+  {
+    "query": "What does processUrl function do?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "SourceProcessor::processUrl"
+  },
+  {
+    "query": "Explain what simulateWordpiece is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/tokenizer.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "SimpleTokenizer::simulateWordpiece"
+  },
+  {
+    "query": "Explain what json_keys is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/include/json_shim.h"
+    ],
+    "slice": "identifier_function",
+    "symbol": "json_keys"
+  },
+  {
+    "query": "Explain what sourceProcessor is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "App::sourceProcessor"
+  },
+  {
+    "query": "Explain what fnv1a64 is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/auth.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "AdminAuth::fnv1a64"
+  },
+  {
+    "query": "Where is tokenCount defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "Chunker::tokenCount"
+  },
+  {
+    "query": "How does getExecutableDir work?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/cutils.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "utils::getExecutableDir"
+  },
+  {
+    "query": "Explain what getTrackedFiles is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "HnswSqliteVectorDatabase::getTrackedFiles"
+  },
+  {
+    "query": "What does bindToPortIncremental function do?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "HttpServer::bindToPortIncremental"
+  },
+  {
+    "query": "What does the generateFim function do?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "CompletionClient::generateFim"
+  },
+  {
+    "query": "What does `InstanceRegistry::getInstanceId` do?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/instregistry.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "InstanceRegistry::getInstanceId"
+  },
+  {
+    "query": "What does the autoRouterConfig function do?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/settings.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "Settings::autoRouterConfig"
+  },
+  {
+    "query": "Explain what processFile is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "SourceProcessor::processFile"
+  },
+  {
+    "query": "Explain what estimateTokenCount is for.",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/tokenizer.cpp"
+    ],
+    "slice": "identifier_function",
+    "symbol": "SimpleTokenizer::estimateTokenCount"
+  },
+  {
+    "query": "What does the json_val function do?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/include/json_shim.h"
+    ],
+    "slice": "identifier_function",
+    "symbol": "json_val"
+  },
+  {
+    "query": "What is DEFAULT_PASSWORD used for?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/auth.cpp"
+    ],
+    "slice": "identifier_constant",
+    "symbol": "DEFAULT_PASSWORD"
+  },
+  {
+    "query": "Where is SEMICOLON_RATIO_STRONG defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "slice": "identifier_constant",
+    "symbol": "SEMICOLON_RATIO_STRONG"
+  },
+  {
+    "query": "Where is WINDOWS_TO_UNIX_EPOCH defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/cutils.cpp"
+    ],
+    "slice": "identifier_constant",
+    "symbol": "WINDOWS_TO_UNIX_EPOCH"
+  },
+  {
+    "query": "Where is INVALID_SOCKET_VALUE defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "slice": "identifier_constant",
+    "symbol": "INVALID_SOCKET_VALUE"
+  },
+  {
+    "query": "Where is PASSWORD_FILE defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/auth.cpp"
+    ],
+    "slice": "identifier_constant",
+    "symbol": "PASSWORD_FILE"
+  },
+  {
+    "query": "Where is BRACE_RATIO_WEAK defined?",
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "slice": "identifier_constant",
+    "symbol": "BRACE_RATIO_WEAK"
+  }
+]

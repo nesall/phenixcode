@@ -2,7 +2,8 @@
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/app.cpp",
-      "D:/workspace/projects/phenixcode/include/app.h"
+      "D:/workspace/projects/phenixcode/include/app.h",
+      "D:/workspace/projects/phenixcode/README.md"
     ],
     "query": "List CLI commands"
   },
@@ -287,5 +288,77 @@
       "D:/workspace/projects/phenixcode/src/httpserver.cpp"
     ],
     "query": "What token-accounting bug risk exists when `processInputResults` truncates `orderedResults` to `generationMaxChunks` and then subtracts tokens from the removed entries?"
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "query": "What does looksLikeOpaqueBlob function do?"
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/settings.cpp"
+    ],
+    "query": "What does detectApiStyle function do?"
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/tokenizer.cpp"
+    ],
+    "query": "What does isPunctuation function do?"
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "query": "What does CODE_RATIO_STRONG function do?"
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/include/json_shim.h"
+    ],
+    "query": "Where is json_str_val defined?"
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "Explain what evalList is for."
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/auth.cpp"
+    ],
+    "query": "Explain what setPassword is for."
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "query": "What does the splitIntoSemanticChunks function do?"
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/cutils.cpp"
+    ],
+    "query": "Explain what strFindIn is for."
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "query": "How does getStats work?"
+  },  
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "How does startServer work?"
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp"
+    ],
+    "query": "Where is timeoutMs defined?"
   }
 ]
