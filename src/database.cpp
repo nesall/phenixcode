@@ -32,49 +32,6 @@ namespace {
     return (hasLower && hasInnerUpper) || (hasDigit && hasAlpha);
   }
 
-  //std::string buildFtsQuery(const std::string &text) {
-    //static const std::unordered_set<std::string> stop = {
-    //  "what", "does", "do", "is", "are", "the", "a", "an", "how", "why", "of", "to",
-    //  "in", "function", "class", "method", "this", "that", "and", "or", "for", "with" };
-  //  std::vector<std::string> ids, words;
-  //  std::string tok;
-  //  auto flush = [&]() {
-  //    if (tok.empty()) return;
-  //    if (isIdentifierLike(tok)) {
-  //      ids.push_back(tok);
-  //    } else {
-  //      std::string lower = tok;
-  //      std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
-  //      if (!stop.count(lower)) words.push_back(tok);
-  //    }
-  //    tok.clear();
-  //    };
-  //  for (unsigned char c : text) {
-  //    if (std::isalnum(c) || c == '_' || c >= 0x80) tok += static_cast<char>(c);
-  //    else flush();
-  //  }
-  //  flush();
-  //  const auto &use = ids.empty() ? words : ids;
-  //  std::string out;
-  //  for (const auto &t : use) {
-  //    if (!out.empty()) out += " OR ";
-  //    out += '"' + t + '"';
-  //  }
-  //  return out;
-  //}
-
-  //bool queryHasIdentifier(const std::string &text) {
-  //  std::string tok;
-  //  bool found = false;
-  //  auto flush = [&]() { if (!tok.empty() && isIdentifierLike(tok)) found = true; tok.clear(); };
-  //  for (unsigned char c : text) {
-  //    if (std::isalnum(c) || c == '_' || c >= 0x80) tok += static_cast<char>(c);
-  //    else flush();
-  //  }
-  //  flush();
-  //  return found;
-  //}
-
   size_t countLines(const std::string &path) {
     std::ifstream file(path);
     return std::count(
@@ -368,11 +325,6 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::hybridSearch(
 
   const auto plan = planQuery(textQuery);
   constexpr float kProseBm25Weight = 0.0f; // try 0.15 / 0.3 later
-  //float wBm25 = plan.fts.empty() ? 0.0f : std::clamp(bm25Weight, 0.0f, 1.0f);
-  //if (0 < wBm25) {
-  //  wBm25 = plan.hasRareIdentifier ? (std::max)(wBm25, 0.75f) : (std::min)(wBm25, kProseBm25Weight);
-  //}
-  //const float wVector = 1.0f - wBm25;
   float wBm25 = plan.fts.empty() ? 0.0f : std::clamp(bm25Weight, 0.0f, 1.0f);
   if (!plan.hasRareIdentifier) {
     wBm25 = (std::min)(wBm25, kProseBm25Weight);   // 0 for now
@@ -436,20 +388,11 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::hybridSearch(
     [](const SearchResult &a, const SearchResult &b) { return a.fusedScore > b.fusedScore; });
 
   // Per-doc cap, then truncate to top_k
-  std::vector<SearchResult> res;
-  //std::unordered_map<std::string, size_t> perDoc;
-  //for (auto &r : ranked) {
-  //  if (perDoc[r.sourceId] >= maxPerDoc) continue;
-  //  ++perDoc[r.sourceId];
-  //  res.push_back(std::move(r));
-  //  if (res.size() >= top_k) break;
-  //}
-
   constexpr size_t reserveVector = 2;
   std::unordered_set<size_t> reserved;
   for (size_t i = 0; i < (std::min)(reserveVector, vectorResults.size()); ++i)
     reserved.insert(vectorResults[i].chunkId);
-
+  std::vector<SearchResult> res;
   std::unordered_map<std::string, size_t> perDoc;
   std::unordered_set<size_t> taken;
   auto take = [&](const SearchResult &r) {
