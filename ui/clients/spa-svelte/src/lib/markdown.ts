@@ -85,6 +85,41 @@ const renderer: RendererObject = {
     return `<p class="py-2">${text}</p>\n`;
   },
 
+  table(token: Tokens.Table): string {
+    const header = token.header.map((cell, i) => {
+      const align = token.align[i];
+      const alignClass = align ? ` text-${align}` : '';
+      const content = this.parser.parseInline(cell.tokens) as string;
+
+      return `<th scope="col" class="px-4 py-3 font-semibold text-xs uppercase tracking-wide text-surface-700-300${alignClass}">${content}</th>`;
+    }).join('');
+
+    const rows = token.rows.map(row => {
+      const cells = row.map((cell, i) => {
+        const align = token.align[i];
+        const alignClass = align ? ` text-${align}` : '';
+        const content = this.parser.parseInline(cell.tokens) as string;
+
+        return `<td class="px-4 py-3${alignClass}">${content}</td>`;
+      }).join('');
+
+      return `<tr class="transition-colors hover:bg-surface-100-900">${cells}</tr>`;
+    }).join('\n');
+
+    return `
+    <div class="my-4 overflow-x-auto rounded-lg border border-surface-200-800">
+      <table class="w-full text-left text-sm text-surface-700-300">
+        <thead class="bg-surface-100-900">
+          <tr>${header}</tr>
+        </thead>
+        <tbody class="divide-y divide-surface-200-800">
+          ${rows}
+        </tbody>
+      </table>
+    </div>
+  `;
+  },
+
 };
 
 marked.use({ renderer, async: false, gfm: true });
