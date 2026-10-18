@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <utility>
 
+namespace fs = std::filesystem;
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -73,11 +75,7 @@ const std::filesystem::path &utils::getExecutableDir()
     // resolve symlinks (macOS often gives you one)
     return fs::canonical(fs::path(buf.data())).parent_path();
 #else
-    char result[PATH_MAX] = { 0 };
-    ssize_t count = readlink("/proc/self/exe", result, PATH_MAX);
-    if (count <= 0)
-      throw std::runtime_error("readlink /proc/self/exe failed");
-    return fs::path(std::string(result, count)).parent_path();
+    return fs::read_symlink("/proc/self/exe").parent_path();
 #endif
     }();
   return dir;
