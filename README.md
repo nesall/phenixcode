@@ -2,14 +2,14 @@
 
 # PhenixCode Assistant
 
-A self-hosted RAG system for querying codebases with AI. Index your code locally, search with semantic meaning, and get context-aware answers using local or cloud LLMs.
+A self-hosted, privacy-first RAG and AI assistance system tailored for codebases. Index your code locally, perform hybrid vector + lexical searches, and get context-aware answers using local models or remote LLM providers.
 
 **Built for developers who want:**
-- **Privacy** – Your code never leaves your machine
-- **Zero subscriptions** – Run entirely on local models (no monthly fees)
-- **Flexibility** – Switch between local and cloud LLMs as needed
-
-Works offline with local models or integrates with OpenAI-compatible APIs. Your data, your infrastructure, your choice.
+- **Privacy** – Your code never leaves your infrastructure.
+- **Zero Subscriptions** – Run completely offline using local models.
+- **Hybrid Retrieval** – Combine dense semantic embeddings with exact keyword BM25 retrieval via SQLite FTS5.
+- **Zero-Latency Auto-Routing** – Automatically classify queries into model tiers using an embedded sub-millisecond C++ classifier without LLM classification overhead.
+- **Multi-Provider Flexibility** – Seamlessly switch between local `llama-server` instances, OpenAI, Anthropic, Mistral, xAI, and other OpenAI/Anthropic-compatible APIs.
 
 ![PhenixCode UI](media/demo.gif)
 
@@ -17,162 +17,313 @@ Works offline with local models or integrates with OpenAI-compatible APIs. Your 
 
 ![PhenixCode Admin Dashboard](media/dashboard0.png)
 
-**Key features:** Local embeddings • Fast vector search (HNSWLib) • SQLite metadata • JWT auth • HTTP API • Single JSON config
+**Key Features:** Hybrid Search (HNSW + SQLite FTS5 BM25) • Local Sub-Millisecond Task Auto-Router • Persistent Chat History • Anthropic & OpenAI API Support • Retrieval Evaluation Suite (Recall@k, MRR, NDCG) • JWT Auth • HTTP API • Decoupled Provider & Project Settings
 
-**[Download release](https://github.com/nesall/phenixcode/releases/latest)** | **[Quick start](#quick-start)**  
+**[Download release](https://github.com/nesall/phenixcode/releases/latest)** | **[Quick start](#quick-start)**
+
+---
 
 ### Why Self-Host?
 
-**GitHub Copilot:** $10–20/month, cloud-only, limited customization  
-**PhenixCode:** Free with local models or your own APIs, fully customizable  
-*Note: PhenixCode focuses on chat-based code assistance, not inline code auto-complete.*  
+- **GitHub Copilot:** $10–20/month, cloud-only, limited codebase context control.
+- **PhenixCode:** Free, operates offline or with private endpoints, fully customizable indexing, hybrid code retrieval, and zero telemetry.
 
-### Features overview
+*Note: PhenixCode is designed for codebase question-answering, architecture exploration, and conversational assistance, rather than inline ghost-text auto-complete.*
 
-Core Functionality:  
-* Lightweight tokenization  
-* Smart chunking with overlap  
-* Local embeddings (llama-server + any choice of embedding model)  
-* Both local and remote completion models of your choice
-* Fast vector search (Hnswlib with cosine similarity)  
-* Metadata storage (SQLite)  
-* Incremental updates with file tracking  
-* CLI + HTTP API  
+---
 
-API & Server:  
-* HTTP API server (httplib)  
-* REST endpoints (/api/search, /api/chat, /api/embed)  
-* Metrics endpoint (JSON + Prometheus format)  
-* Health checks  
-* Graceful shutdown  
+### Features Overview
 
-Security:  
-* JWT token authentication  
-* Password management (CLI-based)  
-* Protected admin endpoints  
-* Hashed password storage  
+#### Core & Retrieval Engine
+* **Hybrid Search (Vector + BM25):** Combines HNSW dense vector similarity with SQLite FTS5 full-text indexing using Reciprocal Rank Fusion (RRF).
+* **Embedded Auto-Router:** Zero-latency query classifier (`assets/baseline_v2.bin`) that automatically routes queries to simple, medium, or complex model tiers without API roundtrips.
+* **Code-Aware Chunking & Tokenization:** Smart AST/line-level slicing preserving functions, classes, and language constructs with configurable token overlap.
+* **Incremental Synchronization:** File hash and modification tracking detects new, modified, or deleted files to update vector and FTS indexes incrementally.
+* **Retrieval Evaluation Suite (`eval`):** Built-in CLI commands to measure Recall@k, MRR, and NDCG against ground-truth code reference datasets.
 
-Deployment & Operations:  
-* Console setup wizard (interactive)  
-* Web setup wizard (password protected)
-* Service installation scripts (Windows/Linux/macOS)  
-* Structured logging (output.log + diagnostics.log)  
-* Auto-start on boot (systemd/NSSM/LaunchAgent)  
-* Release packaging (build_rel scripts)  
+#### Inference & Model Providers
+* **Decoupled Provider Architecture:** Global API providers (`providers.json`) are maintained independently from project-level configurations (`settings.json`).
+* **Broad Protocol Support:** Native support for both OpenAI-compatible and Anthropic-style chat completions.
+* **Local & Cloud Models:** First-class support for `llama-server`, Ollama, vLLM, OpenAI, Anthropic, Mistral, Grok, and custom endpoints.
+* **Fill-In-The-Middle (FIM):** Dedicated code completion API endpoint.
 
-Configuration:  
-* Template-based settings.json  
-* Environment variable overrides  
-* CLI parameter support  
-* Multiple source types (directories, files, URLs)  
+#### User Interfaces & Services
+* **Chat SPA & Native WebView:** Desktop GUI with Markdown table rendering, syntax highlighting, code-block copying, reasoning token inspection, and session history management.
+* **Persistent Chat Sessions:** Local SQLite-backed conversation persistence.
+* **Admin Dashboard:** Central web interface to monitor multi-project indexing progress, vector/token counts, and provider configurations.
+* **Background Monitoring & Daemonizing:** Built-in `--watch` filesystem monitoring, systemd / LaunchAgent / NSSM service scripts.
+
+---
 
 <a name="quick-start"></a>
 ### Quick Start (Prebuilt Binaries)
 
-  1. **Download** the latest release for your platform  
-  2. **Extract the package**. The included `settings.json` is pre-configured for a local, private setup.  
-  3. **Start Local LLMs**: Since the default configuration uses local models, you must start the necessary servers first.  
-  The simplest way is using llama-server (or a similar tool):  
-```
-# 1. Start Embedding Server (e.g., CodeRankEmbed)
-# The current settings.json is configured for this default:
-./llama-server -m ./coderankembed-q4_k_m.gguf --embedding --pooling cls -ub 8192 --port 8584 &
+#### 1. Download and Extract
+Download the latest release package for your operating system and extract the contents.
 
-# 2. Start Generation Server (e.g., Qwen)
-# The current settings.json is configured for this default:
-./llama-server -m ./qwen2.5-coder-1.5b-instruct-q4_k_m.gguf -c 32768 --port 8585 -np 1 &
-```  
-  *Note: To use a cloud API (like Mistral or OpenAI), simply ensure the corresponding environment variable (e.g., `${MISTRAL_API_KEY}`) is set.*  
+#### 2. Configure Providers and Settings
+PhenixCode separates global LLM connections from project indexing:
+- `providers.json`: Configures available embedding and generation models (local endpoints or cloud API keys).
+- `settings.json`: Configures project-specific source directories, chunking limits, and vector storage paths.
 
-  3. **Start embedding** (this uses the configured local directory ./):  
-```
-./phenixcode-core embed
-```  
-  4. **Start** the main HTTP server and the UI: 
-```
-./phenixcode-core serve --watch --interval 60
-./phenixcode-ui
-```  
+By default, `providers.json` is configured to look for local `llama-server` instances.
 
-### How to build
-
-C++ 20 or newer is required.  
-nodejs v20 or newer is required.  
+#### 3. Start Local LLMs (Optional)
+If running fully offline, start your embedding and generation models (e.g., using `llama-server`):
 
 ```bash
-# clone the repository and cd into it.
+# 1. Start Embedding Server (e.g., CodeRankEmbed / BGE)
+./llama-server -m ./coderankembed-q4_k_m.gguf --embedding --pooling cls -ub 8192 --port 8584 &
 
-# Build both core and ui with a single command:
+# 2. Start Generation Server (e.g., Qwen 2.5 Coder)
+./llama-server -m ./qwen2.5-coder-1.5b-instruct-q4_k_m.gguf -c 32768 --port 8585 -np 1 &
 
-# Build in Linux
-./package-lin.sh
-
-# Build in MacOS
-./package-mac.sh
-
-# Build in Windows
-package.bat
-
-
-# To build either core or ui separately, use build_rel scripts
-
-# e.g. building core only
-./build_rel.sh
-
-# or building ui only
-cd ui/clients/webview
-./build_rel.sh
 ```
 
-### CLI commands
+> **Using Cloud Providers:** To use cloud APIs (Anthropic, OpenAI, Mistral, xAI), ensure their keys are exported in your environment (e.g., `export ANTHROPIC_API_KEY="..."`, `export OPENAI_API_KEY="..."`) and enabled in `providers.json`.
 
-Initial full embed of all sources from settings.json  
-```./phenixcode-core --config settings.json embed```
+#### 4. Build the Codebase Index
 
-Check for changes and update only what changed  
-```./phenixcode-core update```
+Run the embedding process against your configured project sources:
 
-Continuous monitoring (checks every 60 seconds)  
-```./phenixcode-core watch --interval 60```
+```bash
+./phenixcode-core embed
 
-Reclaim space used by deleted index items  
-```./phenixcode-core compact```
+```
 
-Search nearest neighbours  
-```./phenixcode-core search "how to optimize C++" --top 10```
+#### 5. Launch the Server and UI
 
-Chat with LLM  
-```./phenixcode-core chat```
+Start the core HTTP backend with live file-watching enabled:
 
-Serve on a custom port with auto-update every N seconds  
-```./phenixcode-core serve --port 9000 --watch --interval 60```
+```bash
+./phenixcode-core serve --watch --interval 60
 
-Serve on the default port (8590) without auto-update (manual trigger via /update endpoint)  
-```./phenixcode-core serve```
+```
 
-Default admin password: `admin` — change it immediately using one of the methods below.  
-Change Password - Method 1: Direct  
-```./phenixcode-core reset-password --pass NewPassword456```
+In a separate terminal or desktop shortcut, open the UI:
 
-Change Password - Method 2: Interactive (hides input)  
-```./phenixcode-core reset-password-interactive```
+```bash
+./phenixcode-ui
 
-Check password status  
-```./phenixcode-core password-status```
+```
 
+---
 
-### Editing settings.json
+### Configuration Files
 
-Method 1:  
-Edit file `settings.json` to configure settings manually
+#### `providers.json` (Global API Providers)
 
-Method 2:  
-Use dashboard GUI `phenixcode_admin` to start/stop add/remove projects for various codebases (recommended).
+Stores API keys, base URLs, protocol styles, and model definitions:
 
-![PhenixCode Admin Dashboard](media/dashboard1.png)
+```json
+{
+  "embedding_providers": [
+    {
+      "id": "local_embed",
+      "model": "coderankembed",
+      "api_url": "[http://127.0.0.1:8584/v1/embeddings](http://127.0.0.1:8584/v1/embeddings)",
+      "api_key": "",
+      "vector_dim": 768,
+      "enabled": true
+    }
+  ],
+  "generation_providers": [
+    {
+      "id": "local_qwen",
+      "model": "qwen2.5-coder-1.5b-instruct",
+      "api_url": "[http://127.0.0.1:8585/v1/chat/completions](http://127.0.0.1:8585/v1/chat/completions)",
+      "api_style": "openai",
+      "api_key": "",
+      "enabled": true
+    },
+    {
+      "id": "claude_sonnet",
+      "model": "claude-3-7-sonnet-20250219",
+      "api_url": "[https://api.anthropic.com/v1/messages](https://api.anthropic.com/v1/messages)",
+      "api_style": "anthropic",
+      "api_key": "${ANTHROPIC_API_KEY}",
+      "enabled": true
+    }
+  ]
+}
 
+```
 
-### REST API endpoints
+#### `settings.json` (Project Configuration)
+
+Specifies indexing paths, chunking parameters, and runtime settings:
+
+```json
+{
+  "project_title": "My Application",
+  "source": {
+    "paths": [
+      {
+        "type": "directory",
+        "path": "./src",
+        "recursive": true
+      }
+    ],
+    "include_extensions": [".cpp", ".h", ".hpp", ".c", ".py", ".ts", ".js"]
+  },
+  "embedding": {
+    "current_api_id": "local_embed",
+    "batch_size": 32
+  },
+  "generation": {
+    "is_auto": true,
+    "current_api_id": "local_qwen"
+  },
+  "chunking": {
+    "min_tokens": 100,
+    "max_tokens": 512,
+    "overlap": 0.15
+  }
+}
+
+```
+
+---
+
+### CLI Reference
+
+```
+Usage: phenixcode-core <command> [options]
+
+Commands:
+  embed              Process and embed all configured sources
+  update             Incrementally update changed files only
+  watch              Continuously monitor and update
+  search <query>     Search for similar chunks using hybrid retrieval
+  stats              Show database statistics
+  clear              Clear all indexed data
+  compact            Reclaim deleted vector and SQLite storage
+  chat               Interactive terminal chat mode
+  serve              Start HTTP API server
+  providers          List or test configured LLM providers
+  eval               Evaluate retrieval quality against a dataset
+
+Password Management:
+  reset-password             Reset admin password directly (--pass <new_password>)
+  reset-password-interactive Reset admin password interactively
+  password-status            Check admin password state
+
+```
+
+#### Common Command Examples
+
+```bash
+# Force re-embed of all files
+./phenixcode-core embed --force
+
+# Run incremental check and update
+./phenixcode-core update
+
+# Search top 10 relevant code snippets
+./phenixcode-core search "how is connection retry implemented" --top 10
+
+# Start server on a specific port with file-watching and custom configs
+./phenixcode-core serve --port 8590 --watch --interval 30 \
+  --config ./settings.json \
+  --providers-config ./providers.json
+
+# Test a specific provider connection
+./phenixcode-core providers --test claude_sonnet
+
+```
+
+#### Retrieval Evaluation (`eval`)
+
+Run benchmark evaluations to test recall and ranking quality against test datasets:
+
+```bash
+# Generate a template evaluation file from indexed sources
+./phenixcode-core eval --init --output eval.json --samples 25
+
+# List available document paths in the index
+./phenixcode-core eval --list
+
+# Run evaluation on a dataset using dense and hybrid search
+./phenixcode-core eval --dataset eval.json --top 5
+
+```
+
+---
+
+### How to Build
+
+#### Requirements
+
+* **C++ Compiler:** C++20 compliant (`gcc >= 11`, `clang >= 13`, or `MSVC 2019+`)
+* **CMake:** Version 3.20 or newer
+* **Node.js:** v20 or newer (for building the Webview/Svelte UIs)
+
+#### All-in-One Build Scripts
+
+```bash
+# Linux
+./package-lin.sh
+
+# macOS
+./package-mac.sh
+
+# Windows
+package.bat
+
+```
+
+#### Individual Component Builds
+
+```bash
+# Build core daemon only
+./build_rel.sh
+
+# Build desktop client only
+cd ui/clients/webview
+./build_rel.sh
+
+# Build admin dashboard only
+cd ui/dashboard/webview
+./build_rel.sh
+
+```
+
+---
+
+### REST API Reference
+
+All requests accept and return `application/json` unless otherwise specified.
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/health` | Healthcheck and server status |
+| `GET` | `/api/stats` | Indexed documents, lines, languages, and chunk counts |
+| `GET` | `/api/metrics` | Internal engine telemetry and latency stats |
+| `GET` | `/api/settings` | Current active model selections and settings |
+| `POST` | `/api/search` | Execute hybrid search (`{"query": "...", "top_k": 5}`) |
+| `POST` | `/api/chat` | Streaming SSE endpoint for code completions and chat |
+| `POST` | `/api/fim` | Fill-in-the-middle code generation endpoint |
+| `POST` | `/api/update` | Trigger manual incremental directory re-scan |
+| `POST` | `/api/shutdown` | Graceful server shutdown (Requires `X-App-Key` header) |
+
+#### Example: Chat Completion Request
+
+```bash
+curl -X POST http://localhost:8590/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "system", "content": "You are a concise code assistant."},
+      {"role": "user", "content": "How does the cache eviction policy work?"}
+    ],
+    "temperature": 0.1,
+    "max_tokens": 1024,
+    "ctxratio": 0.5
+  }'
+
+```
+
+#### Other Examples
 
 ```bash
 # Get list of API endpoints
@@ -276,7 +427,5 @@ curl -X POST http://localhost:8590/api/shutdown \
 
 # Authenticate  
 curl -X POST http://localhost:8590/api/authenticate \
-  -H "Authorization: Basic $(echo -n "username:password" | base64)"
-
-  
-```
+  -H "Authorization: Basic $(echo -n "username:password" | base64)" 
+````
