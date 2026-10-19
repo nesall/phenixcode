@@ -95,6 +95,7 @@ add_executable(${PROJECT_NAME}
   include/cutils.h
   include/json_shim.h
   include/sqlite3_helper.h
+  include/monitor.h
   src/main.cpp
   src/tokenizer.cpp
   src/settings.cpp
@@ -109,6 +110,7 @@ add_executable(${PROJECT_NAME}
   src/cutils.cpp
   src/tests.cpp
   src/sqlite3_helper.cpp
+  src/monitor.cpp
 )
 
 # Link libraries
@@ -134,6 +136,7 @@ set(MODEL_NAME "baseline_v2.bin")
 target_compile_definitions(${PROJECT_NAME} PRIVATE
   FMT_HEADER_ONLY
   FMT_USE_LOCALE=0
+  FMT_UNICODE=0
   EMBEDDER_VERSION="${EMBEDDER_VERSION}"
   INTERNAL_MODEL_RELATIVE_PATH="models/${MODEL_NAME}"
 )
