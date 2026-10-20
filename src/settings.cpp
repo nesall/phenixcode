@@ -220,9 +220,9 @@ void ProvidersSettings::loadFromFile(const std::string &path)
   file >> j;
   updateFromConfig(j);
   if (embeddingProviders_.empty())
-    LOG_MSG << "Warning: no embedding_providers defined in " << path;
+    LOG_MSG_WARN << "No embedding_providers defined in " << path;
   if (generationProviders_.empty())
-    LOG_MSG << "Warning: no generation_providers defined in " << path;
+    LOG_MSG_WARN << "No generation_providers defined in " << path;
   path_ = path;
 }
 
@@ -350,7 +350,7 @@ void Settings::validate()
     if (checkEnabledPrv) {
       std::vector<std::string> enabledApis = section.value("enabled_providers", nlohmann::json::array());
       if (std::find(enabledApis.cbegin(), enabledApis.cend(), currentApi) == enabledApis.cend()) {
-        LOG_MSG << "Warning: current_api '" << currentApi << "' is not in this project's enabled_providers";
+        LOG_MSG_WARN << "current_api '" << currentApi << "' is not in this project's enabled_providers";
         throw std::runtime_error("current_api '" + currentApi + "' is not in this project's enabled_providers");
       }
     }

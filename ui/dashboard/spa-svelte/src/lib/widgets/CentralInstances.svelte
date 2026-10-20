@@ -66,7 +66,7 @@
                   {/if}
                 </span>
                 <div class="flex items-center space-x-2">
-                  <div><span>Instance:&nbsp;</span><span class="font-bold">{inst.project_id}</span></div>
+                  <div><span>Instance: </span><span class="font-bold">{inst.project_id}</span></div>
                   {#if !isInstInProjectList(inst, projectStore.list)}
                     <span class="italic text-error-500 text-sm">(not in projects)</span>
                   {/if}

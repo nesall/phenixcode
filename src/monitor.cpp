@@ -1,6 +1,7 @@
 #include "monitor.h"
 #include "settings.h"
 #include "auth.h"
+#include "cutils.h"
 #include <algorithm>
 #include <condition_variable>
 #include <ctime>
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <deque>
 #include <utils_log/logger.hpp>
 
 #ifdef _WIN32
@@ -168,7 +170,7 @@ struct MonitorTracker::Impl {
     fs::path cfgPath = settings.configPath().empty()
       ? fs::current_path() / "settings.json"
       : fs::absolute(settings.configPath());
-    monitorFilePath_ = cfgPath.parent_path() / "monitor.json";
+    monitorFilePath_ = utils::monitorPathFor(cfgPath);
 
     std::string prvDump = settings.providersJson().dump();
     pricingVersion_ = AdminAuth::fnv1a64(prvDump);
@@ -484,7 +486,7 @@ void MonitorTracker::persist() const
       fs::remove(tmpPath, ec);
     }
   } catch (const std::exception &e) {
-    LOG_MSG << "[Monitor] Failed to persist monitor.json:" << e.what();
+    LOG_MSG_ERROR << "[Monitor] Failed to persist monitor.json:" << e.what();
   }
 }
 
@@ -523,92 +525,63 @@ void MonitorTracker::stopPersistTimer()
   persist();
 }
 
-json MonitorTracker::tailLogFile(LogFileType type, int64_t offset, size_t maxBytes, const Settings &settings)
+json MonitorTracker::tailLogFile(LogFileType type, int64_t offset, int64_t count, const Settings &settings)
 {
-  //std::string target = requestedPath.empty() ? settings.loggingLoggingFile() : requestedPath;
-
-  // Restrict to configured log files or files inside the project config directory
-  fs::path cfgDir = settings.configPath().empty()
-    ? fs::current_path()
-    : fs::absolute(settings.configPath()).parent_path();
-
   const fs::path logFile = fs::absolute(settings.loggingLoggingFile()).lexically_normal();
   const fs::path diagFile = fs::absolute(settings.loggingDiagnosticsFile()).lexically_normal();
   const fs::path reqFile{ type == LogFileType::Logs ? logFile : diagFile };
 
+  auto fail = [](const std::string &msg) -> json {
+    return {
+      { "status", "error" },
+      { "message", msg },
+      { "lines", json::array() },
+      { "total_lines", 0 }
+    };
+    };
+
   std::error_code ec;
   if (!fs::exists(reqFile, ec)) {
     return {
-      {"status", "success"},
-      {"path", reqFile.string()},
-      {"lines", json::array()},
-      {"next_offset", 0},
-      {"size", 0}
+      { "status", "success" },
+      { "lines", json::array() },
+      { "total_lines", 0 }
     };
-  }
-
-  int64_t fileSize = static_cast<int64_t>(fs::file_size(reqFile, ec));
-  if (ec) {
-    return {
-      {"status", "error"},
-      {"message", ec.message()},
-      {"path", reqFile.string()},
-      {"lines", json::array()},
-      {"next_offset", 0},
-      {"size", 0}
-    };
-  }
-
-  // If file was truncated or negative offset passed, reset to 0 (or tail from end if offset < 0)
-  if (offset < 0 || offset > fileSize) {
-    offset = (std::max)(int64_t(0), fileSize - static_cast<int64_t>(maxBytes));
   }
 
   std::ifstream in(reqFile, std::ios::binary);
   if (!in.is_open()) {
-    return {
-      {"status", "error"},
-      {"message", "Unable to open log file"},
-      {"path", reqFile.string()},
-      {"lines", json::array()},
-      {"next_offset", offset},
-      {"size", fileSize}
-    };
+    return fail("Unable to open log file");
   }
 
-  in.seekg(offset, std::ios::beg);
-  size_t toRead = static_cast<size_t>((std::min)(int64_t(maxBytes), fileSize - offset));
-  std::string buffer(toRead, '\0');
-  in.read(buffer.data(), static_cast<std::streamsize>(toRead));
-  size_t bytesRead = static_cast<size_t>(in.gcount());
-  buffer.resize(bytesRead);
-
-  int64_t nextOffset = offset + static_cast<int64_t>(bytesRead);
-
-  // Avoid splitting an incomplete trailing line if we hit maxBytes before EOF
-  if (nextOffset < fileSize) {
-    size_t lastNl = buffer.rfind('\n');
-    if (lastNl != std::string::npos) {
-      nextOffset = offset + static_cast<int64_t>(lastNl + 1);
-      buffer.resize(lastNl + 1);
-    }
-  }
-
+  const bool fromTail = offset < 0;
+  const size_t tailN = fromTail ? static_cast<size_t>(-offset) : 0;
+  std::deque<std::string> tail;
   json lines = json::array();
-  std::istringstream iss(buffer);
+  int64_t total = 0;
+
   std::string line;
-  while (std::getline(iss, line)) {
-    if (!line.empty() && line.back() == '\r') {
-      line.pop_back();
+  while (std::getline(in, line)) {
+    if (in.eof()) break; // unterminated last line: still being written, don't count
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+
+    if (fromTail) {
+      tail.push_back(std::move(line));
+      if (tail.size() > tailN) tail.pop_front();
+    } else if (total >= offset && static_cast<int64_t>(lines.size()) < count) {
+      lines.push_back(std::move(line));
     }
-    lines.push_back(std::move(line));
+    ++total;
+  }
+
+  if (fromTail) {
+    const size_t n = (std::min)(tail.size(), static_cast<size_t>(count));
+    for (size_t i = 0; i < n; ++i) lines.push_back(std::move(tail[i]));
   }
 
   return {
-    {"status", "success"},
-    {"path", reqFile.string()},
-    {"lines", std::move(lines)},
-    {"next_offset", nextOffset},
-    {"size", fileSize}
+    { "status", "success" },
+    { "lines", std::move(lines) },
+    { "total_lines", total }
   };
 }

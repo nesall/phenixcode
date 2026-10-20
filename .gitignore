@@ -19,6 +19,7 @@ dist.*
 
 # IDE files
 .vscode/
+.vs/
 .idea/
 *.swp
 *.swo

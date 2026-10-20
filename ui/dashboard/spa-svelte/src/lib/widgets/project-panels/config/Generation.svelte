@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { helper_readjustProject, helper_saveProjectSettings } from "../../utils";
-  import { embeddingProviders, generationProviders, projectStore } from "../../store.svelte";
-    import type { ProvidersSettings } from "../../../app";
+  import { helper_readjustProject, helper_saveProjectSettings } from "../../../utils";
+  import { embeddingProviders, generationProviders, projectStore } from "../../../store.svelte";
+  import type { ProvidersSettings } from "../../../../app";
 
   interface Props {
     onChanged: any;
@@ -213,10 +213,10 @@
                 type="text"
                 class="input"
                 bind:value={projectStore.selected.jsonData.generation.prepend_label_format}
-                placeholder="[Source: &#123;&#125;]\n"
+                placeholder={"[Source: {}]\n"}
                 onchange={onChange}
               />
-              <p class="text-sm text-surface-500 mt-1">Use &#123;&#125; as placeholder for source name</p>
+              <p class="text-sm text-surface-500 mt-1">{"Use {} as placeholder for source name"}</p>
             </label>
           </div>
 

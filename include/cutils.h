@@ -21,7 +21,7 @@ namespace utils {
   void stripPrefix(std::string &s, const std::string &prefix);
   void stripCommonPathPrefix(std::vector<std::string> &paths);
   void stripCommonPathPrefix(std::set<std::string> &paths);
-
+  std::filesystem::path monitorPathFor(std::filesystem::path settingsFilePath);
 } // namespace utils
 
 #endif // _PHENIXCODE_UTILS_H_

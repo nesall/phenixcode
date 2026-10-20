@@ -63,16 +63,25 @@ namespace {
     body["stream"] = cfg.stream;
 
     // LOG_MSG body but skip messages for brevity.
-    nlohmann::json bodyForLog = body;
-    if (bodyForLog.contains("messages")) {
-      bodyForLog["messages"] = nlohmann::json::array();
-      for (const auto &m : messages) {
-        nlohmann::json mForLog = m;
-        if (mForLog.contains("content")) mForLog["content"] = "<omitted>";
-        bodyForLog["messages"].push_back(mForLog);
-      }
-      LOG_MSG << "Request body: " << bodyForLog.dump();
-    }
+     nlohmann::json bodyForLog = body;
+     if (bodyForLog.contains("messages")) {
+       nlohmann::json messagesForLog = nlohmann::json::array();
+       const size_t maxExamples = 2;
+       for (size_t i = 0; i < messages.size() && i < maxExamples; ++i) {
+         nlohmann::json mForLog = messages[i];
+         if (mForLog.contains("content")) mForLog["content"] = "<omitted>";
+         messagesForLog.push_back(mForLog);
+       }
+       if (messages.size() > maxExamples) {
+         nlohmann::json repeated = nlohmann::json::object();
+         repeated["content"] = "<omitted>";
+         repeated["repeated"] = messages.size() - maxExamples;
+         repeated["message"] = "remaining messages omitted";
+         messagesForLog.push_back(repeated);
+       }
+       bodyForLog["messages"] = messagesForLog;
+       LOG_MSG_DEBUG << "Request body: " << bodyForLog.dump();
+     }
 
     return body;
   }
@@ -191,7 +200,7 @@ std::pair<httplib::Client *, std::string> InferenceClient::Impl::httpClientForUr
       urlToClient_.emplace(schemaHostPort, std::move(client));
       return { ptr, path };
     } catch (const std::exception &e) {
-      LOG_MSG << "Error initializing http client for" << schemaHostPort << ":" << e.what();
+      LOG_MSG_ERROR << "Error initializing http client for" << schemaHostPort << ":" << e.what();
       return { nullptr, "" };
     }
   }
@@ -282,7 +291,7 @@ void EmbeddingClient::generateEmbeddings(const std::vector<std::string> &texts, 
     for (size_t j = 0; j < texts.size(); j ++) {
       assert(j < response.size());
       if (response.size() <= j) {
-        LOG_MSG << "Not enough entries in the embedding response (asked for" << texts.size() << "but got" << response.size() << "). Skipped";
+        LOG_MSG_WARN << "Not enough entries in the embedding response (asked for" << texts.size() << "but got" << response.size() << "). Skipped";
         break;
       }
       const auto &item = response[j];
@@ -308,7 +317,7 @@ void EmbeddingClient::generateEmbeddings(const std::vector<std::string> &texts, 
     //float l2Norm = calculateL2Norm(embedding);
     //std::cout << "[l2norm] " << l2Norm << std::endl;
   } catch (const nlohmann::json::exception &e) {
-    LOG_MSG << "JSON parsing error:" << e.what();
+    LOG_MSG_ERROR << "JSON parsing error:" << e.what();
     throw std::runtime_error("Failed to parse server response");
   } catch (const std::exception &e) {
     throw;
@@ -435,7 +444,7 @@ namespace {
             }
           }
         } catch (const std::exception &e) {
-          LOG_MSG << "Error parsing chunk" << e.what() << " in" << jsonStr;
+          LOG_MSG_ERROR << "Error parsing chunk" << e.what() << " in" << jsonStr;
         }
       }
     }
@@ -557,7 +566,7 @@ std::string CompletionClient::generateCompletion(
                 if (onStream) onStream(content);
               }
             } catch (const std::exception &e) {
-              LOG_MSG << "Error parsing chunk" << e.what() << "in" << jsonStr;
+              LOG_MSG_ERROR << "Error parsing chunk" << e.what() << "in" << jsonStr;
             }
           }
         }
@@ -572,7 +581,7 @@ std::string CompletionClient::generateCompletion(
     );
 
     if (fullResponse.empty()) {
-      LOG_MSG << "[completion] Empty response from" << cfg().model
+      LOG_MSG_DEBUG << "[completion] Empty response from" << cfg().model
         << "| stop_reason:" << (stopReason.empty() ? "<none>" : stopReason)
         << "| last chunk:" << (lastChunk.empty() ? "<none>" : lastChunk);
       if (!stopReason.empty() && onStream) {
@@ -608,7 +617,7 @@ std::string CompletionClient::generateCompletion(
             ? jsonRes.value("stop_reason", std::string{})
             : (jsonRes.contains("choices") && !jsonRes["choices"].empty()
               ? jsonRes["choices"][0].value("finish_reason", std::string{}) : std::string{});
-          LOG_MSG << "[completion] Empty response from" << cfg().model
+          LOG_MSG_DEBUG << "[completion] Empty response from" << cfg().model
             << "| stop_reason:" << (reason.empty() ? "<none>" : reason)
             << "| body:" << res->body.substr(0, 500);
         }
@@ -733,7 +742,7 @@ std::string CompletionClient::generateFim(
         // fallback, assuming the response is SSE stream
         fullResponse = processSSEData(res->body.c_str(), res->body.length(), nullptr);
       } catch (const std::exception &ex) {
-        LOG_MSG << "Error processing response:" << ex.what();
+        LOG_MSG_ERROR << "Error processing response:" << ex.what();
       }
     }
     if (!fullResponse.empty()) {

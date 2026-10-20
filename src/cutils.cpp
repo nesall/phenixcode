@@ -343,3 +343,8 @@ void utils::stripCommonPathPrefix(std::set<std::string> &paths)
   }
   paths = std::move(out);
 }
+
+std::filesystem::path utils::monitorPathFor(std::filesystem::path settingsFilePath)
+{
+  return settingsFilePath.parent_path() / (settingsFilePath.stem().string() + ".monitor.json");
+}

@@ -8,7 +8,7 @@ namespace utils {
       auto rc = sqlite3_finalize(stmt_);
       if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW) {
         const char *msg = sq_ ? sqlite3_errmsg(sq_) : "'no handle'";
-        LOG_MSG << "SQLite finalize error: " << msg;
+        LOG_MSG_ERROR << "SQLite finalize error: " << msg;
       }
     }
   }

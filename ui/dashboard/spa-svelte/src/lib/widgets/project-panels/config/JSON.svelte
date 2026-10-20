@@ -1,12 +1,6 @@
 <script lang="ts">
   import * as icons from "@lucide/svelte";
-  import { projectStore } from "../../store.svelte";
-  import type { ProjectItem } from "../../../app";
-
-  // interface Props {
-  //   projectItem: ProjectItem | null;
-  // }
-  // let { projectItem }: Props = $props();
+  import { projectStore } from "../../../store.svelte";
 
   let copied = $state(false);
   async function onCopy() {
@@ -36,11 +30,13 @@
         <span class="font-mono"> {projectStore.selected?.settingsFilePath} </span>
       </div>
       <div class="flex items-center space-x-1">
-        <span class="italic text-xs">Projects folder location can be overridden with <code class="code">PHENIXCODE_PROJECTS_FOLDER</code> environment variable</span>
+        <span class="italic text-xs"
+          >Projects folder location can be overridden with <code class="code">PHENIXCODE_PROJECTS_FOLDER</code> environment
+          variable</span
+        >
       </div>
       <div class="relative">
-        <pre
-          class="pre text-left min-h-40 overflow-x-auto">{jsonSettingsStr}</pre>
+        <pre class="pre text-left min-h-40 overflow-x-auto">{jsonSettingsStr}</pre>
         <button
           class="absolute top-2 right-2 px-2 py-1 text-xs rounded bg-gray-700 text-white hover:bg-gray-600"
           onclick={onCopy}

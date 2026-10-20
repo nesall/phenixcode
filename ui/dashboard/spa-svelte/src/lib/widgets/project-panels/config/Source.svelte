@@ -1,9 +1,9 @@
 <!-- Source.svelte -->
 <script lang="ts">
   import * as icons from "@lucide/svelte";
-  import { projectStore } from "../../store.svelte";
+  import { projectStore } from "../../../store.svelte";
   import { onMount } from "svelte";
-  import { helper_saveProjectSettings } from "../../utils";
+  import { helper_saveProjectSettings } from "../../../utils";
 
   interface Props {
     onChanged: any;

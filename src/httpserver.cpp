@@ -12,6 +12,7 @@
 #include "3rdparty/base64.h"
 #include "3rdparty/fmt/core.h"
 #include "json_shim.h"
+#include "monitor.h"
 #include <httplib.h>
 #include <utils_log/logger.hpp>
 #include <hnswlib/hnswlib.h>
@@ -25,7 +26,6 @@
 #include <atomic>
 #include <functional>
 #include <string_view>
-//#include <format>
 #include <filesystem>
 #include <list>
 #include <utility>
@@ -343,7 +343,7 @@ namespace {
         return std::pair{ encoded, "Bearer" };
       }
     } catch (const std::exception &e) {
-      LOG_MSG << "Error extracting password" << e.what();
+      LOG_MSG_ERROR << "Error extracting password" << e.what();
     }
     return std::nullopt;
   }
@@ -391,7 +391,7 @@ namespace {
     if (attachedOnly && attachments.empty() && sources.empty()) {
       assert(!"Should not happen");
       attachedOnly = false;
-      LOG_MSG << "Warning: 'attachedOnly' is set but no attachments or sources provided. Ignored.";
+      LOG_MSG_WARN << "'attachedOnly' is set but no attachments or sources provided. Ignored.";
       onInfo("'attachedOnly' is set but no attachments or sources provided; ignoring.");
     }
 
@@ -432,8 +432,8 @@ namespace {
           content = truncateToTokens(app.tokenizer(), content, maxAttBudget - usedTokens);
           usedTokens += app.tokenizer().countTokensWithVocab(content);
           auto percent = int((content.length() / double(m)) * 100);
-          auto info = fmt::format("Warning: Attachment too large, truncated to {}% of {}", percent, att.filename);
-          LOG_MSG << info;
+          auto info = fmt::format("Attachment too large, truncated to {}% of {}", percent, att.filename);
+          LOG_MSG_WARN << info;
           onInfo(fmt::format("{} truncated to {}% ", att.filename, percent));
         }
         addToSearchResult(attachmentResults, att.filename.empty() ? "attachment" : att.filename, std::move(content));
@@ -455,7 +455,7 @@ namespace {
     try {
       embeddingClient.generateEmbeddings(questionTexts, questionEmbeddingVectors, EmbeddingClient::EncodeType::Query);
     } catch (const std::exception &e) {
-      LOG_MSG << "Error generating embeddings |" << e.what();
+      LOG_MSG_ERROR << "Error generating embeddings |" << e.what();
       throw;
     }
 
@@ -674,7 +674,7 @@ namespace {
     if (request.contains("targetapi") && request["targetapi"].is_string()) {
       std::string targetApi = request["targetapi"].get<std::string>();
       if (targetApi == kAutoApiId) {
-        LOG_MSG << "Auto should not be used in getTargetApi, using current API instead.";
+        LOG_MSG_WARN << "Auto should not be used in getTargetApi, using current API instead.";
         apiConfig = app.settings().generationCurrentApi();
       }
       if (targetApi != apiConfig.id) {
@@ -691,16 +691,16 @@ namespace {
       auto c = std::make_unique<classifier::EmbeddedClassifier>();
       auto modelPath = utils::getExecutableDir() / INTERNAL_MODEL_RELATIVE_PATH;
       if (!std::filesystem::exists(modelPath)) {
-        LOG_MSG << "Auto-router classifier [internal] model file not found: " << modelPath;
+        LOG_MSG_ERROR << "Auto-router classifier [internal] model file not found: " << modelPath;
         return nullptr;
       }
       try {
         if (!c->load_from_file(modelPath.string())) {
-          LOG_MSG << "Auto-router classifier [internal] failed to load model: " << modelPath;
+          LOG_MSG_ERROR << "Auto-router classifier [internal] failed to load model: " << modelPath;
           return nullptr;
         }
       } catch (const std::exception &e) {
-        LOG_MSG << "Auto-router classifier [internal] exception while loading model: " << e.what();
+        LOG_MSG_ERROR << "Auto-router classifier [internal] exception while loading model: " << e.what();
         return nullptr;
       }
       return c;
@@ -822,6 +822,11 @@ HttpServer::HttpServer(App &a)
   : imp(new Impl(a))
 {
   imp->server_.new_task_queue = [] { return new httplib::ThreadPool(4); };
+  imp->server_.set_default_headers({
+      { "Access-Control-Allow-Origin", "*" },
+      { "Access-Control-Allow-Methods", "GET, POST, OPTIONS" },
+      { "Access-Control-Allow-Headers", "Content-Type, Authorization, X-App-Key" }
+    });
 
   imp->server_.set_error_logger([](const httplib::Error &err, const httplib::Request *req) {
     std::cerr << httplib::to_string(err) << " while processing request";
@@ -842,7 +847,7 @@ int HttpServer::bindToPortIncremental(int port)
   int nofTries = port == 0 ? 0 : 20;
   while (0 < nofTries && !isPortAvailable(port)) {
     if (--nofTries == 0) {
-      LOG_MSG << "Unable to reserve a port.";
+      LOG_MSG_ERROR << "Unable to reserve a port.";
       return false;
     }
     port ++;
@@ -859,6 +864,10 @@ bool HttpServer::startServer()
 {
   auto &server = imp->server_;
   auto &auth = imp->app_.auth();
+
+  server.Options(".*", [](const httplib::Request &, httplib::Response &res) {
+    res.status = 204;
+    });
 
   server.set_mount_point("/setup", "./public/setup/");
 
@@ -924,6 +933,7 @@ bool HttpServer::startServer()
       json error = { {"error", e.what()} };
       res.status = 400;
       res.set_content(error.dump(), "application/json");
+      LOG_MSG_ERROR << "Error in /api/setup: " << e.what();
     }
     });
 
@@ -939,6 +949,7 @@ bool HttpServer::startServer()
       res.status = 500;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Error in /api/setup: " << e.what();
     }
     });
 
@@ -951,10 +962,13 @@ bool HttpServer::startServer()
 
   server.Post("/api/search", [this](const httplib::Request &req, httplib::Response &res) {
     const auto start = std::chrono::steady_clock::now();
+    bool isErr = false;
+    size_t tokensIn = 0;
     try {
       LOG_MSG << "POST /api/search";
       json request = json::parse(req.body);
       std::string query = request["query"].get<std::string>();
+      tokensIn = imp->app_.tokenizer().countTokensWithVocab(query);
       size_t top_k = request.value("top_k", 5);
       std::vector<float> queryEmbedding;
       EmbeddingClient embeddingClient(imp->app_.settings().embeddingCurrentApi(), imp->app_.settings().embeddingTimeoutMs());
@@ -974,19 +988,25 @@ bool HttpServer::startServer()
       }
       res.set_content(response.dump(), "application/json");
     } catch (const std::exception &e) {
+      isErr = true;
       json error = { {"error", e.what()} };
       res.status = 400;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Error in /api/search: " << e.what();
     }
     Impl::requestCounter_++;
     Impl::searchCounter_++;
     recordDuration(start, Impl::avgSearchTimeMs_);
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    imp->app_.monitor().recordRequest("search", ms, isErr, tokensIn, 0);
     });
 
   // (one-off embedding without storage)
   server.Post("/api/embed", [this](const httplib::Request &req, httplib::Response &res) {
     const auto start = std::chrono::steady_clock::now();
+    bool isErr = false;
+    size_t tokensIn = 0;
     try {
       LOG_MSG << "POST /api/embed";
       json request = json::parse(req.body);
@@ -995,6 +1015,7 @@ bool HttpServer::startServer()
       std::vector<std::string> texts;
       for (const auto &c : chunks) {
         texts.push_back(c.text);
+        tokensIn += c.metadata.tokenCount;
       }
       json response = json::array();
       const auto &ss = imp->app_.settings();
@@ -1013,14 +1034,19 @@ bool HttpServer::startServer()
       }
       res.set_content(response.dump(), "application/json");
     } catch (const std::exception &e) {
+      isErr = true;
       json error = { {"error", e.what()} };
       res.status = 400;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Error in /api/embed: " << e.what();
     }
     Impl::requestCounter_++;
     Impl::embedCounter_++;
     recordDuration(start, Impl::avgEmbedTimeMs_);
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    imp->app_.monitor().recordRequest("embed", ms, isErr, tokensIn, 0);
+    imp->app_.monitor().recordEmbeddingCost(imp->app_.settings().embeddingCurrentApi().id, tokensIn, imp->app_.settings().providers());
     });
 
   server.Post("/api/documents", [this](const httplib::Request &req, httplib::Response &res) {
@@ -1056,6 +1082,7 @@ bool HttpServer::startServer()
       res.status = 400;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Error in /api/documents: " << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -1077,6 +1104,7 @@ bool HttpServer::startServer()
       json error = { {"error", e.what()} };
       res.status = 500;
       res.set_content(error.dump(), "application/json");
+      LOG_MSG_ERROR << "Error in /api/documents: " << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -1096,6 +1124,7 @@ bool HttpServer::startServer()
       res.status = 500;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Error in /api/stats: " << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -1111,6 +1140,7 @@ bool HttpServer::startServer()
       res.status = 500;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Error in /api/update: " << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -1223,7 +1253,7 @@ bool HttpServer::startServer()
             LOG_MSG << "Auto-router classifier picked model" << modelId << "(" << AutoRouterConfig::normalizeTierTag(raw) << ")";
             pendingInfoVec.push_back("LLM router classified task as " + AutoRouterConfig::normalizeTierTag(raw));
           } catch (const std::exception &e) {
-            std::cout << "Classifier failed (" << e.what() << "), fallback=" << modelId << "\n";
+            LOG_MSG_WARN << "Classifier failed (" << e.what() << "), fallback=" << modelId << "\n";
           }
         }
         const ApiConfig *routed = imp->app_.settings().providers().findGeneration(modelId);
@@ -1285,7 +1315,7 @@ bool HttpServer::startServer()
 
       res.set_chunked_content_provider(
         "text/event-stream",
-        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig, pendingInfoVec]
+        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig, pendingInfoVec, start]
         (size_t offset, httplib::DataSink &sink) {
 
           auto packPayload = [](std::string data) {
@@ -1320,7 +1350,7 @@ bool HttpServer::startServer()
               messagesJson, orderedResults, temperature, maxTokens,
               [&sink, packPayload](const std::string &chunk) {
 #ifdef _DEBUG2
-                LOG_MSG << chunk;
+                LOG_MSG_DEBUG << chunk;
 #endif
                 std::string sse = packPayload(chunk);
                 bool success = sink.write(sse.data(), sse.size());
@@ -1346,6 +1376,10 @@ bool HttpServer::startServer()
               onInfo("Total cost incurred: 0");
             else
               onInfo(fmt::format("Approx. cost incurred: ${:.4f} (input: {:.4f}, output: {:.4f})", costTotal, costReq, costRes));
+
+            double streamMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+            imp->app_.monitor().recordRequest("chat", streamMs, false, usedTokens, resTokens);
+            imp->app_.monitor().recordGenerationCost(apiConfig.id, usedTokens, resTokens, imp->app_.settings().providers());
 
             // If generation produced no content, surface a visible fallback so the
             // client doesn't render a blank reply. Sources still go out below.
@@ -1388,8 +1422,8 @@ bool HttpServer::startServer()
             std::string error = "data: {\"error\": \"" + std::string(e.what()) + "\"}\n\n";
             sink.write(error.data(), error.size());
             sink.done();
+            LOG_MSG_ERROR << "Chat generation failed: " << e.what();
           }
-          //LOG_MSG << "set_chunked_content_provider: callback DONE.";
           return true;
         }
       );
@@ -1399,6 +1433,9 @@ bool HttpServer::startServer()
       res.status = 400;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      double streamMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      imp->app_.monitor().recordRequest("chat", streamMs, true, 0, 0);
+      LOG_MSG_ERROR << "Chat generation failed: " << e.what();
     }
     Impl::requestCounter_++;
     Impl::chatCounter_++;
@@ -1441,11 +1478,16 @@ bool HttpServer::startServer()
       initialTokens += imp->app_.tokenizer().countTokensWithVocab(suffix) + imp->app_.tokenizer().countTokensWithVocab(prefix);
       const auto searchResults = processInputResults(imp->app_, apiConfig, initialTokens, prefix, {}, { filename }, contextSizeRatio, {}, nullptr);
 
+
       LOG_MSG << "Generating FIM with prefix length" << prefix.size() << "and suffix length" << suffix.size();
       CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
       std::string fullResponse = completionClient.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first);
       LOG_MSG << "[FIM] Generated tokens:" << imp->app_.tokenizer().countTokensWithVocab(fullResponse);
       json response = { {"completion", fullResponse} };
+      size_t outTokens = imp->app_.tokenizer().countTokensWithVocab(fullResponse);
+      double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      imp->app_.monitor().recordRequest("fim", ms, false, searchResults.second, outTokens);
+      imp->app_.monitor().recordGenerationCost(apiConfig.id, searchResults.second, outTokens, imp->app_.settings().providers());
       res.set_content(response.dump(), "application/json");
       Impl::requestCounter_++;
     } catch (const std::exception &e) {
@@ -1453,8 +1495,62 @@ bool HttpServer::startServer()
       res.status = 400;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+      imp->app_.monitor().recordRequest("chat", ms, true, 0, 0);
+      LOG_MSG_ERROR << "FIM generation failed: " << e.what();
     }
     recordDuration(start, Impl::avgChatTimeMs_); // reuse chat timing metric
+    });
+
+  server.Get("/api/monitor/snapshot", [this](const httplib::Request &, httplib::Response &res) {
+    //LOG_MSG << "GET /api/monitor/snapshot";
+    try {
+      auto snap = imp->app_.monitor().toJson();
+      res.set_content(snap.dump(2), "application/json");
+    } catch (const std::exception &e) {
+      json error = { {"error", e.what()} };
+      res.status = 500;
+      res.set_content(error.dump(), "application/json");
+      Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Failed to get monitor snapshot: " << e.what();
+    }
+    Impl::requestCounter_++;
+    });
+
+  server.Get("/api/logs/tail", [this](const httplib::Request &req, httplib::Response &res) {
+    //LOG_MSG << "GET /api/logs/tail";
+    try {
+      std::string path = req.has_param("file") ? req.get_param_value("file") : "";
+      MonitorTracker::LogFileType type{ path == "diagnostics" ? MonitorTracker::LogFileType::Diagnostics : MonitorTracker::LogFileType::Logs };
+      int64_t offset = 0;
+      if (req.has_param("offset")) {
+        try { offset = std::stoll(req.get_param_value("offset")); } catch (...) { offset = 0; }
+      }
+      int64_t count = 500;
+      if (req.has_param("count")) {
+        try { count = std::stoll(req.get_param_value("count")); } catch (...) { count = 500; }
+      }
+      count = std::clamp<int64_t>(count, 1, 5000);
+      offset = (std::max)(offset, int64_t(-100000)); // bound tail buffer
+
+      json result = MonitorTracker::tailLogFile(type, offset, count, imp->app_.settings());
+      if (result.value("status", "") == "error") {
+        res.status = 400;
+      }
+      res.set_content(result.dump(), "application/json");
+    } catch (const std::exception &e) {
+      json error = {
+        { "status", "error" },
+        { "message", e.what() },
+        { "lines", json::array() },
+        { "total_lines", 0 }
+      };
+      res.status = 500;
+      res.set_content(error.dump(), "application/json");
+      Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Failed to tail logs: " << e.what();
+    }
+    Impl::requestCounter_++;
     });
 
   server.Get("/api/settings", [this](const httplib::Request &, httplib::Response &res) {
@@ -1502,6 +1598,7 @@ bool HttpServer::startServer()
       res.status = 500;
       res.set_content(errorJson.dump(2), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Failed to load settings: " << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -1523,6 +1620,7 @@ bool HttpServer::startServer()
       res.status = 500;
       res.set_content(errorJson.dump(2), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Failed to fetch instances: " << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -1544,6 +1642,7 @@ bool HttpServer::startServer()
       res.status = 500;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Failed to initiate shutdown: " << e.what();
     }
     });
 
@@ -1643,6 +1742,7 @@ bool HttpServer::startServer()
       prometheus << "embedder_database_sources_total " << stats.sources.size() << "\n\n";
     } catch (const std::exception &e) {
       prometheus << "# Database metrics unavailable: " << e.what() << "\n\n";
+      LOG_MSG_ERROR << "Failed to fetch database metrics: " << e.what();
     }
 
     res.set_content(prometheus.str(), "text/plain");
@@ -1663,6 +1763,8 @@ bool HttpServer::startServer()
             {"GET /api/instances", "List of running instances"},
             {"GET /api/metrics", "Service and database metrics"},
             {"GET /metrics", "Prometheus-compatible metrics"},
+            {"GET /api/monitor/snapshot", "Take a snapshot of the database"},
+            {"GET /api/logs/tail", "Tail log files with offset and maxBytes parameters"},
             {"POST /api/setup", "Setup configuration"},
             {"POST /api/search", "Semantic search"},
             {"POST /api/chat", "Chat with context (streaming)"},
@@ -1688,6 +1790,8 @@ bool HttpServer::startServer()
   LOG_MSG << "  GET  /api/stats";
   LOG_MSG << "  GET  /api/settings";
   LOG_MSG << "  GET  /api/documents";
+  LOG_MSG << "  GET  /api/monitor/snapshot";
+  LOG_MSG << "  GET  /api/logs/tail - params: path, offset, maxBytes";
   LOG_MSG << "  POST /api/setup     - {\"...\"}";
   LOG_MSG << "  POST /api/search    - {\"query\": \"...\", \"top_k\": 5}";
   LOG_MSG << "  POST /api/embed     - {\"text\": \"...\"}";

@@ -49,14 +49,14 @@ int main(int argc, char *argv[]) {
     auto codeChunks = chunker.chunkText(testCode);
     auto textChunks = chunker.chunkText(testText);
   
-    LOG_MSG << "Code Chunks:";
+    LOG_MSG_DEBUG << "Code Chunks:";
     for (const auto &chunk : codeChunks) {
       LOG_MSG << "\n\n----- chunk=" << chunk.chunkId << ", tokens = "<< chunk.metadata.tokenCount << "\n" << chunk.text << "\n";
     }
   
-    LOG_MSG << "\n\nText Chunks:";
+    LOG_MSG_DEBUG << "\n\nText Chunks:";
     for (const auto &chunk : textChunks) {
-      LOG_MSG << "\n\n----- size="<< chunk.metadata.tokenCount << "\n" << chunk.text << "\n";
+      LOG_MSG_DEBUG << "\n\n----- size="<< chunk.metadata.tokenCount << "\n" << chunk.text << "\n";
     }
   
     return 0;

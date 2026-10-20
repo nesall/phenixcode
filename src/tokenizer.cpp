@@ -126,7 +126,7 @@ SimpleTokenizer::SimpleTokenizer(const std::string &configPath)
       LOG_MSG << "Using vocab file" << configPath << "with" << vocab_.size() << "entries.";
     }
   } else {
-    LOG_MSG << "Unable to locate vocab file" << configPath << ". Skipped.";
+    LOG_MSG_WARN << "Unable to locate vocab file" << configPath << ". Skipped.";
   }
 }
 

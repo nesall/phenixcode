@@ -71,7 +71,7 @@ public:
   void stopPersistTimer();
 
   enum class LogFileType { Logs, Diagnostics };
-  static nlohmann::json tailLogFile(LogFileType type, int64_t offset, size_t maxBytes, const Settings &settings);
+  static nlohmann::json tailLogFile(LogFileType type, int64_t offset, int64_t count, const Settings &settings);
 
 private:
   struct Impl;

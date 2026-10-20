@@ -172,7 +172,7 @@
                     {#if fileValidationResults.length}
                       <ul class="text-left rounded border border-2 border-error-500 p-2 m-2">
                         {#each fileValidationResults as ferror}
-                          <li>&#x274C;{ferror.message}</li>
+                          <li>❌{ferror.message}</li>
                         {/each}
                       </ul>
                     {/if}

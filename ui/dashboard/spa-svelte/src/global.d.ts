@@ -4,7 +4,7 @@ declare interface Window {
   cppApi: {
     setPersistentKey: (key: string, value: string) => Promise<void>;
     getPersistentKey: (key: string) => Promise<string | null>;
-    getEnv: (key: string) => Promise<string|null>;
+    getEnv: (key: string) => Promise<string | null>;
 
     createProject: () => Promise<ProjectItem>;
     deleteProject: (project: ProjectItem) => Promise<{ status: string; message: string }>;
@@ -18,5 +18,16 @@ declare interface Window {
     getInstances: () => Promise<{ status: string, instances: InstanceItem[], message?: string }>;
     pickSettingsJsonFile: () => Promise<{ project_id: string, path: string } | null>;
     checkPathExists: (path: string) => Promise<{ status: string; message: string }>;
+    getMonitorSnapshot(params: { settingsFilePath: string }): Promise<{
+      status: "success" | "error";
+      message?: string;
+      monitor: MonitorSnapshot & { offline?: boolean };
+    }>;
+    getLogTail(params: {
+      settingsFilePath: string;
+      file: "main" | "diagnostics";
+      offset?: number;
+      count?: number;
+    }): Promise<LogTailResult>;
   };
 }

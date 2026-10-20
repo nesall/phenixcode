@@ -106,7 +106,7 @@ struct AdminAuth::Impl {
         return true;
       }
     } catch (const std::exception &e) {
-      LOG_MSG << "Error in authenticate" << e.what();
+      LOG_MSG_ERROR << "Error in authenticate" << e.what();
     }
     return false;
   }

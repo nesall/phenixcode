@@ -9,6 +9,7 @@
 #include "auth.h"
 #include "instregistry.h"
 #include "cutils.h"
+#include "monitor.h"
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -57,15 +58,29 @@ namespace {
     return url.substr(0, pos);
   }
 
-  size_t addEmbedChunks(const std::vector<Chunk> &chunks, size_t batchSize, const EmbeddingClient &ec, VectorDatabase &db, std::string_view prependlabelFmt) {
+  size_t addEmbedChunks(
+    const std::vector<Chunk> &chunks,
+    size_t batchSize,
+    const EmbeddingClient &ec,
+    VectorDatabase &db,
+    std::string_view prependlabelFmt,
+    MonitorTracker *monitor = nullptr,
+    size_t filesDone = 0,
+    size_t filesTotal = 0,
+    const Settings *settings = nullptr)
+  {
     size_t totalTokens = 0;
     size_t iBatch = 1;
     const size_t nofBatches = static_cast<size_t>(std::ceil(chunks.size() / double(batchSize)));
+    if (monitor) {
+      monitor->addChunksTotal(chunks.size());
+    }
     for (size_t i = 0; i < chunks.size(); i += batchSize) {
       size_t end = (std::min)(i + batchSize, chunks.size());
       std::vector<Chunk> batch(chunks.begin() + i, chunks.begin() + end);
       std::vector<std::vector<float>> embeddings;
       std::vector<std::string> texts;
+      size_t batchTokens = 0;
       for (const auto &chunk : batch) {
         auto text = chunk.text;
         if (!prependlabelFmt.empty()) {
@@ -79,16 +94,37 @@ namespace {
           text = label + "\n\n" + text;
         }
         texts.push_back(std::move(text));
-        totalTokens += chunk.metadata.tokenCount;
+        batchTokens += chunk.metadata.tokenCount;
       }
-      std::cout << "GENERATING embeddings for batch " << iBatch++ << "/" << nofBatches << "\r" << std::flush;
+      totalTokens += batchTokens;
+      std::cout << "GENERATING embeddings for batch " << iBatch << "/" << nofBatches << "\r" << std::flush;
+
+      auto t0 = std::chrono::steady_clock::now();
       ec.generateEmbeddings(texts, embeddings, EmbeddingClient::EncodeType::Document);
+      double latencyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+
       db.addDocuments(batch, embeddings);
+
+      if (monitor) {
+        monitor->addChunksDone(batch.size());
+        monitor->updateProgress(
+          MonitorPhase::Embed,
+          filesDone,
+          filesTotal,
+          0, // preserved or updated via addChunksDone
+          0,
+          iBatch,
+          batch.size());
+        monitor->recordRequest("embed", latencyMs, false, batchTokens, 0);
+        if (settings) {
+          monitor->recordEmbeddingCost(settings->embeddingCurrentApi().id, batchTokens, settings->providers());
+        }
+      }
+      iBatch++;
       std::cout << "  Processed all chunks.                     \r" << std::flush;
     }
     return totalTokens;
   }
-
 
   class IncrementalUpdater {
   private:
@@ -122,7 +158,7 @@ namespace {
       }
       for (const auto &filepath : currentFiles) {
         if (shouldIgnore(filepath)) {
-          LOG_MSG << "Skipping ignored file: " << filepath;
+          LOG_MSG_WARN << "Skipping ignored file: " << filepath;
           continue;
         }
         if (!fs::exists(filepath)) continue;
@@ -168,10 +204,14 @@ namespace {
           db_->commit();
         } catch (const std::exception &e) {
           db_->rollback();
-          LOG_MSG << "  Error during deletions:" << e.what();
+          LOG_MSG_ERROR << "  Error during deletions:" << e.what();
           return totalUpdated;
         }
       }
+
+      const size_t totalWork = info.modifiedFiles.size() + info.newFiles.size();
+      size_t doneFiles = 0;
+      app_.monitor().beginPhase(MonitorPhase::Embed, totalWork, 0);
 
       // Handle modifications (delete old, insert new)
       for (const auto &filepath : info.modifiedFiles) {
@@ -183,12 +223,15 @@ namespace {
           std::string content;
           SourceProcessor::readFile(filepath, content);
           if (content.empty()) {
-            LOG_MSG << "  Empty file" << filepath << ".Skipped.";
+            LOG_MSG_WARN << "  Empty file" << filepath << ".Skipped.";
             db_->rollback();
             continue;
           }
           auto chunks = chunker.chunkText(content, filepath);
-          addEmbedChunks(chunks, batchSize_, client, *db_, app_.settings().embeddingPrependLabelFormat());
+          addEmbedChunks(
+            chunks, batchSize_, client, *db_,
+            app_.settings().embeddingPrependLabelFormat(),
+            &app_.monitor(), ++doneFiles, totalWork, &app_.settings());
           totalUpdated++;
           clearFailure(filepath);
           LOG_MSG << "  Updated with" << chunks.size() << " chunks";
@@ -196,7 +239,7 @@ namespace {
           db_->persist();
         } catch (const std::exception &e) {
           db_->rollback();
-          LOG_MSG << "  Error:" << e.what();
+          LOG_MSG_ERROR << "  Error:" << e.what();
           recordFailure(filepath);
         }
       }
@@ -210,23 +253,28 @@ namespace {
           std::string content;
           SourceProcessor::readFile(filepath, content);
           if (content.empty()) {
-            LOG_MSG << "  Empty file" << filepath << ".Skipped.";
+            LOG_MSG_WARN << "  Empty file" << filepath << ".Skipped.";
             db_->rollback();
             continue;
           }
           auto chunks = chunker.chunkText(content, filepath);
-          addEmbedChunks(chunks, batchSize_, client, *db_, app_.settings().embeddingPrependLabelFormat());
+          addEmbedChunks(
+            chunks, batchSize_, client, *db_,
+            app_.settings().embeddingPrependLabelFormat(),
+            &app_.monitor(), ++doneFiles, totalWork, &app_.settings());
           totalUpdated++;
           clearFailure(filepath);
           LOG_MSG << "  Added with" << chunks.size() << " chunks";
           db_->commit();
           db_->persist();
         } catch (const std::exception &e) {
-          LOG_MSG << "  Error:" << e.what();
+          LOG_MSG_ERROR << "  Error:" << e.what();
           db_->rollback();
           recordFailure(filepath);
         }
       }
+      app_.monitor().finishIndexing(true);
+      app_.monitor().persist();
 
       if (0 < totalUpdated) {
         db_->persist();
@@ -235,6 +283,12 @@ namespace {
     }
 
     void printUpdateSummary(const UpdateInfo &info) {
+      if (info.newFiles.empty() && info.modifiedFiles.empty() &&
+          info.deletedFiles.empty()) {
+        std::cout << "No changes detected." << std::endl;
+        return;
+      }
+
       std::cout << "\n=== Update Summary ===" << std::endl;
       std::cout << "New files: " << info.newFiles.size() << std::endl;
       std::cout << "Modified files: " << info.modifiedFiles.size() << std::endl;
@@ -271,7 +325,7 @@ namespace {
       failureCounts_[filepath]++;
       if (failureCounts_[filepath] >= 3) {
         ignoredFiles_.insert(filepath);
-        LOG_MSG << "Added to ignore list after 3 failures: " << filepath;
+        LOG_MSG_WARN << "Added to ignore list after 3 failures: " << filepath;
       }
     }
 
@@ -509,6 +563,7 @@ struct App::Impl {
   std::unique_ptr<SourceProcessor> processor_;
   std::unique_ptr<IncrementalUpdater> updater_;
   std::unique_ptr<HttpServer> httpServer_;
+  std::unique_ptr<MonitorTracker> monitor_;
 
   std::chrono::system_clock::time_point appStartTime_;
   std::chrono::system_clock::time_point lastUpdateTime_;
@@ -531,6 +586,7 @@ App::App() : imp(new Impl)
 App::~App()
 {
   if (imp->httpServer_) imp->httpServer_->stop();
+  if (imp->monitor_) imp->monitor_->stopPersistTimer();
 }
 
 void App::initialize(/*const std::string &configPath*/)
@@ -560,6 +616,10 @@ void App::initialize(/*const std::string &configPath*/)
 
   imp->httpServer_ = std::make_unique<HttpServer>(*this);
 
+  imp->monitor_ = std::make_unique<MonitorTracker>(*imp->settings_);
+  imp->monitor_->startPersistTimer(5);
+  imp->monitor_->setState(MonitorState::Ready);
+
 #ifdef _DEBUG
   {
     const std::vector<std::string> queries{ 
@@ -575,9 +635,9 @@ void App::initialize(/*const std::string &configPath*/)
       std::vector<float> queryEmbedding;
       embeddingClient.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
       auto testRes = retrieve(query, queryEmbedding, 5);
-      LOG_MSG << "\nquery:" << query << ", nof res:" << testRes.size();
+      LOG_MSG_DEBUG << "\nquery:" << query << ", nof res:" << testRes.size();
       for (const auto &res : testRes) {
-        LOG_MSG << "Test search result:" << res.chunkId << res.sourceId << "(similarityScore:" << res.similarityScore << ", fusedScore:" << res.fusedScore << ")";
+        LOG_MSG_DEBUG << "Test search result:" << res.chunkId << res.sourceId << "(similarityScore:" << res.similarityScore << ", fusedScore:" << res.fusedScore << ")";
       }
     }
   }
@@ -591,9 +651,9 @@ bool App::testSettings() const
   try {
     {
       api = settings().embeddingCurrentApi();
-      LOG_MSG << "Testing embedding client" << api.model;
-      LOG_MSG << "  document format - '" << utils_log::LOGNOSPACE << api.documentFormat << "'";
-      LOG_MSG << "  query format - '" << utils_log::LOGNOSPACE << api.queryFormat << "'";
+      LOG_MSG_DEBUG << "Testing embedding client" << api.model;
+      LOG_MSG_DEBUG << "  document format - '" << utils_log::LOGNOSPACE << api.documentFormat << "'";
+      LOG_MSG_DEBUG << "  query format - '" << utils_log::LOGNOSPACE << api.queryFormat << "'";
       std::string textA0 = "int main() {}";
       std::string textA1 = "int main() { return 0; }";
       std::string textB0 = "double main() { return 0.0; }";
@@ -606,8 +666,8 @@ bool App::testSettings() const
         throw std::runtime_error("Embedding client not working");
       }
       float l2Norm = EmbeddingClient::calculateL2Norm(vA0);
-      LOG_MSG << "  Embedding client works fine." << "[ l2norm" << l2Norm << "]";
-      LOG_MSG << "  Testing similarities:";
+      LOG_MSG_DEBUG << "  Embedding client works fine." << "[ l2norm" << l2Norm << "]";
+      LOG_MSG_DEBUG << "  Testing similarities:";
 
       std::vector<float> vA1, vB0, vB1, vC0;
       cl.generateEmbeddings(textA1, vA1, EmbeddingClient::EncodeType::Query);
@@ -638,12 +698,12 @@ bool App::testSettings() const
         return "";// "FAIL";
         };
 
-      LOG_MSG << "    A0-A1 (similar):    " << simA0A1 << yesNo(simA0A1, 0.8f, 0.95f);
-      LOG_MSG << "    A0-B0 (different):  " << simA0B0 << yesNo(simA0B0, 0.3f, 0.7f);
-      LOG_MSG << "    A0-B1 (typo):       " << simA0B1 << yesNo(simA0B1, 0.3f, 0.7f);
-      LOG_MSG << "    B0-B1 (similar):    " << simB0B1 << yesNo(simB0B1, 0.6f, 0.9f);
-      LOG_MSG << "    A0-C0 (different):  " << simA0C0 << yesNo(simA0C0, 0.1f, 0.5f);
-      LOG_MSG << "    Doc-Query (Similar):" << simSelf << yesNo(simSelf, 0.75f, 0.95f);
+      LOG_MSG_DEBUG << "    A0-A1 (similar):    " << simA0A1 << yesNo(simA0A1, 0.8f, 0.95f);
+      LOG_MSG_DEBUG << "    A0-B0 (different):  " << simA0B0 << yesNo(simA0B0, 0.3f, 0.7f);
+      LOG_MSG_DEBUG << "    A0-B1 (typo):       " << simA0B1 << yesNo(simA0B1, 0.3f, 0.7f);
+      LOG_MSG_DEBUG << "    B0-B1 (similar):    " << simB0B1 << yesNo(simB0B1, 0.6f, 0.9f);
+      LOG_MSG_DEBUG << "    A0-C0 (different):  " << simA0C0 << yesNo(simA0C0, 0.1f, 0.5f);
+      LOG_MSG_DEBUG << "    Doc-Query (Similar):" << simSelf << yesNo(simSelf, 0.75f, 0.95f);
     }
     {
       api = {};
@@ -660,7 +720,7 @@ bool App::testSettings() const
       } else {
         api = settings().generationCurrentApi();
       }
-      LOG_MSG << "\nTesting completion client" << api.model;
+      LOG_MSG_DEBUG << "\nTesting completion client" << api.model;
       CompletionClient cl{ api, settings().generationTimeoutMs(), *this };
       std::vector<json> messages;
       messages.push_back({ {"role", "system"}, {"content", "You are a helpful assistant."} });
@@ -673,17 +733,17 @@ bool App::testSettings() const
         }
       );
       if (fullResponse.find("Paris") != std::string::npos) {
-        LOG_MSG << "  Completion client works fine.";
+        LOG_MSG_DEBUG << "  Completion client works fine.";
       } else {
         throw std::runtime_error("Completion client not working");
       }
     }
   } catch (const std::exception &ex) {
-    LOG_MSG << " " << ex.what();
-    LOG_MSG << " [" << api.apiUrl << "]";
-    LOG_MSG << " [" << api.model << "]";
-    LOG_MSG << "  Please, check settings file and edit it manually if needed.";
-    LOG_MSG << "   [ settings file path" << std::filesystem::absolute(settings().configPath()) << "]";
+    LOG_MSG_ERROR << " " << ex.what();
+    LOG_MSG_ERROR << " [" << api.apiUrl << "]";
+    LOG_MSG_ERROR << " [" << api.model << "]";
+    LOG_MSG_ERROR << "  Please, check settings file and edit it manually if needed.";
+    LOG_MSG_ERROR << "   [ settings file path" << std::filesystem::absolute(settings().configPath()) << "]";
     ok = false;
   }
   return ok;
@@ -692,7 +752,9 @@ bool App::testSettings() const
 void App::embed(bool noPrompt)
 {
   LOG_MSG << "Starting embedding process...";
+  imp->monitor_->beginPhase(MonitorPhase::Walk);
   auto sources = imp->processor_->collectSources(false);
+  imp->monitor_->updateProgress(MonitorPhase::Walk, 0, sources.size(), 0, 0);
   LOG_MSG << "Total" << sources.size() << "sources collected";
 
   // Print number of sources by extension
@@ -723,8 +785,6 @@ void App::embed(bool noPrompt)
 
   LOG_MSG << "URLs:" << urlCount;
 
-  //LOG_MSG << "Sources with empty text: " << emptyTextCount;
-
   if (!noPrompt) {
     std::cout << "Proceed? [y/N]: ";
     std::string confirm;
@@ -744,12 +804,12 @@ void App::embed(bool noPrompt)
     const auto &source = sources[i].source;
     try {
       if (!sources[i].isUrl && !fs::exists(source)) {
-        LOG_MSG << "File not found: " << source << ". Skipped.";
+        LOG_MSG_WARN << "File not found: " << source << ". Skipped.";
         skippedFiles++;
         continue;
       }
       if (imp->db_->fileExistsInMetadata(source)) {
-        LOG_MSG << "Duplicate source" << source << ". Skipped.";
+        LOG_MSG_WARN << "Duplicate source" << source << ". Skipped.";
         skippedFiles ++;
         continue;
       }
@@ -772,23 +832,30 @@ void App::embed(bool noPrompt)
 
       const std::string sourceId = sources[i].isUrl ? stripUrlQueryAndAnchor(source) : std::filesystem::path(source).string();
 
+      imp->monitor_->updateProgress(MonitorPhase::Chunk, totalFiles, sources.size(), totalChunks, 0);
       auto chunks = imp->chunker_->chunkText(content, sourceId);
 
       LOG_MSG << "  Generated" << chunks.size() << "chunks";
       const size_t batchSize = imp->settings_->embeddingBatchSize();
-      totalTokens += addEmbedChunks(chunks, batchSize, embeddingClient, *imp->db_, settings().embeddingPrependLabelFormat());
+      totalTokens += addEmbedChunks(
+        chunks, batchSize, embeddingClient, *imp->db_,
+        settings().embeddingPrependLabelFormat(),
+        imp->monitor_.get(), totalFiles, sources.size(), &settings());
       std::cout << std::endl;
       totalChunks += chunks.size();
       totalFiles++;
+      imp->monitor_->updateProgress(MonitorPhase::Persist, totalFiles, sources.size(), totalChunks, 0);
       imp->db_->commit();
       imp->db_->persist();
     } catch (const std::exception &e) {
       imp->db_->rollback();
       skippedFiles++;
-      LOG_MSG << "Error processing" << source << ": " << e.what();
+      LOG_MSG_ERROR << "Error processing" << source << ": " << e.what();
     }
   }
   imp->db_->persist();
+  imp->monitor_->finishIndexing(true);
+  imp->monitor_->persist();
   LOG_MSG << "\nCompleted!";
   LOG_MSG << "  Files processed:" << totalFiles;
   LOG_MSG << "  Files skipped:" << skippedFiles;
@@ -918,7 +985,7 @@ void App::chat()
       std::cout << std::endl;
       messages.push_back({ {"role", "assistant"}, {"content", assistantResponse} });
     } catch (const std::exception &e) {
-      std::cout << "Error: " << e.what() << "\n";
+      LOG_MSG_ERROR << e.what();
     }
   }
   std::cout << "Exiting chat mode.\n";
@@ -993,23 +1060,25 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
             outFile.close();
             LOG_MSG << "Instance info saved to --info-file" << infoFile;
           } else {
-            LOG_MSG << "Warning: Unable to open info file for writing: " << infoFile;
+            LOG_MSG_WARN << "Unable to open info file for writing: " << infoFile;
           }
         } catch (const std::exception &e) {
-          LOG_MSG << "Warning: Error saving instance info: " << e.what();
+          LOG_MSG_WARN << "Error saving instance info: " << e.what();
         }
       }
       if (0 < newPort) {
         imp->registry_ = std::make_unique<InstanceRegistry>(newPort, watch ? interval : 0, settings());
+        imp->monitor_->setSessionId(imp->registry_->getInstanceId());
+        imp->monitor_->persist();
         try {
           LOG_MSG << "\nStarting HTTP API server on port " << newPort << "...";
           imp->httpServer_->startServer();
         } catch (const std::exception &e) {
-          LOG_MSG << "[ERROR] Failed to register instance: " << e.what();
+          LOG_MSG_ERROR << "[ERROR] Failed to register instance: " << e.what();
           SignalHandler::requestShutdown();
         }
       } else {
-        LOG_MSG << "\nHTTP server was unable to bind to ports in the range [" << suggestedPort << "to" << newPort << "]";
+        LOG_MSG_ERROR << "\nHTTP server was unable to bind to ports in the range [" << suggestedPort << "to" << newPort << "]";
       }
       });
 
@@ -1470,6 +1539,16 @@ const InstanceRegistry &App::registry() const
   return *imp->registry_;
 }
 
+const MonitorTracker &App::monitor() const
+{
+  return *imp->monitor_;
+}
+
+MonitorTracker &App::monitor()
+{
+  return *imp->monitor_;
+}
+
 bool App::isValidPrivateAppKey(const std::string &appKey)
 {
   return appKey == imp->privateAppKey_;
@@ -1505,7 +1584,7 @@ float App::indSizeMB() const
       return std::round(sizeBytes / (1024.0f * 1024.0f) * 100.f) / 100.f;
     }
   } catch (const std::exception &e) {
-    LOG_MSG << "Error getting index size: " << e.what();
+    LOG_MSG_ERROR << "Error getting index size: " << e.what();
   }
   return 0;
 }
@@ -1942,7 +2021,7 @@ int App::run(int argc, char *argv[])
       settings->initProjectIdIfMissing(true);
       settings->initProjectTitleIfMissing(true);
     } catch (const std::exception &ex) {
-      LOG_MSG << ex.what();
+      LOG_MSG_ERROR << ex.what();
       throw;
     }
     SET_LOG_OUTPUT_FILE_PATH(settings->loggingLoggingFile());
@@ -2060,12 +2139,12 @@ int App::run(int argc, char *argv[])
     // CLI11 has built-in formatting
     return app.exit(e);
   } catch (const std::filesystem::filesystem_error &e) {
-    LOG_MSG << "Filesystem error: " << e.what();
-    LOG_MSG << "Path: " << e.path1();
+    LOG_MSG_ERROR << "Filesystem error: " << e.what();
+    LOG_MSG_ERROR << "Path: " << e.path1();
     return 1;
   } catch (const std::exception &e) {
-    LOG_MSG << "Error: " << e.what();
-    LOG_MSG << "Run with --help for usage information";
+    LOG_MSG_ERROR << "Error: " << e.what();
+    LOG_MSG_ERROR << "Run with --help for usage information";
     return 1;
   }
   return 0;

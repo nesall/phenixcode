@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { projectStore } from "../../store.svelte";
-  import type { DatabaseSettings } from "../../../app";
-  import { helper_saveProjectSettings, isParentDirValid } from "../../utils";
+  import { projectStore } from "../../../store.svelte";
+  import type { DatabaseSettings } from "../../../../app";
+  import { helper_saveProjectSettings, isParentDirValid } from "../../../utils";
 
   interface Props {
     onChanged: any;

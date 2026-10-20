@@ -347,7 +347,7 @@ std::vector<Chunk> Chunker::chunkText(const std::string &text, const std::string
       chunks = postProcessChunks(splitIntoLineChunks(text, uri), ContentType::Code);
       break;
     default:
-      LOG_MSG << "Unsupported content type for URI: " << uri << ". Skipped.";
+      LOG_MSG_WARN << "Unsupported content type for URI: " << uri << ". Skipped.";
       break;
     }
   } else {

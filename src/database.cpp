@@ -120,7 +120,7 @@ size_t HnswSqliteVectorDatabase::addDocument(const Chunk &chunk, const std::vect
     size_t nofLines = countLines(chunk.docUri);
     upsertFileMetadata(chunk.docUri, utils::getFileModificationTime(chunk.docUri), std::filesystem::file_size(chunk.docUri), nofLines);
   } catch (const std::exception &ex) {
-    LOG_MSG << "Error during upserting a chunk:" << ex.what();
+    LOG_MSG_ERROR << "Error during upserting a chunk:" << ex.what();
   }
   if (imp->inSqlTransaction_) {
     imp->pendingAdds_.emplace_back(chunkId, embedding);
@@ -249,7 +249,7 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::bm25SearchRaw(const std::str
     results.push_back(sr);
   }
   if (rc != SQLITE_DONE) {
-    LOG_MSG << "bm25SearchRaw failed:" << sqlite3_errmsg(imp->db_);
+    LOG_MSG_ERROR << "bm25SearchRaw failed:" << sqlite3_errmsg(imp->db_);
   }
   return results;
 }
@@ -294,7 +294,7 @@ HnswSqliteVectorDatabase::QueryPlan HnswSqliteVectorDatabase::planQuery(const st
     const std::string quoted = '"' + tok + '"';
     const int64_t df = countRows("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", quoted);
 #ifdef _DEBUG
-    //LOG_MSG << "fts token" << tok << "df =" << df;   // calibrate maxDf from this
+    //LOG_MSG_DEBUG << "fts token" << tok << "df =" << df;   // calibrate maxDf from this
 #endif
     if (df == 0 || df > maxDf) continue;
     (isIdentifierLike(tok) ? idTerms : otherTerms).push_back(quoted);
@@ -339,7 +339,7 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::hybridSearch(
   if (wBm25 > 0.0f) {
     bm25Results = bm25Search(plan.fts, candidateK);
 #ifdef _DEBUG
-    //LOG_MSG << "hybridSearch | wBm25" << wBm25 << "| #hits" << bm25Results.size() << "| plan.fts" << plan.fts;
+    //LOG_MSG_DEBUG << "hybridSearch | wBm25" << wBm25 << "| #hits" << bm25Results.size() << "| plan.fts" << plan.fts;
 #endif
   }
   if (vectorResults.empty() && bm25Results.empty()) return {};
@@ -499,8 +499,8 @@ void HnswSqliteVectorDatabase::initializeVectorIndex()
         << imp->index_->getDeletedCount() << "deleted";
       return;
     } catch (const std::exception &e) {
-      LOG_MSG << "Failed to load existing index at" << std::filesystem::absolute(indexPath()) << "|" << e.what();
-      LOG_MSG << "Creating new index...";
+      LOG_MSG_ERROR << "Failed to load existing index at" << std::filesystem::absolute(indexPath()) << "|" << e.what();
+      LOG_MSG_ERROR << "Creating new index...";
     }
   }
   imp->index_ = std::make_unique<hnswlib::HierarchicalNSW<float>>(imp->space_.get(), imp->maxElements_, 16, 200, 42, true);
@@ -607,7 +607,7 @@ size_t HnswSqliteVectorDatabase::deleteDocumentsBySource(const std::string &sour
       try {
         imp->index_->markDelete(id);
       } catch (const std::runtime_error &e) {
-        LOG_MSG << "Label" << id << "might already be deleted or not exist." << e.what();
+        LOG_MSG_ERROR << "Label" << id << "might already be deleted or not exist." << e.what();
       }
     }
   }
@@ -752,7 +752,7 @@ void HnswSqliteVectorDatabase::persist()
     imp->index_->saveIndex(imp->indexPath_);
     //LOG_MSG << "Saved vector index with " << imp->index_->getCurrentElementCount() << " vectors";
   } else {
-    LOG_MSG << "Saving with no vectors in the index db. Skipped.";
+    LOG_MSG_WARN << "Saving with no vectors in the index db. Skipped.";
   }
 }
 

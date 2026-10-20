@@ -460,10 +460,10 @@
                     id="document-format-{i}"
                     class="input"
                     bind:value={api.document_format}
-                    placeholder="&#123;&#125;"
+                    placeholder={"{}"}
                     onchange={onChange}
                   />
-                  <p class="text-sm text-surface-500 mt-1">Use &#123;&#125; as placeholder for the document text</p>
+                  <p class="text-sm text-surface-500 mt-1">{"Use {} as placeholder for the document text"}</p>
                 </label>
 
                 <label class="label">
@@ -473,10 +473,10 @@
                     id="query-format-{i}"
                     class="input"
                     bind:value={api.query_format}
-                    placeholder="Represent this sentence for searching relevant passages: &#123;&#125;"
+                    placeholder={"Represent this sentence for searching relevant passages: {}"}
                     onchange={onChange}
                   />
-                  <p class="text-sm text-surface-500 mt-1">Use &#123;&#125; as placeholder for the query text</p>
+                  <p class="text-sm text-surface-500 mt-1">{"Use {} as placeholder for the query text"}</p>
                 </label>
               </div>
 

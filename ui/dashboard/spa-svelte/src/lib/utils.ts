@@ -1,4 +1,4 @@
-import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings, EmbeddingSettings, GenerationSettings } from "../app";
+import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings, EmbeddingSettings, GenerationSettings, LogTailResult, MonitorSnapshot } from "../app";
 import { createToaster } from '@skeletonlabs/skeleton-svelte';
 
 export const toaster = createToaster();
@@ -356,6 +356,83 @@ async function test_checkPathExists(path: string) {
   }
 }
 
+async function test_fetchLogTail(
+  settingsPath: string,
+  file: "main" | "diagnostics",
+  offset = 0,
+  count = 2,
+): Promise<LogTailResult> {
+  const sampleLines = file === "diagnostics"
+    ? [
+      "2025-12-06 15:40:10 [INFO] Diagnostics logging initialized",
+      "2025-12-06 15:40:12 [DEBUG] Monitor snapshot written",
+    ]
+    : [
+      "2025-12-06 15:40:10 [INFO] PhenixCode started",
+      "2025-12-06 15:40:11 [INFO] Scanning project sources",
+      "2025-12-06 15:40:12 [INFO] Embedding batch 1 completed",
+      "2025-12-06 15:40:13 [WARN] No additional files found",
+    ];
+  const content = `${sampleLines.join("\n")}\n`;
+  const safeOffset = Math.max(0, Math.min(Math.floor(offset), content.length));
+  const safeCount = Math.max(0, Math.floor(count));
+  const endOffset = Math.min(content.length, safeOffset + safeCount);
+  const lines = content.slice(safeOffset, endOffset).split("\n").filter(Boolean);
+  return {
+    status: "success",
+    lines,
+    total_lines: lines.length,
+  };
+}
+
+async function test_fetchSnapshot(settingsFilePath: string): Promise<{
+  status: "success" | "error";
+  message?: string;
+  monitor: MonitorSnapshot & { offline?: boolean };
+}> {
+  const now = Date.now() / 1000;
+  return {
+    status: "success",
+    monitor: {
+      project_id: "",
+      session_id: "browser",
+      seq: 0,
+      ts: now,
+      state: "idle",
+      last_heartbeat: now,
+      offline: true,
+      progress: {
+        phase: "idle",
+        files_total: 0,
+        files_done: 0,
+        current_batch: 0,
+        current_batch_size: 0,
+        chunks_total: 0,
+        chunks_done: 0,
+        eta_seconds: -1,
+        started_at: 0,
+      },
+      metrics: {
+        requests: 0,
+        errors: 0,
+        tokens_in: 0,
+        tokens_out: 0,
+        latency_p50_ms: 0,
+        latency_p95_ms: 0,
+        latency_samples: 0,
+      },
+      cost: {
+        generation_input: 0,
+        generation_output: 0,
+        generation_cached_input: 0,
+        embedding: 0,
+        total: 0,
+        pricing_version: "",
+      },
+    },
+  };
+}
+
 export async function helper_getProviders(): Promise<{ status: string, providers: ProvidersSettings, message?: string }> {
   if (window.cppApi) {
     return await window.cppApi.getProviders();
@@ -520,49 +597,70 @@ export function helper_readjustProject(providers: ProvidersSettings, proj: Proje
 
 export async function helper_createProject(): Promise<ProjectItem> {
   if (window.cppApi) {
-    return await window.cppApi.createProject();
+    return window.cppApi.createProject();
   } else {
-    return await test_createProject();
+    return test_createProject();
   }
 }
 
 export async function helper_deleteProject(project: ProjectItem): Promise<{ status: string; message: string }> {
   if (window.cppApi) {
-    return await window.cppApi.deleteProject(project);
+    return window.cppApi.deleteProject(project);
   } else {
-    return await test_deleteProject(project);
+    return test_deleteProject(project);
   }
 }
 
 export async function helper_importProject(projectId: string, configPath: string): Promise<{ status: string; message: string }> {
   if (window.cppApi) {
-    return await window.cppApi.importProject(projectId, configPath);
+    return window.cppApi.importProject(projectId, configPath);
   } else {
-    return await test_importProject(projectId, configPath);
+    return test_importProject(projectId, configPath);
   }
 }
 
 export async function helper_startServe(project: ProjectItem, coreExecutablePath: string, watch: boolean, interval: number) {
   if (window.cppApi) {
-    return await window.cppApi.startServe(project, coreExecutablePath, watch, interval);
+    return window.cppApi.startServe(project, coreExecutablePath, watch, interval);
   } else {
-    return await test_startServe(project, coreExecutablePath, watch, interval);
+    return test_startServe(project, coreExecutablePath, watch, interval);
   }
 }
 
 export async function helper_stopServe(instanceId: string) {
   if (window.cppApi) {
-    return await window.cppApi.stopServe(instanceId);
+    return window.cppApi.stopServe(instanceId);
   } else {
-    return await test_stopServe(instanceId);
+    return test_stopServe(instanceId);
   }
 }
 
 export async function helper_checkPathExists(path: string) {
   if (window.cppApi) {
-    return await window.cppApi.checkPathExists(path);
+    return window.cppApi.checkPathExists(path);
   } else {
-    return await test_checkPathExists(path);
+    return test_checkPathExists(path);
+  }
+}
+
+export async function helper_fetchLogTail(settingsFilePath: string, file: "main" | "diagnostics",
+  offset: number, count: number): Promise<LogTailResult> {
+  if (window.cppApi) {
+    return window.cppApi.getLogTail({ settingsFilePath, file, offset, count });
+  } else {
+    return test_fetchLogTail(settingsFilePath, file, offset, count);
+  }
+}
+
+export async function helper_fetchSnapshot(settingsFilePath: string): Promise<{
+  status: "success" | "error";
+  message?: string;
+  monitor: MonitorSnapshot & { offline?: boolean };
+}> {
+  if (window.cppApi) {
+    return window.cppApi.getMonitorSnapshot({ settingsFilePath });
+  } else {
+    return test_fetchSnapshot(settingsFilePath);
   }
 }
 
@@ -578,7 +676,7 @@ export function mapProjectToInstance(project: ProjectItem, insts: InstanceItem[]
 export async function isParentDirValid(path: string) {
   path = standardizePath(path);
   const parentDir = path.substring(0, path.lastIndexOf('/'));
-  return await helper_checkPathExists(parentDir);
+  return helper_checkPathExists(parentDir);
 }
 
 export async function hardValidateProjectItem(item: ProjectItem): Promise<{ status: string; message: string }[]> {

@@ -104,7 +104,7 @@ void SourceProcessor::processDirectory(const Settings::SourceItem &source, std::
       }
     }
   } catch (const std::exception &) {
-    LOG_MSG << "Unable to process resource " << path << ". Skipped.";
+    LOG_MSG_ERROR << "Unable to process resource " << path << ". Skipped.";
   }
 }
 
@@ -122,11 +122,11 @@ void SourceProcessor::processFile(const std::string &filepath, std::vector<Sourc
     try {
       auto fsize = std::filesystem::file_size(filepath);
       if (maxSize * 1024 * 1024 < fsize) {
-        LOG_MSG << "File " << filepath << " exceeds max allowed size of " << maxSize << " MB. Skipped.";
+        LOG_MSG_WARN << "File " << filepath << " exceeds max allowed size of " << maxSize << " MB. Skipped.";
         return;
       }
     } catch (const std::exception &) {
-      LOG_MSG << "Unable to process resource " << filepath << ". Skipped.";
+      LOG_MSG_ERROR << "Unable to process resource " << filepath << ". Skipped.";
       return;
     }
   }
@@ -134,7 +134,7 @@ void SourceProcessor::processFile(const std::string &filepath, std::vector<Sourc
   if (!readContent || SourceProcessor::readFile(filepath, text)) {
     content.push_back({ false, std::move(text), std::filesystem::path(filepath).lexically_normal().generic_string() });
   } else {
-    LOG_MSG << "Unable to process resource " << filepath << ". Skipped.";
+    LOG_MSG_WARN << "Unable to process resource " << filepath << ". Skipped.";
   }
 }
 
@@ -165,7 +165,7 @@ void SourceProcessor::processUrl(const Settings::SourceItem &source, std::vector
       content.push_back({ true, res->body, url });
     }
   } catch (const std::exception &) {
-    LOG_MSG << "Unable to process resource " << url << ". Skipped.";
+    LOG_MSG_ERROR << "Unable to process resource " << url << ". Skipped.";
   }
 }
 

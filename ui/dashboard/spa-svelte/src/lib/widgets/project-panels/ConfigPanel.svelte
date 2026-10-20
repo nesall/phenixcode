@@ -1,22 +1,18 @@
 <script lang="ts">
   import { Tabs } from "@skeletonlabs/skeleton-svelte";
-  import Source from "./project-panels/Source.svelte";
-  import Embedding from "./project-panels/Embedding.svelte";
-  import Generation from "./project-panels/Generation.svelte";
-  import Database from "./project-panels/Database.svelte";
-  import Chunking from "./project-panels/Chunking.svelte";
-  import Logging from "./project-panels/Logging.svelte";
-  import Tokenizer from "./project-panels/Tokenizer.svelte";
-  import JSON from "./project-panels/JSON.svelte";
-  import type { ProjectItem } from "../../app";
-  import { projectStore } from "../store.svelte";
+  import Source from "./config/Source.svelte";
+  import Embedding from "./config/Embedding.svelte";
+  import Generation from "./config/Generation.svelte";
+  import Database from "./config/Database.svelte";
+  import Chunking from "./config/Chunking.svelte";
+  import Logging from "./config/Logging.svelte";
+  import Tokenizer from "./config/Tokenizer.svelte";
+  import JSON from "./config/JSON.svelte";
+  import type { ProjectItem } from "../../../app";
+  import { projectStore } from "../../store.svelte";
   import * as icons from "@lucide/svelte";
 
   let value = $state("sources");
-
-  // let changedProject: ProjectItem | null = $state(projectStore.selected);
-
-  // const projectItem = $derived(changedProject || projectStore.selected);
 
   function onChanged(p: ProjectItem) {
     // changedProject = p;

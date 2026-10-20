@@ -1,15 +1,17 @@
 <script lang="ts">
   import { Tabs } from "@skeletonlabs/skeleton-svelte";
-  import Instance from "./project-panels/Instance.svelte";
-  import ConfigPanel from "./ConfigPanel.svelte";
+  import Instance from "./project-panels/InstancePanel.svelte";
+  import ConfigPanel from "./project-panels/ConfigPanel.svelte";
   import { projectStore } from "../store.svelte";
+  import Monitor from "./project-panels/MonitorPanel.svelte";
 </script>
 
 {#if projectStore.selected}
   <Tabs defaultValue="config" class="h-full text-sm">
     <Tabs.List class="">
-      <Tabs.Trigger value="config" class="text-sm code">Configuration</Tabs.Trigger>
-      <Tabs.Trigger value="instance" class="text-sm bg-tertiary-100-900">Instance</Tabs.Trigger>
+      <Tabs.Trigger value="config" class="text-sm bg-primary-100-900 h-8">Configuration</Tabs.Trigger>
+      <Tabs.Trigger value="instance" class="text-sm bg-secondary-100-900 h-8">Instance</Tabs.Trigger>
+      <Tabs.Trigger value="monitor" class="text-sm bg-tertiary-100-900 h-8">Monitor</Tabs.Trigger>
       <Tabs.Indicator />
       <div class="ml-auto flex items-center"></div>
     </Tabs.List>
@@ -18,6 +20,9 @@
     </Tabs.Content>
     <Tabs.Content value="instance" class="h-0 flex-grow">
       <Instance />
+    </Tabs.Content>
+    <Tabs.Content value="monitor" class="h-0 flex-grow">
+      <Monitor />
     </Tabs.Content>
   </Tabs>
 {:else}

@@ -223,3 +223,108 @@ export interface InstanceItem {
   _hidden?: boolean;
   params: { watch_interval?: number };
 }
+
+
+// ---------------------------------------------------------------------------
+// Monitor / Live-View
+// ---------------------------------------------------------------------------
+
+export type MonitorState = "idle" | "scanning" | "indexing" | "ready" | "error";
+
+/** Snapshot written by the core; also served by GET /api/monitor/snapshot. */
+export interface MonitorSnapshot {
+  project_id: string;
+  session_id: string;        // unique per core run (use instance.id)
+  seq: number;               // monotonic; drop out-of-order events
+  ts: number;                // epoch seconds, server-side
+  state: MonitorState;
+  last_heartbeat: number;    // epoch seconds; age => "stale" badge
+  progress: MonitorProgress;
+  metrics: MonitorMetrics;
+  cost: MonitorCost;
+}
+
+export interface MonitorProgress {
+  phase: "idle" | "walk" | "chunk" | "embed" | "persist";
+  files_total: number;
+  files_done: number;
+  current_batch: number;      // 1-based batch index in this phase
+  current_batch_size: number; // files in the current batch
+  chunks_total: number;
+  chunks_done: number;
+  eta_seconds: number;        // -1 = unknown
+  started_at: number;         // epoch seconds
+}
+
+export interface MonitorMetrics {
+  requests: number;
+  errors: number;
+  tokens_in: number;
+  tokens_out: number;
+  latency_p50_ms: number;
+  latency_p95_ms: number;
+  /** count of requests the histogram was computed from (0 => percentiles unknown) */
+  latency_samples: number;
+  /** optional per-endpoint breakdown; key = route name like "embed" | "chat" */
+  by_endpoint?: Record<string, MonitorEndpointMetrics>;
+}
+
+export interface MonitorEndpointMetrics {
+  requests: number;
+  errors: number;
+  tokens_in: number;
+  tokens_out: number;
+  latency_p50_ms: number;
+  latency_p95_ms: number;
+  latency_samples: number;
+}
+
+export interface MonitorCost {
+  /** estimated, USD; pricing from providers.generation[].pricing_tpm */
+  generation_input: number;
+  generation_output: number;
+  generation_cached_input: number;
+  /** 0 unless the embedding provider exposes pricing_tpm (currently not) */
+  embedding: number;
+  total: number;
+  /** hash/version of providers.json used for this tally */
+  pricing_version: string;
+  /** per-generation-provider breakdown; key = GenerationApi.id */
+  by_provider?: Record<string, MonitorProviderCost>;
+  note?: string;              // e.g. "embedding cost not included"
+}
+
+export interface MonitorProviderCost {
+  input: number;
+  output: number;
+  cached_input: number;
+  total: number;
+  tokens_in: number;
+  tokens_out: number;
+  model: string;
+}
+
+/** Incremental event pushed over SSE; only fields that changed are set. */
+export interface MonitorEvent {
+  seq: number;
+  ts: number;
+  session_id: string;
+  /** full snapshot on first event / after reconnect; deltas afterwards */
+  kind: "snapshot" | "delta" | "heartbeat" | "log" | "error";
+  state?: MonitorState;
+  last_heartbeat?: number;
+  progress?: Partial<MonitorProgress>;
+  metrics?: Partial<MonitorMetrics>;
+  cost?: Partial<MonitorCost>;
+  /** log tail event (optional; prefer the file-tail endpoint for offline) */
+  message?: string;
+  error?: string;
+}
+
+/** Result of GET /api/logs/tail */
+export interface LogTailResult {
+  status: "success" | "error";
+  message?: string;
+  lines: string[];
+  total_lines: number;
+}

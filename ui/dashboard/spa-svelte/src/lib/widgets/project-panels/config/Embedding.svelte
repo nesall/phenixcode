@@ -2,9 +2,9 @@
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
   import { slide } from "svelte/transition";
-  import UpDownButton from "../misc/UpDownButton.svelte";
-  import { helper_saveProjectSettings } from "../../utils";
-  import { embeddingProviders, projectStore } from "../../store.svelte";
+  import UpDownButton from "../../misc/UpDownButton.svelte";
+  import { helper_saveProjectSettings } from "../../../utils";
+  import { embeddingProviders, projectStore } from "../../../store.svelte";
 
   const jsonData = $derived(projectStore.selected?.jsonData);
   const projectTitle = $derived(projectStore.selected?.jsonData.source.project_title);
@@ -108,10 +108,10 @@
                 id="prepend-label-format"
                 class="input"
                 bind:value={projectStore.selected.jsonData.embedding.prepend_label_format}
-                placeholder="[Source: &#123;&#125;]\n"
+                placeholder={"[Source: {}]\n"}
                 onchange={onChange}
               />
-              <p class="text-sm text-surface-500 mt-1">Use &#123;&#125; as placeholder for the source name</p>
+              <p class="text-sm text-surface-500 mt-1">{"Use {} as placeholder for the source name"}</p>
             </label>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

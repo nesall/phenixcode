@@ -4,6 +4,7 @@
 #include <utils_log/logger.hpp>
 #include "wb.h"
 #include "procmngr.h"
+#include "cutils.h"
 #include "utils.h"
 #include "instregistry.h"
 #include "settings.h"
@@ -11,7 +12,8 @@
 #include "json_shim.h"
 #include <filesystem>
 #include <string>
-#include <cassert>
+#include <deque>
+#include <cstdint>
 #include <thread>
 #include <atomic>
 #include <unordered_map>
@@ -402,7 +404,7 @@ int main() {
           }
           if (jRefs.contains("refs")) {
             for (const auto &t : jRefs["refs"]) {
-              if (t.contains("path") && fs::path(std::string{t["path"]}) == fs::path(path)) {
+              if (t.contains("path") && fs::path(std::string{ t["path"] }) == fs::path(path)) {
                 throw std::runtime_error("Already imported");
               }
             }
@@ -673,7 +675,7 @@ int main() {
               std::string host = a["host"];
               if (host == "localhost") host = "127.0.0.1";
               httplib::Client cli(host, port);
-              httplib::Headers headers = { 
+              httplib::Headers headers = {
                 //{"Authorization", "Basic: admin:admin"}
               };
               auto result = cli.Post("/api/shutdown", headers, "", "application/json");
@@ -770,6 +772,134 @@ int main() {
       }
     );
 
+    w.bind("getMonitorSnapshot", [&w](const std::string &data) -> std::string
+      {
+        LOG_MSG << "getMonitorSnapshot" << data;
+        nlohmann::json res;
+        try {
+          auto j = nlohmann::json::parse(data);
+          if (!j.is_array() || j.size() == 0) {
+            throw std::runtime_error("Invalid parameters for getMonitorSnapshot");
+          }
+          const auto params = j[0];
+          const std::string settingsPath = params.value("settingsFilePath", std::string{});
+          if (settingsPath.empty()) {
+            res = { { "status", "error" },{ "message", "settingsFilePath is required" } };
+            return res.dump();
+          }
+
+          const auto projectDir = std::filesystem::path(settingsPath).parent_path();
+          const auto monitorPath = utils::monitorPathFor(projectDir);
+
+          if (!std::filesystem::exists(monitorPath)) {
+            // No snapshot on disk yet — return a minimal idle snapshot
+            res = {
+              { "status", "success" },
+              { "monitor", json::object({
+                { "project_id", "" },
+                { "session_id", "offline" },
+                { "seq", 0 },
+                { "ts", 0 },
+                { "state", "idle" },
+                { "last_heartbeat", 0 },
+                { "progress", json::object() },
+                { "metrics",  json::object() },
+                { "cost",     json::object() },
+                { "offline", true }
+              }) }
+            };
+            return res.dump();
+          }
+
+          std::ifstream file(monitorPath);
+          json snap = json::parse(file);
+          snap["offline"] = true;
+          res = { { "status", "success" },{ "monitor", std::move(snap) } };
+        } catch (const std::exception &e) {
+          res = { {"status", "error"}, {"message", e.what()} };
+        }
+        return res.dump();
+      }
+    );
+
+    w.bind("getLogTail", [&w](const std::string &data) -> std::string
+      {
+        json res;
+        try {
+          auto j = json::parse(data);
+          if (!j.is_array() || j.size() == 0) {
+            throw std::runtime_error("Invalid parameters for getLogTail");
+          }
+          const auto params = j[0];
+          const std::string settingsPath = params.value("settingsFilePath", std::string{});
+          const std::string file = params.value("file", std::string{});
+          int64_t offset = params.value("offset", static_cast<int64_t>(0));
+          int64_t count = params.value("count", static_cast<int64_t>(500));
+          count = (std::clamp)(count, static_cast<int64_t>(1), static_cast<int64_t>(5000));
+          offset = (std::max)(offset, static_cast<int64_t>(-100000)); // bound tail buffer
+
+          auto fail = [&](const std::string &msg) {
+            return json{ { "status", "error" },{ "message", msg },
+                         { "lines", json::array() },{ "total_lines", 0 } }.dump();
+            };
+          if (settingsPath.empty()) return fail("settingsFilePath is required");
+          if (file != "main" && file != "diagnostics") return fail("file must be 'main' or 'diagnostics'");
+
+          // Resolve log file path from settings JSON
+          std::ifstream sfile(settingsPath);
+          json settings = json::parse(sfile);
+          const auto &logging = settings.value("logging", json::object());
+          std::string logPath = file == "diagnostics"
+            ? logging.value("diagnostics_file", std::string{})
+            : logging.value("logging_file", std::string{});
+
+          if (!logPath.empty() && !fs::path(logPath).is_absolute()) {
+            logPath = (fs::path(settingsPath).parent_path() / logPath).lexically_normal().string();
+          }
+
+          json lines = json::array();
+          int64_t total = 0;
+
+          if (!logPath.empty() && fs::exists(logPath)) {
+            std::ifstream logfile(logPath, std::ios::binary);
+            const bool fromTail = offset < 0;
+            const size_t tailN = fromTail ? static_cast<size_t>(-offset) : 0;
+            std::deque<std::string> tail;
+
+            std::string line;
+            while (std::getline(logfile, line)) {
+              if (logfile.eof()) break; // unterminated last line: still being written, don't count
+              if (!line.empty() && line.back() == '\r') line.pop_back();
+
+              if (fromTail) {
+                tail.push_back(std::move(line));
+                if (tail.size() > tailN) tail.pop_front();
+              } else if (total >= offset && static_cast<int64_t>(lines.size()) < count) {
+                lines.push_back(std::move(line));
+              }
+              ++total;
+            }
+
+            if (fromTail) {
+              const size_t n = (std::min)(tail.size(), static_cast<size_t>(count));
+              for (size_t i = 0; i < n; ++i) lines.push_back(std::move(tail[i]));
+            }
+          }
+
+          res = {
+            { "status", "success" },
+            { "lines", std::move(lines) },
+            { "total_lines", total }
+          };
+        } catch (const std::exception &e) {
+          res = { { "status", "error" },{ "message", e.what() },
+                  { "lines", json::array() },{ "total_lines", 0 } };
+        }
+        return res.dump();
+      }
+    );
+
+
     w.init(R"(
       window.cppApi = {
         setPersistentKey,
@@ -788,6 +918,8 @@ int main() {
         startServe,
         pickSettingsJsonFile,
         checkPathExists,
+        getMonitorSnapshot,
+        getLogTail
       };
       window.addEventListener('error', function(e) {
         console.error('JS Error:', e.message, e.filename, e.lineno);

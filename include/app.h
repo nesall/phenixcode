@@ -15,6 +15,7 @@ class EmbeddingClient;
 class CompletionClient;
 class SimpleTokenizer;
 class InstanceRegistry;
+class MonitorTracker;
 struct SearchResult;
 
 
@@ -54,6 +55,8 @@ public:
   const AdminAuth &auth() const;
   AdminAuth &auth();
   const InstanceRegistry &registry() const;
+  const MonitorTracker &monitor() const;
+  MonitorTracker &monitor();
 
   bool isValidPrivateAppKey(const std::string &appKey);
   void requestShutdownAsync();
