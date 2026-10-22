@@ -566,7 +566,8 @@
             >
               <icons.Copy />
             </button>
-            <button
+            <!-- Feedbacks are temporarily off-->
+            <!-- <button
               type="button"
               class="btn btn-sm px-1"
               onclick={() => onThumbsFeedback(i, "good")}
@@ -583,7 +584,7 @@
               title="Incorrect or unhelpful answer"
             >
               <icons.ThumbsDown />
-            </button>
+            </button> -->
             <span class="vr mx-1 h-[1rem]"></span>
             <button
               type="button"
