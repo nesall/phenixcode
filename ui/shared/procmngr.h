@@ -113,15 +113,19 @@ public:
     STARTUPINFOA startupInfo;
     ZeroMemory(&startupInfo, sizeof(startupInfo));
     startupInfo.cb = sizeof(startupInfo);
+    startupInfo.dwFlags = STARTF_USESHOWWINDOW;
+    startupInfo.wShowWindow = SW_HIDE;
+
     PROCESS_INFORMATION tempProcessInfo; // Use temporary struct for CreateProcessA
     ZeroMemory(&tempProcessInfo, sizeof(tempProcessInfo));
+    DWORD creationFlags = CREATE_NO_WINDOW;
     BOOL success = CreateProcessA(
       NULL,                   // No module name (use command line)
       cmdLineBuffer.data(),    // Command line (mutable copy needed)
       NULL,                   // Process handle not inheritable
       NULL,                   // Thread handle not inheritable
       FALSE,                  // Set handle inheritance to FALSE
-      0,                      // No creation flags
+      creationFlags,          // No console window for the child process on Windows
       NULL,                   // Use parent's environment block
       NULL,                   // Use parent's starting directory
       &startupInfo,           // Pointer to STARTUPINFO structure
