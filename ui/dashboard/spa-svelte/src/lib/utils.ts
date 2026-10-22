@@ -364,14 +364,17 @@ async function test_fetchLogTail(
 ): Promise<LogTailResult> {
   const sampleLines = file === "diagnostics"
     ? [
-      "2025-12-06 15:40:10 [INFO] Diagnostics logging initialized",
-      "2025-12-06 15:40:12 [DEBUG] Monitor snapshot written",
+      "[2025-12-06 15:40:10] [INFO ] Diagnostics logging initialized",
+      "[2025-12-06 15:40:12] [DEBUG] Monitor snapshot written",
+      "[2025-12-06 15:40:12] [WARN ] Monitor snapshot written",
+      "[2025-12-06 15:40:12] [ERROR] Monitor snapshot written",
     ]
     : [
-      "2025-12-06 15:40:10 [INFO] PhenixCode started",
-      "2025-12-06 15:40:11 [INFO] Scanning project sources",
-      "2025-12-06 15:40:12 [INFO] Embedding batch 1 completed",
-      "2025-12-06 15:40:13 [WARN] No additional files found",
+      "[2025-12-06 15:40:10] [INFO ] PhenixCode started",
+      "[2025-12-06 15:40:11] [INFO ] Scanning project sources",
+      "[2025-12-06 15:40:12] [DEBUG] Embedding batch 1 completed",
+      "[2025-12-06 15:40:13] [WARN ] No additional files found",
+      "[2025-12-06 15:40:13] [ERROR] No additional files found",
     ];
   const content = `${sampleLines.join("\n")}\n`;
   const safeOffset = Math.max(0, Math.min(Math.floor(offset), content.length));

@@ -84,6 +84,8 @@
           class="whitespace-pre-wrap break-all leading-5 text-left"
           class:text-error-400={/\b(error|fatal)\b/i.test(line)}
           class:text-warning-400={/\b(warn|warning)\b/i.test(line)}
+          class:text-surface-500={/\b(debug)\b/i.test(line)}
+          class:text-surface-300={!/\b(error|fatal|warn|warning|debug)\b/i.test(line)}
         >
           {line}
         </div>
