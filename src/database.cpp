@@ -10,6 +10,7 @@
 #include <mutex>
 #include <fstream>
 #include <cstdint>
+#include <tuple>
 #include <iterator>
 #include <cassert>
 #include "utils_log/logger.hpp"
@@ -18,19 +19,6 @@
 #include <unordered_set>
 
 namespace {
-
-  bool isIdentifierLike(const std::string &t) {
-    bool hasLower = false, hasInnerUpper = false, hasDigit = false, hasAlpha = false;
-    for (size_t i = 0; i < t.size(); ++i) {
-      unsigned char c = t[i];
-      if (c == '_') return true;
-      if (std::isdigit(c)) hasDigit = true;
-      if (std::isalpha(c)) hasAlpha = true;
-      if (std::islower(c)) hasLower = true;
-      if (i > 0 && std::isupper(c)) hasInnerUpper = true;
-    }
-    return (hasLower && hasInnerUpper) || (hasDigit && hasAlpha);
-  }
 
   size_t countLines(const std::string &path) {
     std::ifstream file(path);
@@ -180,7 +168,8 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::search(const std::vector<flo
   }
   std::sort(searchResults.begin(), searchResults.end(),
     [](const SearchResult &a, const SearchResult &b) {
-      return a.similarityScore > b.similarityScore;
+      return std::tie(b.similarityScore, a.sourceId, a.chunkId) < 
+        std::tie(a.similarityScore, b.sourceId, b.chunkId);
     });
   return searchResults;
 }
@@ -219,7 +208,7 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::bm25SearchRaw(const std::str
     FROM chunks_fts f
     JOIN chunks c ON c.id = f.rowid
     WHERE chunks_fts MATCH ?
-    ORDER BY rank
+    ORDER BY rank, c.id ASC
     LIMIT ?
   )";
 
@@ -254,7 +243,7 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::bm25SearchRaw(const std::str
   return results;
 }
 
-HnswSqliteVectorDatabase::QueryPlan HnswSqliteVectorDatabase::planQuery(const std::string &text) const
+QueryPlan HnswSqliteVectorDatabase::planQuery(const std::string &text) const
 {
   static const std::unordered_set<std::string> stop = {
   "what", "does", "do", "is", "are", "the", "a", "an", "how", "why", "of", "to",
@@ -279,25 +268,23 @@ HnswSqliteVectorDatabase::QueryPlan HnswSqliteVectorDatabase::planQuery(const st
 
   QueryPlan plan;
   std::lock_guard<std::mutex> lock(mutex_);
-  auto countRows = [&](const char *sql, const std::string &match) -> int64_t {
-    utils::SqliteStmt stmt;
-    _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
-    if (!match.empty()) _checkErr = sqlite3_bind_text(stmt.ref(), 1, match.c_str(), -1, SQLITE_TRANSIENT);
-    return sqlite3_step(stmt.ref()) == SQLITE_ROW ? sqlite3_column_int64(stmt.ref(), 0) : 0;
-    };
-  const int64_t nChunks = countRows("SELECT count(*) FROM chunks", "");
+  const int64_t nChunks = countRowsNoLock("SELECT count(*) FROM chunks", "");
   const int64_t maxDf = std::clamp<int64_t>(nChunks / 20, 3, 30);
 
   plan.fts.clear();
   std::vector<std::string> idTerms, otherTerms;
   for (const auto &tok : tokens) {
     const std::string quoted = '"' + tok + '"';
-    const int64_t df = countRows("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", quoted);
+    const int64_t df = countRowsNoLock("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", quoted);
 #ifdef _DEBUG
     //LOG_MSG_DEBUG << "fts token" << tok << "df =" << df;   // calibrate maxDf from this
 #endif
     if (df == 0 || df > maxDf) continue;
-    (isIdentifierLike(tok) ? idTerms : otherTerms).push_back(quoted);
+    if (utils::isIdentifierLike(tok)) { 
+      idTerms.push_back(quoted);
+      plan.rareTerms.push_back(tok);
+    } else 
+      otherTerms.push_back(quoted);
   }
   plan.hasRareIdentifier = !idTerms.empty();
   const auto &use = plan.hasRareIdentifier ? idTerms : otherTerms;
@@ -308,6 +295,17 @@ HnswSqliteVectorDatabase::QueryPlan HnswSqliteVectorDatabase::planQuery(const st
   return plan;
 }
 
+size_t HnswSqliteVectorDatabase::chunkCount() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return static_cast<size_t>(countRowsNoLock("SELECT count(*) FROM chunks", ""));
+}
+
+size_t HnswSqliteVectorDatabase::chunkCountForTerm(const std::string &quoted) const
+{
+  return countRowsNoLock("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", quoted);
+}
+
 std::vector<SearchResult> HnswSqliteVectorDatabase::bm25Search(const std::string &query, size_t top_k) const
 {
   const auto plan = planQuery(query);
@@ -316,14 +314,14 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::bm25Search(const std::string
 }
 
 std::vector<SearchResult> HnswSqliteVectorDatabase::hybridSearch(
-  const std::vector<float> &queryEmbedding, const std::string &textQuery, size_t top_k, float bm25Weight) const
+  const std::vector<float> &queryEmbedding, const std::string &textQuery, size_t top_k, float bm25Weight, const QueryPlan *planArg) const
 {
   if (queryEmbedding.size() != imp->vectorDim_) {
     throw std::runtime_error(fmt::format("Query embedding dimension mismatch: actual {}, claimed {}", queryEmbedding.size(), imp->vectorDim_));
   }
   if (top_k == 0) return {};
 
-  const auto plan = planQuery(textQuery);
+  const QueryPlan plan = planArg ? *planArg : planQuery(textQuery);
   constexpr float kProseBm25Weight = 0.0f; // try 0.15 / 0.3 later
   float wBm25 = plan.fts.empty() ? 0.0f : std::clamp(bm25Weight, 0.0f, 1.0f);
   if (!plan.hasRareIdentifier) {
@@ -337,7 +335,7 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::hybridSearch(
   std::vector<SearchResult> vectorResults, bm25Results;
   if (wVector > 0.0f) vectorResults = search(queryEmbedding, candidateK);
   if (wBm25 > 0.0f) {
-    bm25Results = bm25Search(plan.fts, candidateK);
+    bm25Results = bm25SearchRaw(plan.fts, candidateK);
 #ifdef _DEBUG
     //LOG_MSG_DEBUG << "hybridSearch | wBm25" << wBm25 << "| #hits" << bm25Results.size() << "| plan.fts" << plan.fts;
 #endif
@@ -385,7 +383,9 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::hybridSearch(
     ranked.push_back(std::move(m.r));
   }
   std::sort(ranked.begin(), ranked.end(),
-    [](const SearchResult &a, const SearchResult &b) { return a.fusedScore > b.fusedScore; });
+    [](const SearchResult &a, const SearchResult &b) { 
+      return std::tie(b.fusedScore, a.sourceId, a.chunkId) < std::tie(a.fusedScore, b.sourceId, b.chunkId);
+    });
 
   // Per-doc cap, then truncate to top_k
   constexpr size_t reserveVector = 2;
@@ -405,7 +405,9 @@ std::vector<SearchResult> HnswSqliteVectorDatabase::hybridSearch(
   for (const auto &r : ranked) if (reserved.count(r.chunkId)) take(r);  // guaranteed first
   for (const auto &r : ranked) take(r);                                  // then fill by fused score
   std::sort(res.begin(), res.end(),
-    [](const SearchResult &a, const SearchResult &b) { return a.fusedScore > b.fusedScore; });
+    [](const SearchResult &a, const SearchResult &b) { 
+      return std::tie(b.fusedScore, a.sourceId, a.chunkId) < std::tie(a.fusedScore, b.sourceId, b.chunkId);
+    });
 
   return res;
 }
@@ -641,7 +643,7 @@ std::vector<FileMetadata> HnswSqliteVectorDatabase::getTrackedFiles() const
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<FileMetadata> files;
   utils::SqliteStmt stmt;
-  const char *sql = "SELECT path, last_modified, file_size, nof_lines FROM files_metadata";
+  const char *sql = "SELECT path, last_modified, file_size, nof_lines FROM files_metadata order by path";
   _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
   while (sqlite3_step(stmt.ref()) == SQLITE_ROW) {
     FileMetadata meta;
@@ -764,6 +766,14 @@ std::string HnswSqliteVectorDatabase::dbPath() const
 std::string HnswSqliteVectorDatabase::indexPath() const
 {
   return imp->indexPath_;
+}
+
+size_t HnswSqliteVectorDatabase::countRowsNoLock(const char *sql, const std::string &bind) const
+{
+  utils::SqliteStmt stmt;
+  _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
+  if (!bind.empty()) _checkErr = sqlite3_bind_text(stmt.ref(), 1, bind.c_str(), -1, SQLITE_TRANSIENT);
+  return sqlite3_step(stmt.ref()) == SQLITE_ROW ? static_cast<size_t>(sqlite3_column_int64(stmt.ref(), 0)) : 0;
 }
 
 #if 0

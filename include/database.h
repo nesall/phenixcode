@@ -24,7 +24,6 @@ struct SearchResult {
   float fusedScore = 0; // RRF; set only by hybridSearch
 };
 
-
 struct FileMetadata {
   std::string path;
   time_t lastModified = 0;
@@ -33,7 +32,6 @@ struct FileMetadata {
   std::string hash; // Optional: content hash for change detection
 };
 
-
 struct DatabaseStats {
   size_t totalChunks = 0;
   size_t vectorCount = 0;
@@ -41,6 +39,13 @@ struct DatabaseStats {
   size_t activeCount = 0;
   size_t totalTokens = 0;
   std::vector<std::pair<std::string, size_t>> sources;
+};
+
+struct QueryPlan {
+  std::string fts; // FTS5 MATCH expression, empty if nothing usable
+  bool hasRareIdentifier = false;
+  std::vector<std::string> rareTerms; // unquoted, original-case, df-pruned identifiers
+  std::vector<std::string> orphanTerms; // unquoted prose terms (for future use)
 };
 
 
@@ -65,7 +70,11 @@ public:
     const std::vector<float> &queryEmbedding,
     const std::string &textQuery,
     size_t top_k,
-    float bm25Weight = 0.75f) const = 0;
+    float bm25Weight,
+    const QueryPlan *plan = nullptr) const = 0;   // reuse caller's plan
+  virtual QueryPlan planQuery(const std::string &text) const = 0;
+  virtual size_t chunkCount() const = 0;
+  virtual size_t chunkCountForTerm(const std::string &quoted) const = 0;
 
   virtual size_t deleteDocumentsBySource(const std::string &sourceId) = 0;
   virtual void clear() = 0;
@@ -113,11 +122,11 @@ public:
     const std::vector<float> &queryEmbedding,
     const std::string &textQuery,
     size_t top_k,
-    float bm25Weight = 0.75f) const override;
-  struct QueryPlan {
-    std::string fts;                 // FTS5 MATCH expression, empty if nothing usable
-    bool hasRareIdentifier = false;
-  };
+    float bm25Weight,
+    const QueryPlan * plan = nullptr) const override;
+  QueryPlan planQuery(const std::string &text) const;
+  size_t chunkCount() const override;
+  size_t chunkCountForTerm(const std::string &quoted) const override;
 
   DatabaseStats getStats() const override;
   void clear() override;
@@ -139,12 +148,12 @@ public:
 
 protected:
   void upsertFileMetadata(const std::string &sourceId, std::time_t mtime, size_t size, size_t lines) override;
-  QueryPlan planQuery(const std::string &text) const;
   std::vector<SearchResult> bm25SearchRaw(const std::string &ftsQuery, size_t top_k) const;
 
 private:
   std::string dbPath() const;
   std::string indexPath() const;
+  size_t countRowsNoLock(const char *sql, const std::string &bind) const;
 
 private:
   struct Impl;

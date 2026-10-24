@@ -24,7 +24,7 @@
 #include <thread>
 #include <stdexcept>
 #include <chrono>
-#include <ranges>
+#include <tuple>
 //#include <format>
 #include <cctype>
 #include <cassert>
@@ -871,13 +871,19 @@ void App::compact()
   LOG_MSG << "Done!";
 }
 
-void App::search(const std::string &query, size_t topK)
+void App::search(const std::string &query, size_t topK, SearchMode mode) const
 {
-  std::cout << "Searching for: " << query << std::endl;
-
+  LOG_MSG << "Searching for:" << query;
   EmbeddingClient embeddingClient{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
   std::vector<float> queryEmbedding;
-  embeddingClient.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
+  if (mode != SearchMode::Grep && 0 < db().chunkCount()) {
+    try {
+      embeddingClient.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
+    } catch (const std::exception &e) {
+      LOG_MSG_WARN << "Unable to generate embeddings" << e.what() << "| Falling back to grep.";
+      queryEmbedding.clear();
+    }
+  }
   auto results = retrieve(query, queryEmbedding, topK);
 
   std::cout << "\nFound " << results.size() << " results:" << std::endl;
@@ -894,7 +900,7 @@ void App::search(const std::string &query, size_t topK)
   }
 }
 
-void App::stats()
+void App::stats() const
 {
   LOG_MSG << "\n=== Database Statistics ===";
   auto j = sourceStats();
@@ -920,7 +926,7 @@ void App::clear(bool noPrompt)
   }
 }
 
-void App::chat()
+void App::chat() const
 {
   const bool isAuto = settings().generationIsAuto();
   ApiConfig staticCfg;
@@ -974,8 +980,15 @@ void App::chat()
       }
 
       std::vector<float> queryEmbedding;
-      embeddingClient.generateEmbeddings(userInput, queryEmbedding, EmbeddingClient::EncodeType::Query);
-      auto searchResults = retrieve(userInput, queryEmbedding, 5);
+      if (0 < db().chunkCount()) {
+        try {
+          embeddingClient.generateEmbeddings(userInput, queryEmbedding, EmbeddingClient::EncodeType::Query);
+        } catch (const std::exception &e) {
+          LOG_MSG_WARN << "Unable to generate embeddings" << e.what() << "| Falling back to grep.";
+          queryEmbedding.clear();
+        }
+      }
+      auto searchResults = retrieve(userInput, queryEmbedding, 5, SearchMode::Auto);
 
       CompletionClient completionClient{ apiCfg, settings().generationTimeoutMs(), *this };
       std::cout << "\nAssistant: " << std::flush;
@@ -1226,157 +1239,369 @@ void App::evalDetail(const std::string &docId)
   LOG_MSG << "Use 'eval --list' to see available IDs.";
 }
 
-void App::eval(const std::string &datasetPath, size_t topK)
+void App::evalSweep(const std::string &ds, size_t topK) const
 {
-  evalRobust(datasetPath, topK, false);
-  evalRobust(datasetPath, topK, true);
+  char c = 'y';
+  std::cout << "Proceed? [y/N]: ";
+  std::cin >> c;
+
+  if (c != 'y' && c != 'Y') {
+    LOG_MSG << "Evaluation cancelled.";
+    return;
+  }
+  const float bm[]{ 0.5f, 0.75f, 0.9f };
+  const float gw[]{ 0.05f, 0.10f, 0.30f };
+  for (float b : bm) for (float g : gw) {
+    LOG_MSG << "grid bm25=" << b << " grep=" << g;
+    eval(ds, topK, b, g);
+  }
 }
 
-void App::evalRobust(const std::string &datasetPath, size_t topK, bool useHybrid)
+void App::eval(const std::string &datasetPath, size_t topK, float bm25Weight, float grepWeight) const
 {
-  // Read dataset
+  LOG_MSG << "Starting evaluation, dataset:" << datasetPath;
+
+  const std::map<std::string, json> reports = {
+    { "hyprid",     evalRobust(datasetPath, topK, SearchMode::Hybrid,     bm25Weight, grepWeight) },
+    { "hybridGrep", evalRobust(datasetPath, topK, SearchMode::HybridGrep, bm25Weight, grepWeight) },
+    { "auto",       evalRobust(datasetPath, topK, SearchMode::Auto,       bm25Weight, grepWeight) },
+    { "grep",       evalRobust(datasetPath, topK, SearchMode::Grep,       bm25Weight, grepWeight) }
+  };
+
+  const auto now = std::chrono::system_clock::now();
+  const auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+    now.time_since_epoch()).count();
+
+  json masterReport = {
+    { "top_k", topK },
+    { "generated_at", static_cast<unsigned long long>(timestamp) },
+    { "by_mode", json::object() },
+    { "per_query", json::object() }
+  };
+
+  // Aggregate mode summaries and per-query metrics.
+  for (const auto &[modeName, report] : reports) {
+    if (!report.is_object()) continue;
+
+    masterReport["by_mode"][modeName] = report.value("summary", json::object());
+
+    for (const auto &entry : report.value("per_query", json::array())) {
+      if (!entry.is_object()) continue;
+
+      const std::string query = entry.value("query", "");
+      if (query.empty()) continue;
+
+      auto &queryEntry = masterReport["per_query"][query];
+
+      if (!queryEntry.is_object()) {
+        queryEntry = {
+            { "query", query },
+            { "index", entry.value("index", -1) },
+            { "grepTerms", json::array() },
+            { "modes", json::object() }
+        };
+      }
+
+      const auto grepTerms = entry.value("grepTerms", json::array());
+      if (queryEntry["grepTerms"].empty() && !grepTerms.empty()) {
+        queryEntry["grepTerms"] = grepTerms;
+      }
+
+      auto &modes = queryEntry["modes"];
+      if (!modes.is_object())
+        modes = json::object();
+
+      modes[modeName] = {
+        { "recall_at_k", entry.value("recall_at_k", 0.0) },
+        { "mrr", entry.value("mrr", 0.0) },
+        { "ndcg", entry.value("ndcg", 0.0) },
+        { "latency_ms", entry.value("latency_ms", 0.0) },
+        { "hit", entry.value("hit", false) },
+        { "retrieved_top_k", entry.value("retrieved", json::array()) }
+      };
+    }
+  }
+
+  // Determine the best mode per query and calculate metric deltas.
+  for (auto &[query, queryEntry] : masterReport["per_query"].items()) {
+    if (!queryEntry.contains("modes") ||
+      !queryEntry["modes"].is_object())
+      continue;
+
+    auto &modes = queryEntry["modes"];
+
+    std::string bestMode;
+    double bestRecall = -1.0;
+    double bestMRR = -1.0;
+    double bestNDCG = -1.0;
+
+    for (const auto &[modeName, metrics] : modes.items()) {
+      const double recall = metrics.value("recall_at_k", 0.0);
+      const double mrr = metrics.value("mrr", 0.0);
+
+      if (recall > bestRecall ||
+        (recall == bestRecall && mrr > bestMRR)) {
+        bestRecall = recall;
+        bestMRR = mrr;
+        bestNDCG = metrics.value("ndcg", 0.0);
+        bestMode = modeName;
+      }
+    }
+
+    if (bestMode.empty()) continue;
+
+    queryEntry["best_mode"] = bestMode;
+
+    for (auto &[modeName, metrics] : modes.items()) {
+      metrics["recall_delta_vs_best"] = metrics.value("recall_at_k", 0.0) - bestRecall;
+      metrics["mrr_delta_vs_best"] = metrics.value("mrr", 0.0) - bestMRR;
+      metrics["ndcg_delta_vs_best"] = metrics.value("ndcg", 0.0) - bestNDCG;
+    }
+  }
+
+  // Calculate aggregate scores for each mode.
+  auto &modeScores = masterReport["summary"]["mode_scores"];
+  modeScores = json::object();
+
+  for (const auto &[modeName, report] : reports) {
+    if (!report.is_object()) continue;
+
+    const auto summary = report.value("summary", json::object());
+    if (!summary.is_object()) continue;
+
+    modeScores[modeName] = {
+      { "recall_at_k", summary.value("recall_at_k", 0.0) },
+      { "mrr", summary.value("mrr", 0.0) },
+      { "ndcg", summary.value("ndcg", 0.0) }
+    };
+  }
+
+  std::string bestOverallMode;
+  double bestOverallScore = -1.0;
+
+  for (const auto &[modeName, scores] : modeScores.items()) {
+    const double score =
+      scores.value("recall_at_k", 0.0) +
+      scores.value("mrr", 0.0) +
+      scores.value("ndcg", 0.0);
+
+    if (score > bestOverallScore) {
+      bestOverallScore = score;
+      bestOverallMode = modeName;
+    }
+  }
+
+  masterReport["summary"]["best_overall_mode"] = bestOverallMode;
+  masterReport["summary"]["best_overall_score"] = bestOverallScore;
+
+  // Use round-trip-safe float strings in the output filename.
+  auto formatFloat = [](float value) {
+    char buffer[64];
+    const auto result = std::to_chars(
+      buffer, buffer + sizeof(buffer), value);
+
+    return result.ec == std::errc{}
+      ? std::string(buffer, result.ptr)
+      : std::to_string(value);
+    };
+
+  const std::string filename =
+    "master_report_bm25_" + formatFloat(bm25Weight) +
+    "_grep_" + formatFloat(grepWeight) + ".json";
+
+  const auto outPath = std::filesystem::current_path() / filename;
+  std::ofstream out(outPath);
+  out << std::setw(2) << masterReport;
+  out.close();
+
+  LOG_MSG << "Master evaluation report saved to" << outPath;
+}
+
+nlohmann::json App::evalRobust(const std::string &datasetPath, size_t topK, SearchMode mode, float bm25Weight, float grepWeight) const
+{
   std::ifstream f(datasetPath);
   if (!f.is_open()) {
     LOG_MSG << "Cannot open dataset file:" << datasetPath;
-    return;
+    return {};
   }
+
   json dataset;
   try {
     f >> dataset;
   } catch (const std::exception &e) {
     LOG_MSG << "Invalid JSON in dataset:" << e.what();
-    return;
+    return {};
   }
-  f.close();
 
   if (!dataset.is_array() || dataset.empty()) {
     LOG_MSG << "Dataset must be a non-empty JSON array.";
-    return;
+    return {};
   }
 
-  LOG_MSG << "\nRunning evaluation on" << dataset.size() << "queries (top_k =" << topK << ", hybrid =" << useHybrid << ")";
+  const auto mode2str = [](SearchMode m) {
+    switch (m) {
+    case SearchMode::Grep:       return "grep";
+    case SearchMode::Base:       return "base";
+    case SearchMode::Hybrid:     return "hybrid";
+    case SearchMode::HybridGrep: return "hybridGrep";
+    default:                     return "auto";
+    }
+    };
 
-  EmbeddingClient ec{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
+  LOG_MSG << "\nRunning evaluation on" << dataset.size()
+    << "queries (top_k =" << topK
+    << ", mode =" << mode2str(mode) << ")";
 
-  double totalRecall = 0, totalMRR = 0, totalNDCG = 0, totalLatency = 0;
+  EmbeddingClient ec{
+    settings().embeddingCurrentApi(),
+    settings().embeddingTimeoutMs()
+  };
+
+  double totalRecall = 0.0;
+  double totalMRR = 0.0;
+  double totalNDCG = 0.0;
+  double totalLatency = 0.0;
   size_t validEntries = 0;
-  json perQuery = json::array();
 
+  json perQuery = json::array();
   std::set<std::string> universe;
+
+  // Serialize unique retrieved documents in rank order.
+  const auto serializeResults = [](const auto &results) {
+    json retrieved = json::array();
+    std::unordered_set<std::string> seen;
+
+    for (const auto &r : results) {
+      if (!seen.insert(r.sourceId).second)
+        continue;
+
+      retrieved.push_back({
+        { "doc_id", r.sourceId },
+        { "similarityScore", r.similarityScore },
+        { "fusedScore", r.fusedScore }
+        });
+    }
+
+    return retrieved;
+    };
 
   for (size_t i = 0; i < dataset.size(); ++i) {
     const auto &entry = dataset[i];
-    if (!entry.contains("query") || !entry.contains("expected_doc_ids")) {
-      LOG_MSG << "Skipping entry" << i << ": missing query or expected_doc_ids";
+
+    if (!entry.contains("query") ||
+      !entry.contains("expected_doc_ids")) {
+      LOG_MSG << "Skipping entry" << i
+        << ": missing query or expected_doc_ids";
       continue;
     }
 
-    std::string query = entry["query"];
+    const std::string query = entry["query"].get<std::string>();
+
     std::set<std::string> expectedIds;
-    for (const auto &id : entry["expected_doc_ids"]) {
+    for (const auto &id : entry["expected_doc_ids"])
       expectedIds.insert(id.get<std::string>());
-    }
+
     if (expectedIds.empty()) {
-      LOG_MSG << "Skipping entry" << i << ": empty expected_doc_ids";
+      LOG_MSG << "Skipping entry" << i
+        << ": empty expected_doc_ids";
       continue;
     }
 
-    // Embed + search
-    auto start = std::chrono::steady_clock::now();
+    // Embed + search.
+    const auto start = std::chrono::steady_clock::now();
+
     std::vector<float> queryEmbedding;
-    ec.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
-    auto results = useHybrid ? retrieve(query, queryEmbedding, topK) : imp->db_->search(queryEmbedding, topK);
-    auto end = std::chrono::steady_clock::now();
-    double latencyMs = std::chrono::duration<double, std::milli>(end - start).count();
-
-    auto m = computeMetrics(results, expectedIds);
-
-
-
-    // Collect unique retrieved source IDs (in rank order)
-    json retrievedWithScores = json::array();
-    {
-      std::unordered_set<std::string> seen;
-      for (const auto &r : results) {
-        if (seen.insert(r.sourceId).second) {
-          retrievedWithScores.push_back({
-            {"doc_id", r.sourceId},
-            {"similarityScore", r.similarityScore},
-            {"fusedScore", r.fusedScore}
-            });
-          universe.insert(r.sourceId);
-        }
-      }
+    if (entry.contains("embedding")) {
+      queryEmbedding = entry.value("embedding", std::vector<float>{});
+      if (queryEmbedding.empty())
+        LOG_MSG_WARN << "Entry" << i
+        << "has empty embedding. Will re-generate.";
     }
+
+    if (queryEmbedding.empty()) {
+      ec.generateEmbeddings(
+        query, queryEmbedding, EmbeddingClient::EncodeType::Query);
+    }
+
+    std::vector<std::string> grepTermsUsed;
+    const auto results = retrieve(query, queryEmbedding, topK, mode, bm25Weight, grepWeight, &grepTermsUsed);
+
+    const double latencyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+
+    const auto m = computeMetrics(results, expectedIds);
+
+    json retrieved = serializeResults(results);
+    for (const auto &r : retrieved)
+      universe.insert(r["doc_id"].get<std::string>());
+
     universe.insert(expectedIds.begin(), expectedIds.end());
 
     totalRecall += m.recallAtK;
     totalMRR += m.mrr;
     totalNDCG += m.ndcg;
     totalLatency += latencyMs;
-    validEntries++;
+    ++validEntries;
 
-    const bool idealHit = (m.recallAtK == 1.0 && m.mrr == 1.0 && m.ndcg == 1.0);
+    const bool idealHit =
+      m.recallAtK == 1.0 && m.mrr == 1.0 && m.ndcg == 1.0;
 
     json outEntry = {
-      {"query", query},
-      {"recall_at_k", m.recallAtK},
-      {"mrr", m.mrr},
-      {"ndcg", m.ndcg},
-      {"latency_ms", latencyMs},
-      {"results_count", results.size()},
-      {"retrieved", retrievedWithScores},
-      {"hit", idealHit}
+      { "index", entry.value("index", -1) },
+      { "query", query },
+      { "recall_at_k", m.recallAtK },
+      { "mrr", m.mrr },
+      { "ndcg", m.ndcg },
+      { "latency_ms", latencyMs },
+      { "results_count", results.size() },
+      { "retrieved", std::move(retrieved) },
+      { "hit", idealHit },
+      { "grepTerms", std::move(grepTermsUsed) }
     };
 
     if (!idealHit) {
-
       json missInfo;
-      json expectedArr = json::array();
-      for (const auto &id : expectedIds) expectedArr.push_back(id);
-      missInfo["expected_doc_ids"] = expectedArr;
+      missInfo["expected_doc_ids"] = json::array();
+
+      for (const auto &id : expectedIds)
+        missInfo["expected_doc_ids"].push_back(id);
 
       if (m.recallAtK < 1.0) {
-        // Probe deeper to find where expected docs actually rank
-        size_t probeK = topK * 10;
-        auto wideResults = useHybrid ? retrieve(query, queryEmbedding, probeK) : imp->db_->search(queryEmbedding, probeK);
-        json probeResults = json::array();
-        {
-          std::unordered_set<std::string> seen;
-          for (const auto &r : wideResults) {
-            if (seen.insert(r.sourceId).second) {
-              probeResults.push_back({
-                {"doc_id", r.sourceId},
-                {"similarityScore", r.similarityScore},
-                {"fusedScore", r.fusedScore}
-                });
-            }
-          }
-        }
+        // Probe deeper to find where expected docs actually rank.
+        const size_t probeK = topK * 10;
+        const auto wideResults = retrieve(query, queryEmbedding, probeK, mode, bm25Weight, grepWeight);
+
+        const json probeResults = serializeResults(wideResults);
         missInfo["probe_results"] = probeResults;
-        // Find actual rank of expected docs
-        json actualRanks;
+
+        json actualRanks = json::object();
+
         for (const auto &id : expectedIds) {
           for (size_t j = 0; j < probeResults.size(); ++j) {
-            if (probeResults[j]["doc_id"] == id) {
-              actualRanks[id] = {
-                {"rank", j + 1},
-                {"similarityScore", probeResults[j]["similarityScore"]},
-                {"fusedScore", probeResults[j]["fusedScore"]},
-              };
-              break;
-            }
+            if (probeResults[j]["doc_id"] != id)
+              continue;
+
+            actualRanks[id] = {
+              { "rank", j + 1 },
+              { "similarityScore", probeResults[j]["similarityScore"] },
+              { "fusedScore", probeResults[j]["fusedScore"] }
+            };
+            break;
           }
-          if (!actualRanks.contains(id)) {
-            actualRanks[id] = { {"rank", -1}, {"score", 0.0} }; // not even in probe
-          }
+
+          if (!actualRanks.contains(id))
+            actualRanks[id] = {
+              { "rank", -1 },
+              { "score", 0.0 }
+          };
         }
-        missInfo["actual_ranks"] = actualRanks;
+
+        missInfo["actual_ranks"] = std::move(actualRanks);
       }
-      outEntry["miss"] = missInfo;
+
+      outEntry["miss"] = std::move(missInfo);
     }
 
-    perQuery.push_back(outEntry);
+    perQuery.push_back(std::move(outEntry));
 
     std::cout << "[" << i + 1 << "/" << dataset.size() << "]"
       << " recall=" << m.recallAtK
@@ -1390,6 +1615,7 @@ void App::evalRobust(const std::string &datasetPath, size_t topK, bool useHybrid
     for (auto &q : perQuery) {
       for (const char *key : { "retrieved_doc_ids", "expected_doc_ids" }) {
         if (!q.contains(key)) continue;
+
         for (auto &id : q[key])
           utils::stripPrefix(id.get_ref<std::string &>(), prefix);
       }
@@ -1398,31 +1624,120 @@ void App::evalRobust(const std::string &datasetPath, size_t topK, bool useHybrid
 
   if (validEntries == 0) {
     LOG_MSG << "No valid entries to evaluate.";
-    return;
+    return {};
   }
 
-  // Summary report
+  // Summary report.
   json report = {
-    {"summary", {
-      {"total_queries", validEntries},
-      {"top_k", topK},
-      {"recall_at_k", totalRecall / validEntries},
-      {"mrr", totalMRR / validEntries},
-      {"ndcg", totalNDCG / validEntries},
-      {"mean_latency_ms", totalLatency / validEntries}
-    }},
-    {"per_query", perQuery}
+    { "summary",{
+      { "total_queries", validEntries },
+      { "top_k", topK },
+      { "recall_at_k", totalRecall / validEntries },
+      { "mrr", totalMRR / validEntries },
+      { "ndcg", totalNDCG / validEntries },
+      { "mean_latency_ms", totalLatency / validEntries }
+    } },
+    { "per_query", std::move(perQuery) }
   };
 
-  std::cout << "\n=== Evaluation Report Summary ===\n";
-  std::cout << std::setw(2) << report["summary"] << "\n";
+  std::cout << "\n=== Evaluation Report Summary ===\n"
+    << std::setw(2) << report["summary"] << "\n";
 
-  // Optionally write to file
-  std::string reportPath = fmt::format("{}_report_{}.json", datasetPath, (useHybrid ? "hybridSearch" : "search"));
+  // Include weights in the report filename.
+  const auto formatFloat = [](float value) {
+    char buffer[64];
+    const auto result = std::to_chars(
+      buffer, buffer + sizeof(buffer), value);
+
+    return result.ec == std::errc{}
+      ? std::string(buffer, result.ptr)
+      : std::to_string(value);
+    };
+
+  const std::filesystem::path datasetFile(datasetPath);
+  const std::string reportName = fmt::format(
+    "{}_report_{}_bm25_{}_grep_{}.json",
+    datasetFile.stem().string(),
+    mode2str(mode),
+    formatFloat(bm25Weight),
+    formatFloat(grepWeight));
+
+  const auto reportPath = std::filesystem::current_path() / reportName;
+
   std::ofstream out(reportPath);
   out << std::setw(2) << report;
   out.close();
+
   LOG_MSG << "Report saved to" << reportPath;
+  return report;
+}
+
+void App::evalAddVectors(const std::string &datasetPath, const std::string &outputPath) const
+{
+  std::ifstream f(datasetPath);
+  if (!f.is_open()) {
+    LOG_MSG << "Cannot open dataset file:" << datasetPath;
+    return;
+  }
+  json dataset;
+  try {
+    f >> dataset;
+  } catch (const std::exception &e) {
+    LOG_MSG_ERROR << "Invalid JSON in dataset:" << e.what();
+    return;
+  }
+  f.close();
+
+  if (!dataset.is_array() || dataset.empty()) {
+    LOG_MSG << "Dataset must be a non-empty JSON array.";
+    return;
+  }
+  if (fs::absolute(outputPath) == fs::absolute(datasetPath)) {
+    LOG_MSG << "Refusing to overwrite the input dataset. Use --output <other.json>.";
+    return;
+  }
+
+  EmbeddingClient ec{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
+
+  size_t added = 0, skipped = 0, failed = 0;
+  for (size_t i = 0; i < dataset.size(); ++i) {
+    auto &entry = dataset[i];
+    if (!entry.is_object() || !entry.contains("query") || !entry["query"].is_string()) {
+      LOG_MSG << "Skipping entry" << i << ": missing query";
+      ++skipped;
+      continue;
+    }
+    // Idempotent: keep vectors already present (unless you prefer to regenerate)
+    if (entry.contains("embedding") && entry["embedding"].is_array() && !entry["embedding"].empty()) {
+      ++skipped;
+      continue;
+    }
+    try {
+      std::vector<float> emb;
+      ec.generateEmbeddings(entry["query"].get<std::string>(), emb, EmbeddingClient::EncodeType::Query);
+      if (emb.empty())
+        throw std::runtime_error("empty embedding returned");
+      entry["embedding"] = emb;
+      ++added;
+    } catch (const std::exception &e) {
+      LOG_MSG_ERROR << "Embedding failed for entry" << i << ":" << e.what();
+      ++failed;
+    }
+  }
+
+  if (added == 0) {
+    LOG_MSG << "No new embeddings generated. Output not written.";
+    return;
+  }
+
+  std::ofstream out(outputPath);
+  if (!out.is_open()) {
+    LOG_MSG << "Cannot open output file:" << outputPath;
+    return;
+  }
+  out << std::setw(2) << dataset;
+  out.close();
+  LOG_MSG << "Wrote" << added << "embeddings to" << outputPath << "(skipped" << skipped << ", failed" << failed << ")";
 }
 
 size_t App::update()
@@ -1442,10 +1757,10 @@ size_t App::update()
   try {
     Settings settingsNew{ imp->settings_->configPath(), imp->settings_->providersConfigPath()};
     imp->processor_->setSettings(settingsNew);
-    LOG_MSG << "Read settings from" << settingsNew.configPath();
+    LOG_MSG_DEBUG << "Read settings from" << settingsNew.configPath();
   } catch (const std::exception &ex) {
-    LOG_MSG << ex.what();
-    LOG_MSG << "Unable to re-read settings. Skipped.";
+    LOG_MSG_WARN << ex.what();
+    LOG_MSG_WARN << "Unable to re-read settings. Skipped.";
   }
   auto sources = imp->processor_->collectSources(false);
   std::vector<std::string> currentFiles;
@@ -1455,7 +1770,7 @@ size_t App::update()
   auto info = imp->updater_->detectChanges(currentFiles);
   imp->updater_->printUpdateSummary(info);
   if (!imp->updater_->needsUpdate(info)) {
-    LOG_MSG << "No updates needed. Database is up to date.";
+    LOG_MSG_DEBUG << "No updates needed. Database is up to date.";
     return 0;
   }
   LOG_MSG << "Applying updates...";
@@ -1484,9 +1799,149 @@ void App::watch(int intervalSeconds)
   }
 }
 
-std::vector<SearchResult> App::retrieve(const std::string &text, const std::vector<float> &embedding, size_t topK) const
+std::vector<SearchResult> App::retrieve(const std::string &text, const std::vector<float> &embedding, size_t topK, 
+  SearchMode mode, float bm25Weight, float grepWeight, std::vector<std::string> *prepTermsOut) const
 {
-  return db().hybridSearch(embedding, text, topK);
+  const int64_t nChunks = db().chunkCount();
+  
+  if (mode == SearchMode::Grep || nChunks == 0) {
+    auto terms = utils::extractGrepTerms(text);   // no plan available yet
+    if (prepTermsOut) *prepTermsOut = terms;
+    return grepSearch(text, topK, terms);
+  }
+
+  if (mode == SearchMode::Base) {
+    return db().search(embedding, topK);
+  }
+
+  const int64_t maxDf = std::clamp<int64_t>(nChunks / 20, 3, 30);
+  const QueryPlan plan = db().planQuery(text);
+  std::vector<std::string> grepTerms = plan.rareTerms;
+  const auto literals = utils::extractGrepLiterals(text);
+  for (const auto &literal : literals) {
+    // Prune via FTS5 chunk frequency if available
+    const std::string quoted = '"' + literal + '"';
+    const int64_t df = db().chunkCountForTerm(quoted);
+    if (df > 0 && df <= maxDf) {
+      if (std::find(grepTerms.begin(), grepTerms.end(), literal) == grepTerms.end()) {
+        grepTerms.push_back(literal);
+      }
+    }
+  }
+
+  if (mode == SearchMode::Auto) {
+    const bool literalMarkers = utils::containsAny(text, { "`", "\"", "'", "::", "->", "()" });
+    mode = (plan.hasRareIdentifier || literalMarkers) ? SearchMode::HybridGrep : SearchMode::Hybrid;
+  }
+  if (embedding.empty()) {
+    if (prepTermsOut) *prepTermsOut = grepTerms;
+    return grepSearch(text, topK, grepTerms);
+  }
+
+  const auto intent = utils::queryIntent(text);
+
+  auto hybridRes = db().hybridSearch(embedding, text, (intent != utils::QueryIntent::Neutral ? 2 * topK : topK), bm25Weight, &plan);
+
+  constexpr float kIntentEpsilon = 0.0003f;
+
+  auto intentBonus = [&](const SearchResult &r) -> float {
+    const bool header = utils::isHeader(r.sourceId);
+    if (intent == utils::QueryIntent::Implementation) return header ? 0.0f : kIntentEpsilon;
+    if (intent == utils::QueryIntent::Declaration)    return header ? kIntentEpsilon : 0.0f;
+    return 0.0f;
+    };
+  for (auto &c : hybridRes) {
+    c.fusedScore += intentBonus(c);
+  }
+
+  std::sort(hybridRes.begin(), hybridRes.end(), [](const SearchResult &a, const SearchResult &b) {
+    return std::tie(b.fusedScore, a.sourceId, a.chunkId) < std::tie(a.fusedScore, b.sourceId, b.chunkId);
+    });
+
+  if (intent != utils::QueryIntent::Neutral) {
+    if (topK < hybridRes.size()) {
+      hybridRes.resize(topK);
+    }
+  }
+
+  if (mode != SearchMode::HybridGrep || grepTerms.empty()) {
+    return hybridRes;
+  }
+
+  if (prepTermsOut) *prepTermsOut = grepTerms;
+  auto grepRes = grepSearch(text, topK, grepTerms);
+  if (grepRes.empty()) {
+    return hybridRes;
+  }
+
+  constexpr float rrfK = 60.0f;
+  std::unordered_map<std::string, size_t> bestRank; // stem -> best grep rank
+
+  for (size_t i = 0; i < grepRes.size(); ++i) {
+    bestRank.try_emplace(utils::stemKey(grepRes[i].sourceId), i); // first = best
+  }
+  for (auto &c : hybridRes) {
+    if (auto it = bestRank.find(utils::stemKey(c.sourceId)); it != bestRank.end())
+      c.fusedScore += grepWeight / (rrfK + static_cast<float>(it->second) + 1.0f);
+  }
+
+  if (topK < hybridRes.size()) {
+    hybridRes.resize(topK);
+  }
+  return hybridRes;
+}
+
+std::vector<SearchResult> App::grepSearch(const std::string &query, size_t topK, const std::vector<std::string> &preExtractedTerms) const
+{
+  std::vector<std::string> terms = preExtractedTerms.empty() ? utils::extractGrepTerms(query) : preExtractedTerms;
+  if (terms.empty()) {
+    std::string trimmed = utils::trimmed(query);
+    if (!trimmed.empty()) terms.push_back(std::move(trimmed));
+  }
+  std::vector<std::string> paths;
+  if (0 < db().chunkCount()) {
+    for (const auto &f : db().getTrackedFiles()) {
+      paths.push_back(f.path);
+    }
+  }
+  SourceProcessor::GrepOptions opts;
+  opts.idfPruning = (0 == db().chunkCount());
+  auto hits = sourceProcessor().grep(terms, paths, opts);
+  if (hits.empty()) {
+    return {};
+  }
+  // Keep only the best matching window per file.
+  std::unordered_map<std::string, size_t> bestIndexByFile;
+  for (size_t i = 0; i < hits.size(); ++i) {
+    const auto &hit = hits[i];
+    auto [it, inserted] = bestIndexByFile.try_emplace(hit.sourceId, i);
+    if (!inserted) {
+      const auto &best = hits[it->second];
+      if (hit.bm25Score > best.bm25Score ||
+        (hit.bm25Score == best.bm25Score && hit.start < best.start)) {
+        it->second = i;
+      }
+    }
+  }
+
+  std::vector<SearchResult> bestPerFile;
+  bestPerFile.reserve(bestIndexByFile.size());
+  for (const auto &[_, idx] : bestIndexByFile) {
+    bestPerFile.push_back(hits[idx]);
+  }
+
+  std::sort(bestPerFile.begin(), bestPerFile.end(),
+    [](const SearchResult &a, const SearchResult &b) {
+      if (a.bm25Score != b.bm25Score) return a.bm25Score > b.bm25Score;
+      if (a.similarityScore != b.similarityScore) return a.similarityScore > b.similarityScore;
+      return a.sourceId < b.sourceId;
+    });
+
+  if (bestPerFile.size() > topK) {
+    bestPerFile.resize(topK);
+  }
+
+  return bestPerFile;
 }
 
 const Settings &App::settings() const
@@ -1889,6 +2344,33 @@ int App::handlePasswordStatus()
   return 0;
 }
 
+//bool App::shouldRunGrep(const std::string &text, const std::vector<std::string> &terms)
+//{
+//  if (terms.empty()) return false;
+//
+//  static const std::unordered_set<std::string> grepBlocklist = {
+//  "json", "chunk", "chunker", "token", "tokens", "source", "sources",
+//  "config", "settings", "provider", "providers", "app", "file", "files",
+//  "test", "tests", "data", "database", "update", "server", "http",
+//  "request", "context", "embedding", "vector", "search", "stats"
+//  };
+//
+//  // 1. Explicit quotes/backticks always trigger grep
+//  if (text.find('`') != std::string::npos || text.find('"') != std::string::npos || text.find('\'') != std::string::npos)
+//    return true;
+//
+//  // 2. Syntax operators always trigger grep
+//  if (text.find("::") != std::string::npos || text.find("->") != std::string::npos || text.find("()") != std::string::npos)
+//    return true;
+//
+//  // 3. Reject pure prose queries (e.g. "What is the purpose of...")
+//  bool hasExactIdentifier = std::any_of(terms.begin(), terms.end(), [](const std::string &t) {
+//    return utils::isIdentifierLike(t) && grepBlocklist.find(t) == grepBlocklist.end();
+//    });
+//
+//  return hasExactIdentifier;
+//}
+
 int App::run(int argc, char *argv[])
 {
   Impl::binaryName_ = argv[0];
@@ -1985,6 +2467,10 @@ int App::run(int argc, char *argv[])
   bool evalListFlag = false;
   std::string evalDetailId;
   size_t evalTopK = 5;
+  bool evalAddVectorsFlag = false;
+  float evalBm25Weight;
+  float evalGrepWeight;
+  bool evalSweepFlag = false;
 
   cmdEval->add_option("--dataset", evalDatasetPath, "Path to eval.json dataset");
   cmdEval->add_flag("--init", evalInitFlag, "Generate template eval.json");
@@ -1993,6 +2479,10 @@ int App::run(int argc, char *argv[])
   cmdEval->add_flag("--list", evalListFlag, "List available document IDs");
   cmdEval->add_option("--detail", evalDetailId, "Show details for a document ID");
   cmdEval->add_option("--top", evalTopK, "Top-k for search metrics")->default_val(5);
+  cmdEval->add_flag("--add-vectors", evalAddVectorsFlag, "Embed queries in dataset, write result to --output");
+  cmdEval->add_option("--bm25-weight", evalBm25Weight)->default_val(kHybridBm25Weight);
+  cmdEval->add_option("--grep-weight", evalGrepWeight)->default_val(kGrepRrfWeight);
+  cmdEval->add_flag("--sweep", evalSweepFlag, "Sweep bm25 x grep weights");
 
   try {
     app.parse(argc, argv);
@@ -2104,8 +2594,16 @@ int App::run(int argc, char *argv[])
         appInstance.evalList();
       } else if (!evalDetailId.empty()) {
         appInstance.evalDetail(evalDetailId);
+      } else if (evalAddVectorsFlag) {
+        if (evalDatasetPath.empty()) {
+          LOG_MSG << "--add-vectors requires --dataset <path>";
+          return 1;
+        }
+        appInstance.evalAddVectors(evalDatasetPath, evalOutputPath);
+      } else if (evalSweepFlag) {
+        appInstance.evalSweep(evalDatasetPath, evalTopK);
       } else if (!evalDatasetPath.empty()) {
-        appInstance.eval(evalDatasetPath, evalTopK);
+        appInstance.eval(evalDatasetPath, evalTopK, evalBm25Weight, evalGrepWeight);
       } else {
         LOG_MSG << "Specify --dataset <path>, --init, --list, or --detail <id>";
         LOG_MSG << "  eval --init --output eval.json    Generate template";

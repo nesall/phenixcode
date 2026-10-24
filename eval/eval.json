@@ -5,360 +5,419 @@
       "D:/workspace/projects/phenixcode/include/app.h",
       "D:/workspace/projects/phenixcode/README.md"
     ],
-    "query": "List CLI commands"
+    "query": "List CLI commands",
+    "index": 1
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/auth.cpp"
     ],
-    "query": "Where is 'Bearer|Basic' password authentication implemented?"
+    "query": "Where is 'Bearer|Basic' password authentication implemented?",
+    "index": 2
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/cutils.h",
       "D:/workspace/projects/phenixcode/src/cutils.cpp"
     ],
-    "query": "What function does c++ utils define?"
+    "query": "What function does c++ utils define?",
+    "index": 3
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/database.h"
     ],
-    "query": "What does the vector<SearchResult> searchWithFilter function do?"
+    "query": "What does the vector<SearchResult> searchWithFilter function do?",
+    "index": 4
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/httpserver.cpp"
     ],
-    "query": "port=0 means bind to any available port"
+    "query": "port=0 means bind to any available port",
+    "index": 5
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/instregistry.h"
     ],
-    "query": "Class that is non-copyable, but movable"
+    "query": "Class that is non-copyable, but movable",
+    "index": 6
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/json_shim.h"
     ],
-    "query": "What does the vector<std::string> json_keys function do?"
+    "query": "What does the vector<std::string> json_keys function do?",
+    "index": 7
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/sourceproc.h",
       "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
     ],
-    "query": "What is the purpose of SourceProcessor?"
+    "query": "What is the purpose of SourceProcessor?",
+    "index": 8
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/tokenizer.h"
     ],
-    "query": "What is the purpose of SimpleTokenizer?"
+    "query": "What is the purpose of SimpleTokenizer?",
+    "index": 9
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/README.md"
     ],
-    "query": "List Core Functionality PhenixCode Assistant"
+    "query": "List Core Functionality PhenixCode Assistant",
+    "index": 10
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/auth.cpp"
     ],
-    "query": "What does the string nextRandomId function do?"
+    "query": "What does the string nextRandomId function do?",
+    "index": 11
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/cutils.cpp"
     ],
-    "query": "What string trimming functions are there and where?"
+    "query": "What string trimming functions are there and where?",
+    "index": 12
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/database.cpp"
     ],
-    "query": "What function is responsible for adding documents into vector db?"
+    "query": "What function is responsible for adding documents into vector db?",
+    "index": 13
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/instregistry.cpp"
     ],
-    "query": "What does the string getRegistryPath function do?"
+    "query": "What does the string getRegistryPath function do?",
+    "index": 14
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
     ],
-    "query": "What does sanitizeUtf8 function do?"
+    "query": "What does sanitizeUtf8 function do?",
+    "index": 15
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/tests.cpp"
     ],
-    "query": "Are there unit tests and do you think they are incomplete?"
+    "query": "Are there unit tests and do you think they are incomplete?",
+    "index": 16
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/CMakeLists.txt"
     ],
-    "query": "What happens if OpenSSL not found?"
+    "query": "What happens if OpenSSL not found?",
+    "index": 17
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/settings.h"
     ],
-    "query": "Compute an effective \"combined\" price per million tokens."
+    "query": "Compute an effective \"combined\" price per million tokens.",
+    "index": 18
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/app.cpp"
     ],
-    "query": "Purpose of incremental updater is ..."
+    "query": "Purpose of incremental updater is ...",
+    "index": 19
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/settings.cpp"
     ],
-    "query": "Simple ${VAR} substitution"
+    "query": "Simple ${VAR} substitution",
+    "index": 20
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/assets/providers.json"
     ],
-    "query": "What is the purpose of providers json?"
+    "query": "What is the purpose of providers json?",
+    "index": 21
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/assets/settings.json"
     ],
-    "query": "What is the purpose of settings json?"
+    "query": "What is the purpose of settings json?",
+    "index": 22
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/chunker.h"
     ],
-    "query": "How class Chunk is different from class Chunker?"
+    "query": "How class Chunk is different from class Chunker?",
+    "index": 23
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/sqlite3_helper.h",
       "D:/workspace/projects/phenixcode/src/sqlite3_helper.cpp"
     ],
-    "query": "What is the purpose of sqlite wrapper class?"
+    "query": "What is the purpose of sqlite wrapper class?",
+    "index": 24
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/chunker.cpp"
     ],
-    "query": "Precompiled optimized regexes (thread-safe after initialization)"
+    "query": "Precompiled optimized regexes (thread-safe after initialization)",
+    "index": 25
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/sqlite3_helper.cpp"
     ],
-    "query": "What does the ~SqliteStmt function do?"
+    "query": "What does the ~SqliteStmt function do?",
+    "index": 26
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/main.cpp"
     ],
-    "query": "#define TEST_CHUNKING"
+    "query": "#define TEST_CHUNKING",
+    "index": 27
   },
   {
-    "expected_doc_ids": [      
+    "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/inference.cpp",
       "D:/workspace/projects/phenixcode/include/inference.h"
     ],
-    "query": "What does the string generateCompletion function do?"
+    "query": "What does the string generateCompletion function do?",
+    "index": 28
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/httpserver.cpp"
     ],
-    "query": "Give overview of how token accounting is carried out in API request/context?"
+    "query": "Give overview of how token accounting is carried out in API request/context?",
+    "index": 29
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/settings.cpp",
       "D:/workspace/projects/phenixcode/src/inference.cpp"
     ],
-    "query": "How does the code distinguish the Anthropic-style API from the OpenAI-style API?"
+    "query": "How does the code distinguish the Anthropic-style API from the OpenAI-style API?",
+    "index": 30
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/inference.cpp"
     ],
-    "query": "How does the code decide which API style (Anthropic or OpenAI) is used when building the request body?"
+    "query": "How does the code decide which API style (Anthropic or OpenAI) is used when building the request body?",
+    "index": 31
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/tokenizer.cpp"
     ],
-    "query": "What does the `utf8ToUtf32 returning vector<uint32_t>` function do?"
+    "query": "What does the `utf8ToUtf32 returning vector<uint32_t>` function do?",
+    "index": 32
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/app.cpp"
     ],
-    "query": "What does `App::embed` do with the sources collected by `SourceProcessor`?"
+    "query": "What does `App::embed` do with the sources collected by `SourceProcessor`?",
+    "index": 33
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/chunker.cpp"
     ],
-    "query": "Which class decides whether a document should be treated as code, text, or binary?"
+    "query": "Which class decides whether a document should be treated as code, text, or binary?",
+    "index": 34
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/auth.cpp"
     ],
-    "query": "What file does `AdminAuth` use to store the admin password hash?"
+    "query": "What file does `AdminAuth` use to store the admin password hash?",
+    "index": 35
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/database.cpp"
     ],
-    "query": "What is the purpose of `VectorDatabase::deleteDocumentsBySource`?"
+    "query": "What is the purpose of `VectorDatabase::deleteDocumentsBySource`?",
+    "index": 36
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/httpserver.cpp"
     ],
-    "query": "What does the `/api/health` endpoint indicate about the server?"
+    "query": "What does the `/api/health` endpoint indicate about the server?",
+    "index": 37
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/app.cpp"
     ],
-    "query": "How does `IncrementalUpdater::detectChanges` determine that a tracked file has been modified?"
+    "query": "How does `IncrementalUpdater::detectChanges` determine that a tracked file has been modified?",
+    "index": 38
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/database.cpp"
     ],
-    "query": "Why does `HnswSqliteVectorDatabase::search` convert cosine and L2 distances into similarity scores differently?"
+    "query": "Why does `HnswSqliteVectorDatabase::search` convert cosine and L2 distances into similarity scores differently?",
+    "index": 39
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/app.cpp",
       "D:/workspace/projects/phenixcode/src/httpserver.cpp"
     ],
-    "query": "What concurrency issue can occur if `App::update` is invoked by both the watch thread and an HTTP endpoint at the same time?"
+    "query": "What concurrency issue can occur if `App::update` is invoked by both the watch thread and an HTTP endpoint at the same time?",
+    "index": 40
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/inference.cpp"
     ],
-    "query": "Why does `EmbeddingClient::generateEmbeddings` throw when the number of returned embeddings does not match the number of input texts?"
+    "query": "Why does `EmbeddingClient::generateEmbeddings` throw when the number of returned embeddings does not match the number of input texts?",
+    "index": 41
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/settings.cpp"
     ],
-    "query": "How does `Settings::validate` ensure that `current_api` refers to an enabled and known generation provider?"
+    "query": "How does `Settings::validate` ensure that `current_api` refers to an enabled and known generation provider?",
+    "index": 42
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/httpserver.cpp"
     ],
-    "query": "What security risk is introduced by `requireAuth` bypassing authentication for requests from localhost?"
+    "query": "What security risk is introduced by `requireAuth` bypassing authentication for requests from localhost?",
+    "index": 43
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/auth.cpp"
     ],
-    "query": "Why can Bearer authentication fail after a restart if the JWT secret is generated once per process instead of being persisted?"
+    "query": "Why can Bearer authentication fail after a restart if the JWT secret is generated once per process instead of being persisted?",
+    "index": 44
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/database.cpp"
     ],
-    "query": "What consistency problem can occur between SQLite chunk deletion and `hnswlib::markDelete` in `HnswSqliteVectorDatabase::deleteDocumentsBySource`?"
+    "query": "What consistency problem can occur between SQLite chunk deletion and `hnswlib::markDelete` in `HnswSqliteVectorDatabase::deleteDocumentsBySource`?",
+    "index": 45
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/database.cpp"
     ],
-    "query": "How can `HnswSqliteVectorDatabase::clear` leave the vector index and SQLite metadata inconsistent if the transaction is rolled back?"
+    "query": "How can `HnswSqliteVectorDatabase::clear` leave the vector index and SQLite metadata inconsistent if the transaction is rolled back?",
+    "index": 46
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/httpserver.cpp"
     ],
-    "query": "What token-accounting bug risk exists when `processInputResults` truncates `orderedResults` to `generationMaxChunks` and then subtracts tokens from the removed entries?"
+    "query": "What token-accounting bug risk exists when `processInputResults` truncates `orderedResults` to `generationMaxChunks` and then subtracts tokens from the removed entries?",
+    "index": 47
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/chunker.cpp"
     ],
-    "query": "What does looksLikeOpaqueBlob function do?"
+    "query": "What does looksLikeOpaqueBlob function do?",
+    "index": 48
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/settings.cpp"
     ],
-    "query": "What does detectApiStyle function do?"
+    "query": "What does detectApiStyle function do?",
+    "index": 49
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/tokenizer.cpp"
     ],
-    "query": "What does isPunctuation function do?"
+    "query": "What does isPunctuation function do?",
+    "index": 50
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/chunker.cpp"
     ],
-    "query": "What does CODE_RATIO_STRONG function do?"
+    "query": "What does CODE_RATIO_STRONG function do?",
+    "index": 51
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/include/json_shim.h"
     ],
-    "query": "Where is json_str_val defined?"
+    "query": "Where is json_str_val defined?",
+    "index": 52
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/app.cpp"
     ],
-    "query": "Explain what evalList is for."
+    "query": "Explain what evalList is for.",
+    "index": 53
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/auth.cpp"
     ],
-    "query": "Explain what setPassword is for."
+    "query": "Explain what setPassword is for.",
+    "index": 54
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/chunker.cpp"
     ],
-    "query": "What does the splitIntoSemanticChunks function do?"
+    "query": "What does the splitIntoSemanticChunks function do?",
+    "index": 55
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/cutils.cpp"
     ],
-    "query": "Explain what strFindIn is for."
+    "query": "Explain what strFindIn is for.",
+    "index": 56
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/database.cpp"
     ],
-    "query": "How does getStats work?"
-  },  
+    "query": "How does getStats work?",
+    "index": 57
+  },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/httpserver.cpp"
     ],
-    "query": "How does startServer work?"
+    "query": "How does startServer work?",
+    "index": 58
   },
   {
     "expected_doc_ids": [
       "D:/workspace/projects/phenixcode/src/inference.cpp"
     ],
-    "query": "Where is timeoutMs defined?"
+    "query": "Where is timeoutMs defined?",
+    "index": 59
   }
 ]

@@ -5,6 +5,11 @@
 #include <algorithm>
 #include <filesystem>
 #include <utility>
+#include <unordered_set>
+#include <regex>
+#include <cctype>
+#include <initializer_list>
+#include <string>
 
 namespace fs = std::filesystem;
 
@@ -314,6 +319,13 @@ std::size_t utils::strFindIn(std::string_view in, std::string_view t, bool caseS
   }
 }
 
+bool utils::containsAny(std::string_view text, std::initializer_list<std::string_view> markers)
+{
+  return std::ranges::any_of(markers, [text](std::string_view marker) {
+    return text.find(marker) != std::string_view::npos;
+    });
+}
+
 std::string utils::commonDirPrefix(const std::set<std::string> &paths)
 {
   return ::commonDirPrefix(paths); // your existing template, renamed e.g. detail::commonDirPrefixImpl
@@ -348,3 +360,289 @@ std::filesystem::path utils::monitorPathFor(std::filesystem::path settingsFilePa
 {
   return settingsFilePath.parent_path() / (settingsFilePath.stem().string() + ".monitor.json");
 }
+
+std::vector<std::string> utils::extractGrepTerms(const std::string &text)
+{
+  static const std::unordered_set<std::string> stop = {
+    "what", "does", "do", "is", "are", "the", "a", "an", "how", "why", "of", "to",
+    "in", "function", "class", "method", "this", "that", "and", "or", "for", "with", "where", "find"
+  };
+
+  std::vector<std::string> terms;
+  auto addTerm = [&](std::string s) {
+    s = utils::trimmed(s);
+    if (s.size() < 2) return;
+    std::string lower = s;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+    if (stop.count(lower)) return;
+    if (std::find(terms.begin(), terms.end(), s) == terms.end()) terms.push_back(std::move(s));
+    };
+
+  // 1. Backtick / quoted literals
+  static const std::regex quotedRe(
+    R"re(`([^`\n]+)`|"([^"\n]+)"|'([^'\n]+)')re"
+  );
+  for (std::sregex_iterator it(text.begin(), text.end(), quotedRe), end;
+    it != end; ++it) {
+    for (int g : {1, 2, 3}) {
+      if ((*it)[g].matched)
+        addTerm((*it)[g].str());
+    }
+  }
+
+  // 2. Qualified names, call sites, paths, UPPER_SNAKE, camelCase
+  static const std::regex codeTokenRe(
+    R"(([A-Za-z_][A-Za-z0-9_]*(?:(?:::|->|\.)[A-Za-z_][A-Za-z0-9_]*)+)|([A-Za-z_][A-Za-z0-9_]*\s*\()|([A-Za-z0-9_./\\-]+\.[A-Za-z0-9]+))"
+  );
+  for (std::sregex_iterator it(text.begin(), text.end(), codeTokenRe), end;
+    it != end; ++it) {
+    std::string m = (*it).str();
+    if (!m.empty() && m.back() == '(')
+      m = utils::trimmed(m.substr(0, m.size() - 1));
+    addTerm(m);
+  }
+
+  // 3. Fallback to general identifiers
+  static const std::regex identRe(R"(\b[A-Za-z_][A-Za-z0-9_]{2,}\b)");
+  for (std::sregex_iterator it(text.begin(), text.end(), identRe), end; it != end; ++it) {
+    addTerm((*it).str());
+  }
+  return terms;
+}
+
+//  Handles only explicit forms: quoted/backticked/fenced spans, and a::b, a->b, a.b(, foo(), paths with /. Deduplicate. 
+//  Keep extractGrepTerms for the pre-index / empty-DB path, where there is nothing to df-prune against.
+std::vector<std::string> utils::extractGrepLiterals(const std::string &text)
+{
+  std::vector<std::string> out;
+  std::unordered_set<std::string> seen;
+
+  auto pushPart = [&](std::string lit)
+    {
+      lit = utils::trimmed(lit);
+      if (lit.empty()) return;
+      while (!lit.empty() &&
+        (lit.front() == '`' || lit.front() == '"' || lit.front() == '\'' ||
+          lit.front() == '(' || lit.front() == '[' || lit.front() == '{' ||
+          lit.front() == '<')) {
+        lit.erase(lit.begin());
+      }
+
+      while (!lit.empty() &&
+        (lit.back() == '`' || lit.back() == '"' || lit.back() == '\'' ||
+          lit.back() == ')' || lit.back() == ']' || lit.back() == '}' ||
+          lit.back() == ';' || lit.back() == ',' || lit.back() == '>')) {
+        lit.pop_back();
+      }
+
+      if (lit.empty()) return;
+
+      // Ignore long plain prose, keep explicit code-ish literals.
+      if (lit.find_first_of(" \t\r\n") != std::string::npos &&
+        lit.find('/') == std::string::npos &&
+        lit.find('\\') == std::string::npos &&
+        lit.find("::") == std::string::npos &&
+        lit.find("->") == std::string::npos &&
+        lit.find('.') == std::string::npos) {
+        return;
+      }
+
+      std::string lower = lit;
+      std::transform(lower.begin(), lower.end(), lower.begin(),
+        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+      if (seen.insert(lower).second) {
+        out.push_back(std::move(lit));
+      }
+    };
+
+  auto addLiteral = [&](std::string lit)
+    {
+      lit = utils::trimmed(lit);
+      if (lit.empty()) return;
+      if (lit.find('|') != std::string::npos &&
+        lit.find_first_of(" \t\r\n") == std::string::npos) {
+        size_t start = 0;
+        while (start <= lit.size()) {
+          size_t p = lit.find('|', start);
+          if (p == std::string::npos) p = lit.size();
+          pushPart(lit.substr(start, p - start));
+          if (p == lit.size()) break;
+          start = p + 1;
+        }
+        return;
+      }
+      pushPart(std::move(lit));
+    };
+
+  // 1) Markdown fenced code blocks: ``` ... ```
+  size_t pos = 0;
+  while ((pos = text.find("```", pos)) != std::string::npos) {
+    const size_t afterOpen = pos + 3;
+    const size_t lineBreak = text.find('\n', afterOpen);
+    if (lineBreak == std::string::npos) break;
+
+    const size_t close = text.find("```", lineBreak + 1);
+    if (close == std::string::npos) break;
+
+    addLiteral(text.substr(lineBreak + 1, close - lineBreak - 1));
+    pos = close + 3;
+  }
+
+  // 2) Inline quoted / backticked literals
+  static const std::regex quotedRe(
+    R"re((`([^`\n]+)`|"([^"\n]+)"|'([^'\n]+)'))re"
+  );
+  for (std::sregex_iterator it(text.begin(), text.end(), quotedRe), end;
+    it != end; ++it) {
+    for (int g : { 1, 2, 3, 4 }) {
+      if ((*it)[g].matched) {
+        addLiteral((*it)[g].str());
+      }
+    }
+  }
+
+  // 3) Qualified names and call sites: a::b, a->b, obj.method(), foo()
+  static const std::regex symbolRe(
+    R"(([A-Za-z_][A-Za-z0-9_]*(?:(?:::|->|\.)[A-Za-z_][A-Za-z0-9_]*)+)|([A-Za-z_][A-Za-z0-9_]*(?:(?:::|->|\.)[A-Za-z_][A-Za-z0-9_]*)*\s*\())"
+  );
+  for (std::sregex_iterator it(text.begin(), text.end(), symbolRe), end;
+    it != end; ++it) {
+    for (int g : { 1, 2 }) {
+      if ((*it)[g].matched) {
+        std::string m = (*it)[g].str();
+        if (!m.empty() && m.back() == '(') {
+          m.pop_back();
+        }
+        addLiteral(m);
+      }
+    }
+  }
+
+  // 4) Path-like literals: src/app.cpp, include/cutils.h
+  static const std::regex pathRe(
+    R"((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)"
+  );
+  for (std::sregex_iterator it(text.begin(), text.end(), pathRe), end;
+    it != end; ++it) {
+    addLiteral((*it).str());
+  }
+
+  // 5) Explicit literals only: path-like tokens and namespace-qualified symbols.
+  static const std::regex explicitRe(
+    R"(([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+)|(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)"
+  );
+  for (std::sregex_iterator it(text.begin(), text.end(), explicitRe), end;
+    it != end; ++it) {
+    addLiteral((*it).str());
+  }
+
+  //// 5) Fallback for code-ish identifiers (camelCase, snake_case, UPPER_SNAKE)
+  //static const std::regex wordRe(R"(\b[A-Za-z_][A-Za-z0-9_]{1,}\b)");
+  //for (std::sregex_iterator it(text.begin(), text.end(), wordRe), end;
+  //  it != end; ++it) {
+  //  const std::string w = (*it).str();
+  //  if (utils::looksCodeLike(w) || w.find('_') != std::string::npos) {
+  //    addLiteral(w);
+  //  }
+  //}
+
+  return out;
+}
+
+bool utils::looksCodeLike(const std::string &text)
+{
+  if (text.find("::") != std::string::npos || text.find("->") != std::string::npos ||
+    text.find('`') != std::string::npos || text.find('_') != std::string::npos ||
+    text.find("()") != std::string::npos) return true;
+  for (size_t i = 1; i < text.size(); ++i) {
+    if (std::islower(static_cast<unsigned char>(text[i - 1])) &&
+      std::isupper(static_cast<unsigned char>(text[i]))) return true; // camelCase
+  }
+  return false;
+}
+
+bool utils::isIdentifierLike(const std::string &t)
+{
+  bool hasLower = false, hasInnerUpper = false, hasDigit = false, hasAlpha = false;
+  for (size_t i = 0; i < t.size(); ++i) {
+    unsigned char c = t[i];
+    if (c == '_') return true;
+    if (std::isdigit(c)) hasDigit = true;
+    if (std::isalpha(c)) hasAlpha = true;
+    if (std::islower(c)) hasLower = true;
+    if (i > 0 && std::isupper(c)) hasInnerUpper = true;
+  }
+  return (hasLower && hasInnerUpper) || (hasDigit && hasAlpha);
+}
+
+bool utils::isHeader(const std::string &path)
+{
+  static const std::unordered_set<std::string> headerExts = {
+    ".h", ".hpp", ".hh", ".hxx", ".h++", ".inc", ".inl", ".ipp"
+  };
+  std::string ext = fs::path(path).extension().string();
+  std::transform(ext.begin(), ext.end(), ext.begin(),
+    [](unsigned char c) { return std::tolower(c); });
+  return headerExts.count(ext) > 0;
+}
+
+std::string utils::stemKey(const std::string &path)
+{
+  fs::path p(path);
+  // "/src/foo.h" and "/src/foo.cpp" -> "/src/foo"
+  return (p.parent_path() / p.stem()).string();
+}
+
+utils::QueryIntent utils::queryIntent(const std::string &query)
+{
+  std::string q = query;
+  std::transform(q.begin(), q.end(), q.begin(),
+    [](unsigned char c) {
+      return static_cast<char>(std::tolower(c));
+    });
+
+  auto hasWord = [&q](const std::string &w) {
+    for (size_t pos = q.find(w);
+      pos != std::string::npos;
+      pos = q.find(w, pos + 1)) {
+      const bool left =
+        pos == 0 || !std::isalnum(static_cast<unsigned char>(q[pos - 1]));
+
+      const size_t end = pos + w.size();
+      const bool right =
+        end == q.size() ||
+        !std::isalnum(static_cast<unsigned char>(q[end]));
+
+      if (left && right) {
+        return true;
+      }
+    }
+    return false;
+    };
+
+  auto count = [&hasWord](std::initializer_list<const char *> words) {
+    size_t n = 0;
+    for (const char *w : words) {
+      if (hasWord(w)) {
+        ++n;
+      }
+    }
+    return n;
+    };
+
+  const size_t declHits = count({
+      "where", "define", "defined", "struct", "class",
+      "interface", "declaration", "header", "signature"
+    });
+
+  const size_t implHits = count({
+      "how", "implement", "does", "work", "working",
+      "responsible", "logic", "body", "flow"
+    });
+
+  if (declHits > implHits) return QueryIntent::Declaration;
+  if (implHits > declHits) return QueryIntent::Implementation;
+  return QueryIntent::Neutral;
+}
+

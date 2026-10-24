@@ -21,13 +21,14 @@
 #include <cassert>
 #include <exception>
 #include <algorithm>
+#include <set>
+#include <list>
 #include <vector>
 #include <string>
 #include <atomic>
 #include <functional>
 #include <string_view>
 #include <filesystem>
-#include <list>
 #include <utility>
 #include <unordered_map>
 
@@ -365,6 +366,10 @@ namespace {
     return true;
   }
 
+  bool isSyntheticGrepId(size_t id) {
+    return id > (std::numeric_limits<size_t>::max() - 100000);
+  }
+
   std::pair<std::vector<SearchResult>, size_t> processInputResults(
     const App &app,
     const ApiConfig &apiConfig,
@@ -447,24 +452,36 @@ namespace {
     std::vector<std::string> relSources;
     std::vector<size_t> usedChunkIds;
 
-    EmbeddingClient embeddingClient(app.settings().embeddingCurrentApi(), app.settings().embeddingTimeoutMs());
     const auto questionChunks = app.chunker().chunkText(question, "", false);
     std::vector<std::string> questionTexts;
     for (const auto &qc : questionChunks) questionTexts.push_back(qc.text);
+    if (questionTexts.empty()) questionTexts.push_back(question);
 
-    try {
-      embeddingClient.generateEmbeddings(questionTexts, questionEmbeddingVectors, EmbeddingClient::EncodeType::Query);
-    } catch (const std::exception &e) {
-      LOG_MSG_ERROR << "Error generating embeddings |" << e.what();
-      throw;
+    const bool hasIndex = (0 < app.db().getStats().totalChunks);
+    bool embeddingsAvailable = false;
+
+    if (hasIndex) {
+      try {
+        EmbeddingClient embeddingClient(app.settings().embeddingCurrentApi(), app.settings().embeddingTimeoutMs());
+        embeddingClient.generateEmbeddings(questionTexts, questionEmbeddingVectors, EmbeddingClient::EncodeType::Query);
+        embeddingsAvailable = (questionEmbeddingVectors.size() == questionTexts.size());
+      } catch (const std::exception &e) {
+        LOG_MSG_WARN << "Unable to generate embeddings" << e.what() << "| Falling back to grep.";
+        onInfo("Embedding server unavailable; falling back to text grep");
+        embeddingsAvailable = false;
+        questionEmbeddingVectors.clear();
+      }
+    } else {
+      onInfo("Database not indexed; using text grep");
     }
 
     if (!attachedOnly) {
       std::set<size_t> uniqueChunkResults;
       std::unordered_map<std::string, float> sourcesRank;
-      assert(questionEmbeddingVectors.size() == questionTexts.size());
-      for (size_t j = 0; j < questionEmbeddingVectors.size(); j ++) {
-        auto res = app.retrieve(questionTexts[j], questionEmbeddingVectors[j], app.settings().embeddingTopK());
+      for (size_t j = 0; j < questionTexts.size(); ++j) {
+        const std::vector<float> &qVec = embeddingsAvailable ? questionEmbeddingVectors[j] : std::vector<float>{};
+        // App::retrieve handles empty embedding as pure grep
+        auto res = app.retrieve(questionTexts[j], qVec, app.settings().embeddingTopK());
         for (const auto &r : res) {
           sourcesRank[r.sourceId] += r.similarityScore;
           if (uniqueChunkResults.insert(r.chunkId).second) {
@@ -472,15 +489,19 @@ namespace {
           }
         }
       }
+
       std::sort(filteredChunkResults.begin(), filteredChunkResults.end(), [&sourcesRank](const SearchResult &a, const SearchResult &b) {
-        return sourcesRank[a.sourceId] > sourcesRank[b.sourceId];
+        //return sourcesRank[a.sourceId] > sourcesRank[b.sourceId];
+        return std::tie(sourcesRank[b.sourceId], a.sourceId, a.chunkId) < std::tie(sourcesRank[a.sourceId], b.sourceId, b.chunkId);
         });
 
       const auto maxFullSources = app.settings().generationMaxFullSources();
       for (const auto &r : filteredChunkResults) {
         if (maxFullSources <= sources.size()) break;
-        if (vecAddIfUnique(sources, r.sourceId)) {}
-        sourceToChunk[r.sourceId] = r;
+        if (!isSyntheticGrepId(r.chunkId)) {
+          if (vecAddIfUnique(sources, r.sourceId)) {}
+          sourceToChunk[r.sourceId] = r;
+        }
       }
 
       const auto trackedFiles = app.db().getTrackedFiles();
@@ -541,7 +562,7 @@ namespace {
           content.clear();
           contentTokens = 0;
           auto ids = app.db().getChunkIdsBySource(src);
-          if (!ids.empty()) {
+          if (!ids.empty() && embeddingsAvailable && !questionEmbeddingVectors.empty()) {
             const auto remaining = maxTokenBudget - usedTokens;
             const auto avgChunkTokens = app.settings().chunkingMaxTokens();
             const auto nofMaxChunks = remaining / avgChunkTokens;
@@ -591,6 +612,14 @@ namespace {
               contentTokens += tokens;
               srcTokens += tokens;
             }
+          } else {
+            // Grep/head fallback: read the head of the file up to the threshold
+            std::string fullContent = app.sourceProcessor().fetchSource(src).content;
+            size_t remainingTokens = (maxTokenBudget > usedTokens) ? (maxTokenBudget - usedTokens) : 0;
+            size_t allowedTokens = static_cast<size_t>(remainingTokens * thresholdRatio);
+            content = truncateToTokens(app.tokenizer(), fullContent, allowedTokens);
+            contentTokens = app.tokenizer().countTokensWithVocab(content);
+            srcTokens += contentTokens;
           }
         } else {
           auto ids = app.db().getChunkIdsBySource(src);
@@ -829,13 +858,12 @@ HttpServer::HttpServer(App &a)
     });
 
   imp->server_.set_error_logger([](const httplib::Error &err, const httplib::Request *req) {
-    std::cerr << httplib::to_string(err) << " while processing request";
+    LOG_MSG_ERROR << httplib::to_string(err) << "while processing request";
     if (req) {
-      std::cerr << ", client: " << req->get_header_value("X-Forwarded-For")
-        << ", request: '" << req->method << " " << req->path << " " << req->version << "'"
-        << ", host: " << req->get_header_value("Host");
+      LOG_MSG_ERROR << ", client:" << req->get_header_value("X-Forwarded-For")
+        << ", request: '" << req->method << req->path <<  req->version << "'"
+        << ", host:" << req->get_header_value("Host");
     }
-    std::cerr << std::endl;
     });
 }
 
@@ -954,7 +982,7 @@ bool HttpServer::startServer()
     });
 
   server.Get("/api/health", [](const httplib::Request &, httplib::Response &res) {
-    LOG_MSG << "GET /api/health";
+    LOG_MSG_DEBUG << "GET /api/health";
     json response = { {"status", "ok"} };
     res.set_content(response.dump(), "application/json");
     Impl::requestCounter_++;
@@ -971,8 +999,13 @@ bool HttpServer::startServer()
       tokensIn = imp->app_.tokenizer().countTokensWithVocab(query);
       size_t top_k = request.value("top_k", 5);
       std::vector<float> queryEmbedding;
-      EmbeddingClient embeddingClient(imp->app_.settings().embeddingCurrentApi(), imp->app_.settings().embeddingTimeoutMs());
-      embeddingClient.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
+      try {
+        EmbeddingClient embeddingClient(imp->app_.settings().embeddingCurrentApi(), imp->app_.settings().embeddingTimeoutMs());
+        embeddingClient.generateEmbeddings(query, queryEmbedding, EmbeddingClient::EncodeType::Query);
+      } catch (const std::exception &e) {
+        LOG_MSG_WARN << "Unable to generate embeddings" << e.what() << "| Falling back to grep.";
+        queryEmbedding.clear();
+      }
       auto results = imp->app_.retrieve(query, queryEmbedding, top_k);
       json response = json::array();
       for (const auto &result : results) {
