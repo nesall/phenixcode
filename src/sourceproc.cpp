@@ -35,13 +35,50 @@ namespace {
     return out;
   }
 
-  float occWeight(std::string_view line, size_t p, size_t len) {
+  //float occWeight(std::string_view line, size_t p, size_t len) {
+  //  const bool call = p + len < line.size() && line[p + len] == '(';
+  //  const bool member = (p >= 1 && line[p - 1] == '.') ||
+  //    (p >= 2 && line[p - 2] == '-' && line[p - 1] == '>');
+  //  const bool col0 = !line.empty() && !std::isspace(static_cast<unsigned char>(line[0]));
+  //  if (call && col0 && line.find(';') == std::string_view::npos) return 3.0f; // `Ret Cls::name(...)`
+  //  return member ? 0.5f : 1.0f;
+  //}
+
+  float occWeight(std::string_view line, size_t p, size_t len)
+  {
+    auto isId = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+    std::string_view pre = line.substr(0, p);
+    while (!pre.empty() && std::isspace(static_cast<unsigned char>(pre.back()))) pre.remove_suffix(1);
+    auto ends = [&](std::string_view s) { return pre.size() >= s.size() && pre.substr(pre.size() - s.size()) == s; };
+    auto lastWord = [](std::string_view s) {
+      size_t b = s.size();
+      while (b > 0 && !std::isspace(static_cast<unsigned char>(s[b - 1]))) --b;
+      return s.substr(b);
+      };
+    if (ends(".") || ends("->")) return 0.5f;
+    const auto w = lastWord(pre);                       // line is already lowercased
+    if (w == "class" || w == "struct" || w == "enum" || w == "using" || w == "typedef" || w == "#define") return 3.0f;
     const bool call = p + len < line.size() && line[p + len] == '(';
-    const bool member = (p >= 1 && line[p - 1] == '.') ||
-      (p >= 2 && line[p - 2] == '-' && line[p - 1] == '>');
-    const bool col0 = !line.empty() && !std::isspace(static_cast<unsigned char>(line[0]));
-    if (call && col0 && line.find(';') == std::string_view::npos) return 3.0f; // `Ret Cls::name(...)`
-    return member ? 0.5f : 1.0f;
+    if (call && line.find(';') == std::string_view::npos && pre.find_first_of("=(") == std::string_view::npos) {
+      std::string_view q = pre;
+      const bool qualified = ends("::") || ends("::~");
+      if (qualified) {                                  // strip `Cls::` / `Cls::~`
+        if (q.back() == '~') q.remove_suffix(1);
+        while (q.size() >= 2 && q.substr(q.size() - 2) == "::") {
+          q.remove_suffix(2);
+          while (!q.empty() && isId(q.back())) q.remove_suffix(1);
+        }
+        while (!q.empty() && std::isspace(static_cast<unsigned char>(q.back()))) q.remove_suffix(1);
+      }
+      if (qualified && q.empty()) return 3.0f;          // Cls::Cls( / Cls::~Cls(
+      const auto lw = lastWord(q);
+      if (!q.empty() && (isId(q.back()) || q.back() == '>' || q.back() == '*' || q.back() == '&') &&
+        lw != "return" && lw != "new" && lw != "else" && lw != "throw" && lw != "case" && lw != "delete")
+        return 3.0f;
+    }
+    if (!call && (pre.find("const") != std::string_view::npos || pre.find("static") != std::string_view::npos ||
+      pre.find("inline") != std::string_view::npos)) return 2.0f;
+    return 1.0f;
   }
 
 } // anonymous namespace
@@ -154,6 +191,7 @@ bool SourceProcessor::readFileRaw(const std::string &uri, std::string &data, boo
   return !data.empty();
 }
 
+
 std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &termsArg, const std::vector<std::string> &filePaths, const GrepOptions &opts) const
 {
   if (termsArg.empty()) return {};
@@ -164,64 +202,89 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
       if (!d.isUrl) targets.push_back(d.source);
     }
   }
+  if (targets.empty()) return {};
 
-  std::vector<std::string> loweredTerms;
-  std::vector<float> idfByTerm;
-  float meanIdf = 1.0f; // per-run constant; 1.0 when unweighted (indexed path)
+  // Prepare terms and their lowercase equivalents.
   std::vector<std::string> terms;
+  std::vector<std::string> loweredTerms;
+
   for (const auto &term : termsArg) {
-    if (1 < term.length() && term.length() < 65) {
-      loweredTerms.push_back(toLowerAscii(term));
+    if (term.length() > 1 && term.length() < 65) {
       terms.push_back(term);
+      loweredTerms.push_back(toLowerAscii(term));
     }
   }
 
   if (terms.empty()) return {};
 
+  std::vector<float> idfByTerm;
+  float meanIdf = 1.0f;
+
+  // Pass 1: count readable files and document frequency for each term.
+  // Files are streamed one at a time; no corpus-wide content cache.
   if (opts.idfPruning) {
-    std::vector<std::string> lowered = std::move(loweredTerms);
     std::vector<size_t> df(terms.size(), 0);
     size_t readable = 0;
+    std::string content;
 
-    const size_t nFilesGuess = targets.size(); // for maxDf
-    const size_t maxDf = std::max<size_t>(3, nFilesGuess / 4);
-
-    std::string content; // reused across iterations
     for (const auto &path : targets) {
-      if (!readFileRaw(path, content, false)) continue;
-      ++readable;
+      if (!readFileRaw(path, content, true)) continue;
 
-      const std::string loweredContent = toLowerAscii(content); // reused below
+      ++readable;
+      const std::string loweredContent = toLowerAscii(content);
+
       for (size_t t = 0; t < terms.size(); ++t) {
-        if (df[t] > maxDf || lowered[t].empty()) continue; // already dead
-        if (loweredContent.find(lowered[t]) != std::string::npos) ++df[t];
+        if (loweredContent.find(loweredTerms[t]) != std::string::npos) {
+          ++df[t];
+        }
       }
     }
 
-    // Compact: keep only terms inside [1, maxDf]; rewrite parallel arrays in place.
+    if (readable == 0) return {};
+
+    // Keep terms appearing in at least one file and no more than
+    // maxDf files. The threshold is based on readable files, not
+    // the total number of requested paths.
+    const size_t maxDf = std::max<size_t>(3, readable / 4);
+
     std::vector<std::string> keptTerms;
     std::vector<std::string> keptLowered;
     std::vector<size_t> keptDf;
+
+    keptTerms.reserve(terms.size());
+    keptLowered.reserve(loweredTerms.size());
+    keptDf.reserve(terms.size());
+
     for (size_t t = 0; t < terms.size(); ++t) {
       if (df[t] == 0 || df[t] > maxDf) continue;
+
       keptTerms.push_back(std::move(terms[t]));
-      keptLowered.push_back(std::move(lowered[t]));
+      keptLowered.push_back(std::move(loweredTerms[t]));
       keptDf.push_back(df[t]);
     }
+
     if (keptTerms.empty()) return {};
 
     terms = std::move(keptTerms);
     loweredTerms = std::move(keptLowered);
-    // idf weight per surviving term: ln(1 + nFiles / df)
+
+    // IDF: ln(1 + N / df), where N is the readable-file count.
     idfByTerm.resize(keptDf.size());
-    for (size_t t = 0; t < keptDf.size(); ++t)
-      idfByTerm[t] = std::log1p(static_cast<float>(readable) / static_cast<float>(keptDf[t]));
     float idfSum = 0.0f;
-    for (float v : idfByTerm) idfSum += v;
+
+    for (size_t t = 0; t < keptDf.size(); ++t) {
+      idfByTerm[t] = std::log1p(
+        static_cast<float>(readable) /
+        static_cast<float>(keptDf[t]));
+
+      idfSum += idfByTerm[t];
+    }
+
     meanIdf = idfSum / static_cast<float>(idfByTerm.size());
-    if (meanIdf < 1.0f) meanIdf = 1.0f; // guard; ln(1+N/df) already > 0
+    if (meanIdf < 1.0f) meanIdf = 1.0f;
   }
-  
+
+  // Pass 2: read each file again and build matching windows.
   size_t syntheticIdCounter = 0;
   std::vector<SearchResult> results;
 
@@ -231,84 +294,132 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
     std::string content;
     if (!readFileRaw(path, content, true)) continue;
 
-    const auto loweredContent = toLowerAscii(content);
+    const std::string loweredContent = toLowerAscii(content);
+
     std::vector<std::string_view> lines;
     size_t pos = 0;
+
     while (pos < content.size()) {
       const size_t next = content.find('\n', pos);
+
       if (next == std::string::npos) {
-        lines.emplace_back(content.data() + pos, content.size() - pos);
+        lines.emplace_back(
+          content.data() + pos, content.size() - pos);
         pos = content.size();
       } else {
-        lines.emplace_back(content.data() + pos, next - pos);
+        lines.emplace_back(
+          content.data() + pos, next - pos);
         pos = next + 1;
       }
     }
 
-    // Track matched line ranges [start, end] (inclusive, 0-indexed) and matched term count
-    struct Window { size_t start; size_t end; float hits; bool exactCase; };
+    if (lines.empty()) continue;
+
+    // Matched line ranges [start, end], inclusive and zero-indexed.
+    struct Window {
+      size_t start;
+      size_t end;
+      float hits;
+      bool exactCase;
+    };
+
     std::vector<Window> windows;
     size_t fileMatches = 0;
 
-    for (size_t i = 0; i < lines.size() && fileMatches < opts.maxMatchesPerFile; ++i) {
+    for (size_t i = 0;
+      i < lines.size() && fileMatches < opts.maxMatchesPerFile;
+      ++i) {
       const size_t offset = static_cast<size_t>(lines[i].data() - content.data());
+
       const std::string_view loweredLine(loweredContent.data() + offset, lines[i].size());
-      float lineScore = 0;
+
+      float lineScore = 0.0f;
       bool exact = false;
+
       for (size_t t = 0; t < terms.size(); ++t) {
         if (terms[t].empty()) continue;
-        const size_t p = loweredLine.find(loweredTerms[t]); // only the first occurrence - avoids allowing repetitive lines to dominate the results
+
+        // Count only the first occurrence of each term per line.
+        const size_t p = loweredLine.find(loweredTerms[t]);
         if (p == std::string_view::npos) continue;
+
         const float w = occWeight(loweredLine, p, loweredTerms[t].size());
+
         lineScore += w * (idfByTerm.empty() ? 1.0f : idfByTerm[t]);
-        if (lines[i].find(terms[t]) != std::string_view::npos) exact = true;
-      }
-      if (lineScore > 0) {
-        ++fileMatches;
-        size_t wStart = (i > opts.contextLines) ? (i - opts.contextLines) : 0;
-        size_t wEnd = std::min(lines.size() - 1, i + opts.contextLines);
-        if (!windows.empty() && wStart <= windows.back().end + 1) {
-          windows.back().end = std::max(windows.back().end, wEnd);
-          windows.back().hits += lineScore;
-          windows.back().exactCase |= exact;
-        } else {
-          windows.push_back({ wStart, wEnd, lineScore, exact });
+
+        if (lines[i].find(terms[t]) != std::string_view::npos) {
+          exact = true;
         }
       }
+
+      if (lineScore <= 0.0f) continue;
+
+      ++fileMatches;
+
+      const size_t wStart = (i > opts.contextLines) ? i - opts.contextLines : 0;
+
+      const size_t wEnd = std::min(lines.size() - 1, i + opts.contextLines);
+
+      if (!windows.empty() &&
+        wStart <= windows.back().end + 1) {
+        windows.back().end = std::max(windows.back().end, wEnd);
+        windows.back().hits += lineScore;
+        windows.back().exactCase |= exact;
+      } else {
+        windows.push_back({ wStart, wEnd, lineScore, exact });
+      }
     }
+
     if (windows.empty()) continue;
+
     const auto contentType = Chunker::contentTypeToStr(Chunker::detectContentType(content, path));
+
     for (const auto &w : windows) {
       if (results.size() >= opts.maxTotalResults) break;
+
       std::string snippet;
+
       for (size_t ln = w.start; ln <= w.end; ++ln) {
-        snippet += std::to_string(ln + 1) + ": " + std::string(lines[ln]) + "\n";
+        snippet += std::to_string(ln + 1) + ": ";
+        snippet += lines[ln];
+        snippet += '\n';
       }
+
       SearchResult sr;
-      sr.content = utf8::find_invalid(snippet.begin(), snippet.end()) != snippet.end() ? sanitizeUtf8(snippet) : std::move(snippet);
+      sr.content =
+        utf8::find_invalid(snippet.begin(), snippet.end()) !=
+        snippet.end()
+        ? sanitizeUtf8(snippet)
+        : std::move(snippet);
+
       sr.sourceId = path;
       sr.chunkUnit = "line";
       sr.chunkType = contentType;
-      // Synthetic ID near npos so uniqueChunkResults doesn't collapse multiple grep hits
+
+      // Synthetic ID keeps separate grep windows distinct.
       sr.chunkId = std::string::npos - (++syntheticIdCounter);
       sr.start = w.start + 1;
       sr.end = w.end + 1;
-      // Score reflects term coverage + case accuracy
-      //sr.bm25Score = w.hits * (w.exactCase ? 1.5f : 1.0f);
-      const float normalizedHits = w.hits / meanIdf;            // idle in indexed mode (meanIdf == 1)
+
+      const float normalizedHits = w.hits / meanIdf;
       sr.bm25Score = normalizedHits * (w.exactCase ? 1.5f : 1.0f);
       sr.similarityScore = sr.bm25Score / (sr.bm25Score + opts.saturationScale);
       sr.fusedScore = sr.similarityScore;
+
       results.push_back(std::move(sr));
     }
   }
 
-  std::sort(results.begin(), results.end(), [](const SearchResult &a, const SearchResult &b) {
-    return std::tie(b.bm25Score, a.sourceId, a.chunkId) <
-      std::tie(a.bm25Score, b.sourceId, b.chunkId);
+  std::sort(
+    results.begin(), results.end(),
+    [](const SearchResult &a, const SearchResult &b) {
+      return std::tie(b.bm25Score, a.sourceId, a.chunkId) <
+        std::tie(a.bm25Score, b.sourceId, b.chunkId);
     });
+
   return results;
 }
+
 
 void SourceProcessor::processDirectory(const Settings::SourceItem &source, std::vector<SourceProcessor::Data> &content, bool readContent) const
 {

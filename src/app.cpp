@@ -1249,8 +1249,10 @@ void App::evalSweep(const std::string &ds, size_t topK) const
     LOG_MSG << "Evaluation cancelled.";
     return;
   }
-  const float bm[]{ 0.5f, 0.75f, 0.9f };
-  const float gw[]{ 0.05f, 0.10f, 0.30f };
+  //const float bm[]{ 0.5f, 0.75f, 0.9f };
+  const float bm[]{ 0.5f };
+  //const float gw[]{ 0.05f, 0.10f, 0.30f };
+  const float gw[]{ 0.10f, 0.30f, 0.60f };
   for (float b : bm) for (float g : gw) {
     LOG_MSG << "grid bm25=" << b << " grep=" << g;
     eval(ds, topK, b, g);
@@ -1297,15 +1299,12 @@ void App::eval(const std::string &datasetPath, size_t topK, float bm25Weight, fl
         queryEntry = {
             { "query", query },
             { "index", entry.value("index", -1) },
-            { "grepTerms", json::array() },
+            { "grepTerms", json::object() },
             { "modes", json::object() }
         };
       }
 
-      const auto grepTerms = entry.value("grepTerms", json::array());
-      if (queryEntry["grepTerms"].empty() && !grepTerms.empty()) {
-        queryEntry["grepTerms"] = grepTerms;
-      }
+      queryEntry["grepTerms"][modeName] = entry.value("grepTerms", json::array());
 
       auto &modes = queryEntry["modes"];
       if (!modes.is_object())
@@ -1317,7 +1316,11 @@ void App::eval(const std::string &datasetPath, size_t topK, float bm25Weight, fl
         { "ndcg", entry.value("ndcg", 0.0) },
         { "latency_ms", entry.value("latency_ms", 0.0) },
         { "hit", entry.value("hit", false) },
-        { "retrieved_top_k", entry.value("retrieved", json::array()) }
+        { "grepTerms", entry.value("grepTerms", json::array()) },
+        { "retrieved_top_k", entry.value("retrieved", json::array()) },
+        { "grep_ran", entry.value("grep_ran", false) },
+        { "grep_ranking", entry.value("grep_ranking", json::object())},
+        { "grep_weight_used", entry.value("grep_weight_used", 0.0) }
       };
     }
   }
@@ -1523,8 +1526,20 @@ nlohmann::json App::evalRobust(const std::string &datasetPath, size_t topK, Sear
         query, queryEmbedding, EmbeddingClient::EncodeType::Query);
     }
 
-    std::vector<std::string> grepTermsUsed;
-    const auto results = retrieve(query, queryEmbedding, topK, mode, bm25Weight, grepWeight, &grepTermsUsed);
+    RetrieveDiagnostics diag;
+    auto results = retrieve(query, queryEmbedding, topK, mode, bm25Weight, grepWeight, &diag);
+
+#ifdef _DEBUG
+    LOG_MSG_DEBUG << "evalRobust before results explicit sort";
+    for (size_t j = 0; j < results.size(); j ++) {
+      LOG_MSG_DEBUG << "evalRobust [" << j << "] bm25Score" << results[j].bm25Score << ", fusedScore" << results[j].fusedScore << ", similarityScore" << results[j].similarityScore;
+    }
+#endif
+
+    json ranking = json::array();
+    for (const auto &g : diag.grepRanking) {
+      ranking.push_back({ { "doc_id", g.docId },{ "grep_rank", g.grepRank },{ "boost", g.boost } });
+    }
 
     const double latencyMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 
@@ -1555,7 +1570,10 @@ nlohmann::json App::evalRobust(const std::string &datasetPath, size_t topK, Sear
       { "results_count", results.size() },
       { "retrieved", std::move(retrieved) },
       { "hit", idealHit },
-      { "grepTerms", std::move(grepTermsUsed) }
+      { "grepTerms", diag.grepTerms },
+      { "grep_ran", diag.grepRan },
+      { "grep_ranking", std::move(ranking) },
+      { "grep_weight_used", grepWeight }   // makes reports self-describing
     };
 
     if (!idealHit) {
@@ -1800,33 +1818,28 @@ void App::watch(int intervalSeconds)
 }
 
 std::vector<SearchResult> App::retrieve(const std::string &text, const std::vector<float> &embedding, size_t topK, 
-  SearchMode mode, float bm25Weight, float grepWeight, std::vector<std::string> *prepTermsOut) const
+  SearchMode mode, float bm25Weight, float grepWeight, RetrieveDiagnostics *diag) const
 {
   const int64_t nChunks = db().chunkCount();
   
   if (mode == SearchMode::Grep || nChunks == 0) {
     auto terms = utils::extractGrepTerms(text);   // no plan available yet
-    if (prepTermsOut) *prepTermsOut = terms;
-    return grepSearch(text, topK, terms);
+    if (diag) { diag->grepTerms = terms; diag->grepRan = true; }
+    auto res = grepSearch(text, topK, terms);
+    for (size_t i = 0; i < res.size(); ++i)
+      if (diag) diag->grepRanking.push_back({ res[i].sourceId, i, res[i].fusedScore });
+    return res;
   }
 
   if (mode == SearchMode::Base) {
     return db().search(embedding, topK);
   }
 
-  const int64_t maxDf = std::clamp<int64_t>(nChunks / 20, 3, 30);
-  const QueryPlan plan = db().planQuery(text);
+  const QueryPlan plan = db().planQuery(text); // chunk df lives here, and only here
   std::vector<std::string> grepTerms = plan.rareTerms;
-  const auto literals = utils::extractGrepLiterals(text);
-  for (const auto &literal : literals) {
-    // Prune via FTS5 chunk frequency if available
-    const std::string quoted = '"' + literal + '"';
-    const int64_t df = db().chunkCountForTerm(quoted);
-    if (df > 0 && df <= maxDf) {
-      if (std::find(grepTerms.begin(), grepTerms.end(), literal) == grepTerms.end()) {
-        grepTerms.push_back(literal);
-      }
-    }
+  for (const auto &literal : utils::extractGrepLiterals(text)) {
+    if (std::find(grepTerms.begin(), grepTerms.end(), literal) == grepTerms.end())
+      grepTerms.push_back(literal);
   }
 
   if (mode == SearchMode::Auto) {
@@ -1834,8 +1847,11 @@ std::vector<SearchResult> App::retrieve(const std::string &text, const std::vect
     mode = (plan.hasRareIdentifier || literalMarkers) ? SearchMode::HybridGrep : SearchMode::Hybrid;
   }
   if (embedding.empty()) {
-    if (prepTermsOut) *prepTermsOut = grepTerms;
-    return grepSearch(text, topK, grepTerms);
+    auto res = grepSearch(text, topK, grepTerms);
+    if (diag) diag->grepTerms = grepTerms;
+    for (size_t i = 0; i < res.size(); ++i)
+      if (diag) diag->grepRanking.push_back({ res[i].sourceId, i, res[i].fusedScore });
+    return res;
   }
 
   const auto intent = utils::queryIntent(text);
@@ -1858,33 +1874,40 @@ std::vector<SearchResult> App::retrieve(const std::string &text, const std::vect
     return std::tie(b.fusedScore, a.sourceId, a.chunkId) < std::tie(a.fusedScore, b.sourceId, b.chunkId);
     });
 
-  if (intent != utils::QueryIntent::Neutral) {
-    if (topK < hybridRes.size()) {
-      hybridRes.resize(topK);
-    }
-  }
-
   if (mode != SearchMode::HybridGrep || grepTerms.empty()) {
     return hybridRes;
   }
 
-  if (prepTermsOut) *prepTermsOut = grepTerms;
+  if (diag) diag->grepTerms = grepTerms;
   auto grepRes = grepSearch(text, topK, grepTerms);
   if (grepRes.empty()) {
     return hybridRes;
   }
+  if (diag) diag->grepRan = true;
 
   constexpr float rrfK = 60.0f;
   std::unordered_map<std::string, size_t> bestRank; // stem -> best grep rank
 
   for (size_t i = 0; i < grepRes.size(); ++i) {
     bestRank.try_emplace(utils::stemKey(grepRes[i].sourceId), i); // first = best
+    if (diag) diag->grepRanking.push_back({ grepRes[i].sourceId, i, 0.0f });
   }
   for (auto &c : hybridRes) {
     if (auto it = bestRank.find(utils::stemKey(c.sourceId)); it != bestRank.end())
       c.fusedScore += grepWeight / (rrfK + static_cast<float>(it->second) + 1.0f);
+    if (diag) {
+      for (auto &entry : diag->grepRanking) {
+        if (entry.docId == c.sourceId) {
+          entry.boost = grepWeight / (rrfK + static_cast<float>(bestRank[c.sourceId]) + 1.0f);
+          break;
+        }
+      }
+    }
   }
-
+  // Re-sort so boosted items can rise into topK
+  std::sort(hybridRes.begin(), hybridRes.end(), [](const SearchResult &a, const SearchResult &b) {
+    return std::tie(b.fusedScore, a.sourceId, a.chunkId) < std::tie(a.fusedScore, b.sourceId, b.chunkId);
+    });
   if (topK < hybridRes.size()) {
     hybridRes.resize(topK);
   }
@@ -1905,7 +1928,8 @@ std::vector<SearchResult> App::grepSearch(const std::string &query, size_t topK,
     }
   }
   SourceProcessor::GrepOptions opts;
-  opts.idfPruning = (0 == db().chunkCount());
+  //opts.idfPruning = (0 == db().chunkCount());
+  opts.idfPruning = true;
   auto hits = sourceProcessor().grep(terms, paths, opts);
   if (hits.empty()) {
     return {};

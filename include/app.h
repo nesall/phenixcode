@@ -19,8 +19,20 @@ class InstanceRegistry;
 class MonitorTracker;
 struct SearchResult;
 
-inline constexpr float kHybridBm25Weight = 0.75f;
-inline constexpr float kGrepRrfWeight = 0.30f;
+inline constexpr float kHybridBm25Weight = 0.5f;
+inline constexpr float kGrepRrfWeight = 0.3f;
+
+struct GrepDiagEntry {
+  std::string docId;    // sourceId of the hybrid candidate
+  size_t grepRank;      // position in grepRes (0-based); npos if not from grep
+  float boost;          // grepWeight / (rrfK + grepRank + 1) actually added
+};
+
+struct RetrieveDiagnostics {
+  std::vector<std::string> grepTerms;
+  std::vector<GrepDiagEntry> grepRanking;  // every grep hit, in grep order
+  bool grepRan = false;
+};
 
 enum class SearchMode : uint8_t {
   Auto = 0,
@@ -60,8 +72,8 @@ public:
   // Helper
   std::vector<SearchResult> retrieve(const std::string &text,
     const std::vector<float> &embedding, size_t topK,
-    SearchMode mode = SearchMode::Hybrid, float bm25Weight = kHybridBm25Weight, float grepWeight = kGrepRrfWeight,
-    std::vector<std::string> *prepTermsOut = nullptr) const;
+    SearchMode mode = SearchMode::HybridGrep, float bm25Weight = kHybridBm25Weight, float grepWeight = kGrepRrfWeight,
+    RetrieveDiagnostics *diag = nullptr) const;
   std::vector<SearchResult> grepSearch(const std::string &query, size_t topK, 
     const std::vector<std::string> &preExtractedTerms = {}) const;
 
