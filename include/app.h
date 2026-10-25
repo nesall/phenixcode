@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <csignal>
 #include "json_shim.h"
 
 class Chunker;
@@ -19,20 +20,12 @@ class InstanceRegistry;
 class MonitorTracker;
 struct SearchResult;
 
+namespace eval {
+  struct RetrieveDiagnostics;
+}
+
 inline constexpr float kHybridBm25Weight = 0.5f;
-inline constexpr float kGrepRrfWeight = 0.3f;
-
-struct GrepDiagEntry {
-  std::string docId;    // sourceId of the hybrid candidate
-  size_t grepRank;      // position in grepRes (0-based); npos if not from grep
-  float boost;          // grepWeight / (rrfK + grepRank + 1) actually added
-};
-
-struct RetrieveDiagnostics {
-  std::vector<std::string> grepTerms;
-  std::vector<GrepDiagEntry> grepRanking;  // every grep hit, in grep order
-  bool grepRan = false;
-};
+inline constexpr float kGrepRrfWeight = 0.6f;
 
 enum class SearchMode : uint8_t {
   Auto = 0,
@@ -44,6 +37,16 @@ enum class SearchMode : uint8_t {
 inline SearchMode operator|(SearchMode a, SearchMode b) { return static_cast<SearchMode>(static_cast<uint8_t>(a) | static_cast<uint8_t>(b)); }
 inline SearchMode operator&(SearchMode a, SearchMode b) { return static_cast<SearchMode>(static_cast<uint8_t>(a) & static_cast<uint8_t>(b)); }
 inline SearchMode &operator|=(SearchMode &a, SearchMode b) { a = a | b; return a; }
+
+class SignalHandler {
+private:
+  static volatile std::sig_atomic_t shutdownRequested;
+public:
+  static void handleSignal(int);
+  static bool shouldShutdown();
+  static void requestShutdown();
+  static void setup();
+};
 
 class App {
   struct Impl;
@@ -62,21 +65,13 @@ public:
   void clear(bool noPrompt);
   void chat() const;
   void serve(int port, bool watch = false, int interval = 60, const std::string &infoFile = {});
-  void providers(const std::string &testProvider);
-  void eval(const std::string &datasetPath, size_t topK, float bm25Weight, float grepWeight) const;
-  void evalInit(const std::string &outputPath, size_t numSamples = 10);
-  void evalList();
-  void evalDetail(const std::string &docId);
-  void evalSweep(const std::string &ds,
-    const std::vector<size_t> &topKs,
-    const std::vector<float> &bm25Weights,
-    const std::vector<float> &grepWeights) const;
+  void providers(const std::string &testProvider) const;
 
   // Helper
   std::vector<SearchResult> retrieve(const std::string &text,
     const std::vector<float> &embedding, size_t topK,
     SearchMode mode = SearchMode::HybridGrep, float bm25Weight = kHybridBm25Weight, float grepWeight = kGrepRrfWeight,
-    RetrieveDiagnostics *diag = nullptr) const;
+    eval::RetrieveDiagnostics *diag = nullptr) const;
   std::vector<SearchResult> grepSearch(const std::string &query, size_t topK, 
     const std::vector<std::string> &preExtractedTerms = {}) const;
 
@@ -111,15 +106,16 @@ public:
   //std::string describeProjectTitle() const;
 
 private:
+  void setSettings(std::unique_ptr<Settings> settings);
+  void setPrivateAppKey(const std::string &key);
+  static void setBinaryName(const std::string &bname);
+  static std::string binaryName();
   void initialize(/*const std::string &configPath*/);
   bool testSettings() const;
   static std::string runSetupWizard(AdminAuth &auth);
   static std::string findConfigFile(const std::string &filename);
   static int handleInteractivePasswordReset();
   static int handlePasswordStatus();
-  //static bool shouldRunGrep(const std::string &text, const std::vector<std::string> &terms);
-  nlohmann::json evalRobust(const std::string &datasetPath, size_t topK, SearchMode mode, float bm25Weight, float grepWeight) const;
-  void evalAddVectors(const std::string &datasetPath, const std::string &outputPath) const;
 };
 
 #endif // _APP_H_
