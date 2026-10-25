@@ -24,9 +24,7 @@
 }
 
 .select,
-.input,
 .textarea,
-.ig-input,
 .ig-select {
 	background-color: var(--color-surface-50-950);
 	color: var(--color-surface-950-50);
@@ -35,5 +33,9 @@
   color: var(--color-surface-300-700);
   font-style: italic;
   font-size: 0.9rem;
+}
+
+button.input {
+  cursor: pointer;
 }
 

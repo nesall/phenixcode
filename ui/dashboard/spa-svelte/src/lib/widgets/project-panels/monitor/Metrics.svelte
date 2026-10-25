@@ -1,5 +1,6 @@
 <script lang="ts">
   import { monitorStore } from "../../../stores/monitor.svelte";
+  import * as icons from "@lucide/svelte";
 
   const metrics = $derived(monitorStore.snapshot?.metrics);
   const latencyP50 = $derived(metrics && metrics.latency_samples > 0 ? `${metrics.latency_p50_ms.toFixed(1)} ms` : "—");
@@ -8,10 +9,27 @@
   function number(value: number | undefined): string {
     return value === undefined ? "—" : value.toLocaleString();
   }
+  function onDownload() {
+    if (!metrics) return;
+    const blob = new Blob([JSON.stringify(metrics, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `metrics_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 </script>
 
 <section class="h-full overflow-auto p-4 space-y-4">
-  <h2 class="text-lg font-semibold">Request metrics</h2>
+  <header class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center gap-4">
+      <h2 class="text-lg font-semibold">Request metrics</h2>
+    </div>
+    <button class="btn input btn-icon preset-outlined" onclick={onDownload} title="Download metrics data as JSON">
+      <icons.Download />
+    </button>
+  </header>
   {#if !metrics}
     <div class="rounded border border-surface-200-800 p-4 text-surface-500">
       {monitorStore.error || (monitorStore.loading ? "Loading monitor snapshot…" : "No metrics available.")}
@@ -19,16 +37,20 @@
   {:else}
     <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       <div class="rounded-md border border-surface-200-800 p-4">
-        <div class="text-sm text-surface-500">Requests</div><div class="mt-1 text-2xl font-semibold">{number(metrics.requests)}</div>
+        <div class="text-sm text-surface-500">Requests</div>
+        <div class="mt-1 text-2xl font-semibold">{number(metrics.requests)}</div>
       </div>
       <div class="rounded-md border border-surface-200-800 p-4">
-        <div class="text-sm text-surface-500">Errors</div><div class="mt-1 text-2xl font-semibold">{number(metrics.errors)}</div>
+        <div class="text-sm text-surface-500">Errors</div>
+        <div class="mt-1 text-2xl font-semibold">{number(metrics.errors)}</div>
       </div>
       <div class="rounded-md border border-surface-200-800 p-4">
-        <div class="text-sm text-surface-500">Latency p50</div><div class="mt-1 text-2xl font-semibold">{latencyP50}</div>
+        <div class="text-sm text-surface-500">Latency p50</div>
+        <div class="mt-1 text-2xl font-semibold">{latencyP50}</div>
       </div>
       <div class="rounded-md border border-surface-200-800 p-4">
-        <div class="text-sm text-surface-500">Latency p95</div><div class="mt-1 text-2xl font-semibold">{latencyP95}</div>
+        <div class="text-sm text-surface-500">Latency p95</div>
+        <div class="mt-1 text-2xl font-semibold">{latencyP95}</div>
       </div>
       <div class="rounded-md border border-surface-200-800 p-4">
         <div class="text-sm text-surface-500">Tokens in / out</div>
@@ -44,7 +66,10 @@
     {#if metrics.by_endpoint && Object.keys(metrics.by_endpoint).length}
       <div class="overflow-x-auto rounded-md border border-surface-200-800">
         <table class="table table-compact w-full">
-          <thead><tr><th>Endpoint</th><th>Requests</th><th>Errors</th><th>p50</th><th>p95</th><th>Tokens in / out</th></tr></thead>
+          <thead
+            ><tr><th>Endpoint</th><th>Requests</th><th>Errors</th><th>p50</th><th>p95</th><th>Tokens in / out</th></tr
+            ></thead
+          >
           <tbody>
             {#each Object.entries(metrics.by_endpoint) as [name, endpoint]}
               <tr>

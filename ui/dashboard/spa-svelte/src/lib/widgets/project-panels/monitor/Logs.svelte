@@ -3,10 +3,17 @@
   import * as icons from "@lucide/svelte";
   import { monitorStore } from "../../../stores/monitor.svelte";
 
-  let level = $state("all");
+  let selectedLevels = $state(["debug", "info", "warn", "error"]);
   let autoScroll = $state(true);
   let logContainer: HTMLDivElement;
-  let previousLevel = $state("all");
+  let previousFilters = "";
+
+  const logLevels = [
+    { value: "debug", label: "Debug" },
+    { value: "info", label: "Info" },
+    { value: "warn", label: "Warn" },
+    { value: "error", label: "Error" },
+  ];
 
   const levelPatterns: Record<string, RegExp> = {
     debug: /\[DEBUG\]/i,
@@ -16,7 +23,11 @@
   };
 
   const visibleLines = $derived(
-    level === "all" ? monitorStore.logLines : monitorStore.logLines.filter((line) => levelPatterns[level]?.test(line)),
+    selectedLevels.length === logLevels.length
+      ? monitorStore.logLines
+      : monitorStore.logLines.filter((line) =>
+          selectedLevels.some((level) => levelPatterns[level]?.test(line)),
+        ),
   );
 
   $effect(() => {
@@ -28,9 +39,9 @@
   });
 
   $effect(() => {
-    const currentLevel = level;
-    const filterChanged = currentLevel !== previousLevel;
-    previousLevel = currentLevel;
+    const currentFilters = selectedLevels.join(",");
+    const filterChanged = currentFilters !== previousFilters;
+    previousFilters = currentFilters;
 
     if (autoScroll || filterChanged) {
       void tick().then(() => {
@@ -43,6 +54,11 @@
     }
   });
 
+  function updateAllLevels(event: Event) {
+    const checked = (event.currentTarget as HTMLInputElement).checked;
+    selectedLevels = checked ? logLevels.map(({ value }) => value) : [];
+  }
+
   function updateAutoScroll(event: Event) {
     const element = event.currentTarget as HTMLDivElement;
     autoScroll = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
@@ -52,16 +68,29 @@
 <section class="h-full min-h-0 overflow-hidden p-4 flex flex-col gap-3">
   <header class="flex flex-wrap items-center gap-3">
     <h2 class="text-lg font-semibold">Logs</h2>
-    <label class="flex items-center gap-2 text-sm">
-      <span>Level</span>
-      <select class="select select-sm" bind:value={level}>
-        <option value="all">All levels</option>
-        <option value="debug">Debug</option>
-        <option value="info">Info</option>
-        <option value="warn">Warn</option>
-        <option value="error">Error</option>
-      </select>
-    </label>
+    <fieldset class="flex flex-wrap items-center gap-3">
+      <legend class="sr-only">Log level filters</legend>
+      <label class="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="checkbox checkbox-sm"
+          checked={selectedLevels.length === logLevels.length}
+          onchange={updateAllLevels}
+        />
+        All levels
+      </label>
+      {#each logLevels as logLevel (logLevel.value)}
+        <label class="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            class="checkbox checkbox-sm"
+            bind:group={selectedLevels}
+            value={logLevel.value}
+          />
+          {logLevel.label}
+        </label>
+      {/each}
+    </fieldset>
     <label class="ml-auto flex items-center gap-2 text-sm">
       <input type="checkbox" class="checkbox checkbox-sm" bind:checked={autoScroll} />
       Auto-scroll

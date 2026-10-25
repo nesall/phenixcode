@@ -29,28 +29,28 @@
 {#if projectStore.selected}
   <Tabs {value} class="h-full w-full text-sm" orientation="vertical" onValueChange={onTabChange}>
     <Tabs.List class="items-start">
-      <Tabs.Trigger value="sources" class="text-sm {selected(value, 'sources')}">
+      <Tabs.Trigger value="sources" class="text-sm {selected(value, 'sources')} w-full justify-start">
         <icons.FileText size={16} /><span class="hidden lg:inline">Sources</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="generation" class="text-sm {selected(value, 'generation')}">
+      <Tabs.Trigger value="generation" class="text-sm {selected(value, 'generation')} w-full justify-start">
         <icons.Merge size={16} /><span class="hidden lg:inline">Generation</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="embedding" class="text-sm {selected(value, 'embedding')}">
+      <Tabs.Trigger value="embedding" class="text-sm {selected(value, 'embedding')} w-full justify-start">
         <icons.Split size={16} /><span class="hidden lg:inline">Embedding</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="chunking" class="text-sm {selected(value, 'chunking')}">
+      <Tabs.Trigger value="chunking" class="text-sm {selected(value, 'chunking')} w-full justify-start">
         <icons.Scissors size={16} /><span class="hidden lg:inline">Chunking</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="database" class="text-sm {selected(value, 'database')}">
+      <Tabs.Trigger value="database" class="text-sm {selected(value, 'database')} w-full justify-start">
         <icons.Database size={16} /><span class="hidden lg:inline">Database</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="logging" class="text-sm {selected(value, 'logging')}">
+      <Tabs.Trigger value="logging" class="text-sm {selected(value, 'logging')} w-full justify-start">
         <icons.Logs size={16} /><span class="hidden lg:inline">Logging</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="tokenizer" class="text-sm {selected(value, 'tokenizer')}">
+      <Tabs.Trigger value="tokenizer" class="text-sm {selected(value, 'tokenizer')} w-full justify-start">
         <icons.CodeXml size={16} /><span class="hidden lg:inline">Tokenizer</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="json" class="text-sm {selected(value, 'json')}">
+      <Tabs.Trigger value="json" class="text-sm {selected(value, 'json')} w-full justify-start">
         <icons.FileBraces size={16} /><span class="hidden lg:inline">JSON</span>
       </Tabs.Trigger>
       <Tabs.Indicator />

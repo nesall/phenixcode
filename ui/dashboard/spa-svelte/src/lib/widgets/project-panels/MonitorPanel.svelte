@@ -37,20 +37,20 @@
 {#if projectStore.selected}
   <Tabs {value} class="h-full w-full text-sm" orientation="vertical" onValueChange={onTabChange}>
     <Tabs.List class="items-start">
-      <Tabs.Trigger value="embeddings" class="text-sm {selected(value, 'embeddings')}">
+      <Tabs.Trigger value="embeddings" class="text-sm {selected(value, 'embeddings')} w-full justify-start">
         <icons.Layers size={16} /><span class="hidden lg:inline">Embeddings</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="metrics" class="text-sm {selected(value, 'metrics')}">
+      <Tabs.Trigger value="metrics" class="text-sm {selected(value, 'metrics')} w-full justify-start">
         <icons.ChartNoAxesCombined size={16} /><span class="hidden lg:inline">Metrics</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="cost" class="text-sm {selected(value, 'cost')}">
+      <Tabs.Trigger value="cost" class="text-sm {selected(value, 'cost')} w-full justify-start">
         <icons.DollarSign size={16} /><span class="hidden lg:inline">Cost</span>
       </Tabs.Trigger>
-      <Tabs.Trigger value="logs" class="text-sm {selected(value, 'logs')}">
+      <Tabs.Trigger value="logs" class="text-sm {selected(value, 'logs')} w-full justify-start">
         <icons.ScrollText size={16} /><span class="hidden lg:inline">Logs</span>
       </Tabs.Trigger>
       <Tabs.Indicator />
-      <div class="ml-auto flex items-center gap-2 px-2 text-xs">
+      <div class="ml-auto flex flex-col md:flex-row items-center gap-2 px-2 text-xs">
         {#if stale}<span class="badge preset-filled-warning-500">Stale</span>{/if}
         <span class="text-surface-500">{hasInstance ? (monitorStore.connected ? "Live" : "Polling") : "Offline snapshot"}</span>
       </div>

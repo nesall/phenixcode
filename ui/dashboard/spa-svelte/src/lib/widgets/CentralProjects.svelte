@@ -126,7 +126,7 @@
         disabled={!projectStore.selected || !!mapProjectToInstance(projectStore.selected, instances)}
         onclick={onDeleteProject}
       >
-        <icons.Trash2 />
+        <icons.Trash />
       </button>
     </div>
     <ul class="w-full h-full p-1 shadow overflow-y-auto border border-surface-200-800 rounded min-w-64">
