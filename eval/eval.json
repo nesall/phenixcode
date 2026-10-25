@@ -419,5 +419,456 @@
     ],
     "query": "Where is timeoutMs defined?",
     "index": 59
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/include/app.h",
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "List all CLI commands supported by the application",
+    "index": 60
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp",
+      "D:/workspace/projects/phenixcode/include/chunker.h"
+    ],
+    "query": "How does the chunker split code files into overlapping chunks?",
+    "index": 61
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp",
+      "D:/workspace/projects/phenixcode/include/database.h"
+    ],
+    "query": "Where is the HNSW vector index initialized and how is cosine distance configured?",
+    "index": 62
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "query": "How does `bm25SearchRaw` execute an FTS5 MATCH query?",
+    "index": 63
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "What HTTP API endpoints are registered in the server?",
+    "index": 64
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp",
+      "D:/workspace/projects/phenixcode/src/inference.cpp"
+    ],
+    "query": "How is SSE streaming implemented for the /api/chat endpoint?",
+    "index": 65
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/settings.cpp",
+      "D:/workspace/projects/phenixcode/include/settings.h"
+    ],
+    "query": "Where is `Settings::validate()` implemented and what does it check?",
+    "index": 66
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/tokenizer.cpp",
+      "D:/workspace/projects/phenixcode/include/tokenizer.h"
+    ],
+    "query": "How does `SimpleTokenizer::countTokensWithVocab` simulate WordPiece tokenization?",
+    "index": 67
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/instregistry.cpp",
+      "D:/workspace/projects/phenixcode/include/instregistry.h"
+    ],
+    "query": "How does the instance registry store heartbeat timestamps and clean stale instances?",
+    "index": 68
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/monitor.cpp",
+      "D:/workspace/projects/phenixcode/include/monitor.h"
+    ],
+    "query": "Where is `MonitorTracker::recordGenerationCost` implemented?",
+    "index": 69
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/sourceproc.cpp",
+      "D:/workspace/projects/phenixcode/include/sourceproc.h"
+    ],
+    "query": "How does `SourceProcessor::collectSources` walk directories and filter by extension?",
+    "index": 70
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp",
+      "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
+    ],
+    "query": "How does `App::grepSearch` combine IDF-weighted term matching with per-file deduplication?",
+    "index": 71
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp",
+      "D:/workspace/projects/phenixcode/include/inference.h"
+    ],
+    "query": "Where is `EmbeddingClient::generateEmbeddings` implemented and how does it handle batch requests?",
+    "index": 72
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp"
+    ],
+    "query": "How does `CompletionClient::generateCompletion` build the prompt from search results and stream the response?",
+    "index": 73
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/auth.cpp"
+    ],
+    "query": "Where is the JWT token created and what algorithm is used for signing?",
+    "index": 74
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp",
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "How does `CompletionClient::generateFim` handle prefix/suffix fill-in-middle completion?",
+    "index": 75
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/settings.cpp",
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "How does the auto-router classify queries and select a generation model?",
+    "index": 76
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "query": "Where is `HnswSqliteVectorDatabase::planQuery` implemented and how does it prune terms by document frequency?",
+    "index": 77
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "How does `IncrementalUpdater::detectChanges` compare file modification times to find new, modified, and deleted files?",
+    "index": 78
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "Where is `SignalHandler` defined and how does it handle SIGINT for graceful shutdown?",
+    "index": 79
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/auth.cpp"
+    ],
+    "query": "How does `AdminAuth::Impl::hashPassword` generate salted SHA-256 hashes?",
+    "index": 80
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "query": "How does `ContentTypeHelper::detectContentType` distinguish code from text using regex patterns and ratios?",
+    "index": 81
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "Where is `computeMetrics` implemented and how does it calculate recall@k, MRR, and NDCG?",
+    "index": 82
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp",
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "query": "How does `App::stats` generate database statistics grouped by language and directory?",
+    "index": 83
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
+    ],
+    "query": "How does `SourceProcessor::isExcluded` match glob-style exclusion patterns?",
+    "index": 84
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "Where is the Prometheus-compatible /metrics endpoint implemented?",
+    "index": 85
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/sqlite3_helper.cpp",
+      "D:/workspace/projects/phenixcode/include/sqlite3_helper.h"
+    ],
+    "query": "How does `utils::SqliteStmt` manage prepared statement lifecycle and prevent resource leaks?",
+    "index": 86
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp",
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "How does `hybridSearch` fuse vector and BM25 results using Reciprocal Rank Fusion?",
+    "index": 87
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/monitor.cpp",
+      "D:/workspace/projects/phenixcode/include/settings.h"
+    ],
+    "query": "How is API pricing tracked per provider and how does `combinedPrice` account for cached input tokens?",
+    "index": 88
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "query": "Where is the FTS5 virtual table created for full-text search?",
+    "index": 89
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
+    ],
+    "query": "How does `occWeight` distinguish declarations from call sites and member accesses during grep?",
+    "index": 90
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp",
+      "D:/workspace/projects/phenixcode/include/database.h"
+    ],
+    "query": "Why does `HnswSqliteVectorDatabase` stage pending adds and deletes when inside a SQL transaction?",
+    "index": 91
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "What does `stripUrlQueryAndAnchor` do when processing web URLs?",
+    "index": 92
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "How does `stitchChunks` detect and eliminate overlapping text between adjacent chunks?",
+    "index": 93
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/cutils.cpp",
+      "D:/workspace/projects/phenixcode/include/cutils.h"
+    ],
+    "query": "Where is `addLineComments` defined and what comment styles does it support?",
+    "index": 94
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/monitor.cpp"
+    ],
+    "query": "How does `LatencyReservoir` compute p50 and p95 latency metrics using a fixed buffer size?",
+    "index": 95
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/cutils.cpp",
+      "D:/workspace/projects/phenixcode/include/cutils.h"
+    ],
+    "query": "How does `queryIntent` use keyword frequency to differentiate declaration queries from implementation queries?",
+    "index": 96
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp",
+      "D:/workspace/projects/phenixcode/include/inference.h"
+    ],
+    "query": "Where is `EmbeddingClient::calculateL2Norm` implemented?",
+    "index": 97
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "query": "Why does `maskOpaqueBlobs` check character case and digit distribution before masking a base64 string?",
+    "index": 98
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "How does `App::retrieve` apply `kIntentEpsilon` to boost headers or implementation files based on query intent?",
+    "index": 99
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/instregistry.cpp"
+    ],
+    "query": "Where is the `atrails` audit trail table schema defined?",
+    "index": 100
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
+    ],
+    "query": "How does `SourceProcessor::readFileRaw` convert CRLF newlines to LF without allocating extra memory?",
+    "index": 101
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "What happens in `processInputResults` if `attachedOnly` is enabled and no attachments or sources are provided?",
+    "index": 102
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/cutils.cpp",
+      "D:/workspace/projects/phenixcode/include/cutils.h"
+    ],
+    "query": "What does the `safeStoI` utility function do when string conversion fails?",
+    "index": 103
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "How does `SessionTierCache` prevent re-running model classification on follow-up chat turns?",
+    "index": 104
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "query": "Why does `bm25SearchRaw` negate the ranking value returned by SQLite's `bm25()` function?",
+    "index": 105
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/cutils.cpp",
+      "D:/workspace/projects/phenixcode/include/cutils.h"
+    ],
+    "query": "Where is `stripMarkdownFromCodeBlock` implemented?",
+    "index": 106
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/settings.cpp",
+      "D:/workspace/projects/phenixcode/include/settings.h"
+    ],
+    "query": "How does `AutoRouterConfig::estimateCostRange` calculate minimum and maximum request costs?",
+    "index": 107
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "How does `getClosestNeighbors` construct a centered excerpt window around a focal chunk ID?",
+    "index": 108
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/instregistry.cpp"
+    ],
+    "query": "Where is `isProcessRunning` implemented to check PID liveness across platforms?",
+    "index": 109
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp"
+    ],
+    "query": "How does `extractDeltaContent` extract reasoning and thinking tokens for Anthropic vs OpenAI responses?",
+    "index": 110
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/chunker.cpp"
+    ],
+    "query": "How does `splitIntoTextChunks` handle tokens that exceed the maximum token budget?",
+    "index": 111
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/settings.cpp"
+    ],
+    "query": "What does `initProjectIdIfMissing` do if `project_id` is empty in settings?",
+    "index": 112
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/monitor.cpp"
+    ],
+    "query": "How does `MonitorTracker` calculate `eta_seconds` during indexing operations?",
+    "index": 113
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/inference.cpp"
+    ],
+    "query": "Why does `buildHeaders` set different authorization and version headers for Anthropic compared to OpenAI?",
+    "index": 114
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "Where is `evalSweep` implemented and what weight grid does it iterate over?",
+    "index": 115
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/sourceproc.cpp"
+    ],
+    "query": "How does `SourceProcessor::filterRelatedSources` group related source files together?",
+    "index": 116
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/monitor.cpp"
+    ],
+    "query": "Why does `MonitorTracker::persist` write to a temporary file before renaming it to the final monitor path?",
+    "index": 117
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/database.cpp"
+    ],
+    "query": "What does `countRowsNoLock` do in `HnswSqliteVectorDatabase`?",
+    "index": 118
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/app.cpp"
+    ],
+    "query": "How does `evalAddVectors` embed queries without overwriting existing vector representations?",
+    "index": 119
+  },
+  {
+    "expected_doc_ids": [
+      "D:/workspace/projects/phenixcode/src/httpserver.cpp"
+    ],
+    "query": "What formula does `recordDuration` use to calculate moving average request durations?",
+    "index": 120
   }
 ]

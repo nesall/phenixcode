@@ -67,7 +67,10 @@ public:
   void evalInit(const std::string &outputPath, size_t numSamples = 10);
   void evalList();
   void evalDetail(const std::string &docId);
-  void evalSweep(const std::string &ds, size_t topK) const;
+  void evalSweep(const std::string &ds,
+    const std::vector<size_t> &topKs,
+    const std::vector<float> &bm25Weights,
+    const std::vector<float> &grepWeights) const;
 
   // Helper
   std::vector<SearchResult> retrieve(const std::string &text,

@@ -24,4 +24,15 @@ cd eval
 ../build_dbg/Debug/phenixcode-core.exe -w D:/workspace/misc/phenixcode_projects/providers.json -c D:/workspace/misc/phenixcode_projects/settings_phenixcode.json eval --dataset eval.json --top 5
 ```
 
+# 7 Insert vectors into the question file (for determinism)
+```
+cd /d/workspace/misc/tmp/phenixcode
+.../build_dbg/Debug/phenixcode-core.exe -w D:/workspace/misc/phenixcode_projects/providers.json -c /d/workspace/misc/tmp/phenixcode/settings.json eval --dataset /d/workspace/projects/phenixcode/eval/eval.json  --add-vectors --output eval-with-vecs.json
+```
+
+# 6 Sweep run
+```
+cd /d/workspace/misc/tmp/phenixcode
+../build_dbg/Debug/phenixcode-core.exe -w D:/workspace/misc/phenixcode_projects/providers.json -c /d/workspace/misc/tmp/phenixcode/settings.json eval --dataset /d/workspace/misc/tmp/phenixcode/eval/eval-with-vecs.json --sweep --bm25-weight 0.5 --grep-weight 0.3 0.6 --top 5 8
+```
 

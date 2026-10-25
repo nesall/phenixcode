@@ -551,6 +551,18 @@ namespace {
     }
   };
 
+  void addQualifiedLastComponents(std::vector<std::string> &terms) {
+    const size_t n = terms.size();
+    for (size_t i = 0; i < n; ++i) {
+      const size_t pos = terms[i].rfind("::");
+      if (pos == std::string::npos || pos + 2 >= terms[i].size()) continue;
+      std::string last = terms[i].substr(pos + 2);          // `Cls::name` -> `name`, `Cls::~Cls` -> `~Cls`
+      if (last.size() < 3) continue;
+      if (std::find(terms.begin(), terms.end(), last) == terms.end())
+        terms.push_back(std::move(last));
+    }
+  }
+
 } // anonymous namespace
 
 
@@ -1239,24 +1251,25 @@ void App::evalDetail(const std::string &docId)
   LOG_MSG << "Use 'eval --list' to see available IDs.";
 }
 
-void App::evalSweep(const std::string &ds, size_t topK) const
+void App::evalSweep(const std::string &ds,
+  const std::vector<size_t> &topKs,
+  const std::vector<float> &bm25Weights,
+  const std::vector<float> &grepWeights) const
 {
   char c = 'y';
   std::cout << "Proceed? [y/N]: ";
   std::cin >> c;
-
   if (c != 'y' && c != 'Y') {
     LOG_MSG << "Evaluation cancelled.";
     return;
   }
-  //const float bm[]{ 0.5f, 0.75f, 0.9f };
-  const float bm[]{ 0.5f };
-  //const float gw[]{ 0.05f, 0.10f, 0.30f };
-  const float gw[]{ 0.10f, 0.30f, 0.60f };
-  for (float b : bm) for (float g : gw) {
-    LOG_MSG << "grid bm25=" << b << " grep=" << g;
-    eval(ds, topK, b, g);
-  }
+
+  for (size_t topK : topKs)
+    for (float b : bm25Weights)
+      for (float g : grepWeights) {
+        LOG_MSG << "grid top_k=" << topK << " bm25=" << b << " grep=" << g;
+        eval(ds, topK, b, g);
+      }
 }
 
 void App::eval(const std::string &datasetPath, size_t topK, float bm25Weight, float grepWeight) const
@@ -1409,7 +1422,8 @@ void App::eval(const std::string &datasetPath, size_t topK, float bm25Weight, fl
     };
 
   const std::string filename =
-    "master_report_bm25_" + formatFloat(bm25Weight) +
+    "master_report_topk_" + std::to_string(topK) +
+    "_bm25_" + formatFloat(bm25Weight) +
     "_grep_" + formatFloat(grepWeight) + ".json";
 
   const auto outPath = std::filesystem::current_path() / filename;
@@ -1528,6 +1542,7 @@ nlohmann::json App::evalRobust(const std::string &datasetPath, size_t topK, Sear
 
     RetrieveDiagnostics diag;
     auto results = retrieve(query, queryEmbedding, topK, mode, bm25Weight, grepWeight, &diag);
+    assert(results.size() <= topK);
 
 #ifdef _DEBUG
     LOG_MSG_DEBUG << "evalRobust before results explicit sort";
@@ -1653,7 +1668,9 @@ nlohmann::json App::evalRobust(const std::string &datasetPath, size_t topK, Sear
       { "recall_at_k", totalRecall / validEntries },
       { "mrr", totalMRR / validEntries },
       { "ndcg", totalNDCG / validEntries },
-      { "mean_latency_ms", totalLatency / validEntries }
+      { "mean_latency_ms", totalLatency / validEntries },
+      { "bm25Weight", bm25Weight },
+      { "grepWeight", grepWeight }
     } },
     { "per_query", std::move(perQuery) }
   };
@@ -1674,7 +1691,7 @@ nlohmann::json App::evalRobust(const std::string &datasetPath, size_t topK, Sear
 
   const std::filesystem::path datasetFile(datasetPath);
   const std::string reportName = fmt::format(
-    "{}_report_{}_bm25_{}_grep_{}.json",
+    "{}_report_{}_topk_{}_bm25_{}_grep_{}.json",
     datasetFile.stem().string(),
     mode2str(mode),
     formatFloat(bm25Weight),
@@ -1756,6 +1773,7 @@ void App::evalAddVectors(const std::string &datasetPath, const std::string &outp
   out << std::setw(2) << dataset;
   out.close();
   LOG_MSG << "Wrote" << added << "embeddings to" << outputPath << "(skipped" << skipped << ", failed" << failed << ")";
+  LOG_MSG << "File saved at" << fs::absolute(outputPath);
 }
 
 size_t App::update()
@@ -1841,7 +1859,7 @@ std::vector<SearchResult> App::retrieve(const std::string &text, const std::vect
     if (std::find(grepTerms.begin(), grepTerms.end(), literal) == grepTerms.end())
       grepTerms.push_back(literal);
   }
-
+  addQualifiedLastComponents(grepTerms);
   if (mode == SearchMode::Auto) {
     const bool literalMarkers = utils::containsAny(text, { "`", "\"", "'", "::", "->", "()" });
     mode = (plan.hasRareIdentifier || literalMarkers) ? SearchMode::HybridGrep : SearchMode::Hybrid;
@@ -1856,7 +1874,8 @@ std::vector<SearchResult> App::retrieve(const std::string &text, const std::vect
 
   const auto intent = utils::queryIntent(text);
 
-  auto hybridRes = db().hybridSearch(embedding, text, (intent != utils::QueryIntent::Neutral ? 2 * topK : topK), bm25Weight, &plan);
+  const auto pool = (intent != utils::QueryIntent::Neutral ? 2 * topK : topK);
+  auto hybridRes = db().hybridSearch(embedding, text, pool, bm25Weight, &plan);
 
   constexpr float kIntentEpsilon = 0.0003f;
 
@@ -1874,6 +1893,8 @@ std::vector<SearchResult> App::retrieve(const std::string &text, const std::vect
     return std::tie(b.fusedScore, a.sourceId, a.chunkId) < std::tie(a.fusedScore, b.sourceId, b.chunkId);
     });
 
+  if (topK < hybridRes.size()) hybridRes.resize(topK);
+  
   if (mode != SearchMode::HybridGrep || grepTerms.empty()) {
     return hybridRes;
   }
@@ -1908,9 +1929,6 @@ std::vector<SearchResult> App::retrieve(const std::string &text, const std::vect
   std::sort(hybridRes.begin(), hybridRes.end(), [](const SearchResult &a, const SearchResult &b) {
     return std::tie(b.fusedScore, a.sourceId, a.chunkId) < std::tie(a.fusedScore, b.sourceId, b.chunkId);
     });
-  if (topK < hybridRes.size()) {
-    hybridRes.resize(topK);
-  }
   return hybridRes;
 }
 
@@ -2492,9 +2510,10 @@ int App::run(int argc, char *argv[])
   std::string evalDetailId;
   size_t evalTopK = 5;
   bool evalAddVectorsFlag = false;
-  float evalBm25Weight;
-  float evalGrepWeight;
   bool evalSweepFlag = false;
+  std::vector<float> evalBm25Weights;
+  std::vector<float> evalGrepWeights;
+  std::vector<size_t> evalTopKs;
 
   cmdEval->add_option("--dataset", evalDatasetPath, "Path to eval.json dataset");
   cmdEval->add_flag("--init", evalInitFlag, "Generate template eval.json");
@@ -2502,10 +2521,13 @@ int App::run(int argc, char *argv[])
   cmdEval->add_option("--samples", evalSamples, "Number of sample queries for --init")->default_val(10);
   cmdEval->add_flag("--list", evalListFlag, "List available document IDs");
   cmdEval->add_option("--detail", evalDetailId, "Show details for a document ID");
-  cmdEval->add_option("--top", evalTopK, "Top-k for search metrics")->default_val(5);
+  cmdEval->add_option("--top", evalTopKs, "Top-k values (repeat or space-separated)")
+    ->expected(-1)->default_val(std::vector<size_t>{ 5 });
   cmdEval->add_flag("--add-vectors", evalAddVectorsFlag, "Embed queries in dataset, write result to --output");
-  cmdEval->add_option("--bm25-weight", evalBm25Weight)->default_val(kHybridBm25Weight);
-  cmdEval->add_option("--grep-weight", evalGrepWeight)->default_val(kGrepRrfWeight);
+  cmdEval->add_option("--bm25-weight", evalBm25Weights, "BM25 weight (repeat or space-separated)")
+    ->expected(-1)->default_val(std::vector<float>{ kHybridBm25Weight });
+  cmdEval->add_option("--grep-weight", evalGrepWeights, "Grep RRF weight (repeat or space-separated)")
+    ->expected(-1)->default_val(std::vector<float>{ kGrepRrfWeight });
   cmdEval->add_flag("--sweep", evalSweepFlag, "Sweep bm25 x grep weights");
 
   try {
@@ -2625,9 +2647,12 @@ int App::run(int argc, char *argv[])
         }
         appInstance.evalAddVectors(evalDatasetPath, evalOutputPath);
       } else if (evalSweepFlag) {
-        appInstance.evalSweep(evalDatasetPath, evalTopK);
+        appInstance.evalSweep(evalDatasetPath, evalTopKs, evalBm25Weights, evalGrepWeights);
       } else if (!evalDatasetPath.empty()) {
-        appInstance.eval(evalDatasetPath, evalTopK, evalBm25Weight, evalGrepWeight);
+        appInstance.eval(evalDatasetPath,
+          evalTopKs.empty() ? 5 : evalTopKs.front(),
+          evalBm25Weights.empty() ? kHybridBm25Weight : evalBm25Weights.front(),
+          evalGrepWeights.empty() ? kGrepRrfWeight : evalGrepWeights.front());      
       } else {
         LOG_MSG << "Specify --dataset <path>, --init, --list, or --detail <id>";
         LOG_MSG << "  eval --init --output eval.json    Generate template";
