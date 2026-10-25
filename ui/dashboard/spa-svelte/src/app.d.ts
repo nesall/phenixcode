@@ -291,13 +291,14 @@ export interface MonitorCost {
   pricing_version: string;
   /** per-generation-provider breakdown; key = GenerationApi.id */
   by_provider?: Record<string, MonitorProviderCost>;
-  note?: string;              // e.g. "embedding cost not included"
+  note?: string; // e.g. "embedding cost not included"
 }
 
 export interface MonitorProviderCost {
   input: number;
   output: number;
   cached_input: number;
+  calls: number;
   total: number;
   tokens_in: number;
   tokens_out: number;
