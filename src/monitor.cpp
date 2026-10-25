@@ -213,6 +213,7 @@ struct MonitorTracker::Impl {
         project_id TEXT NOT NULL,
         provider_id TEXT NOT NULL,
         model TEXT NOT NULL,
+        calls INTEGER NOT NULL DEFAULT 0,
         tokens_in INTEGER NOT NULL DEFAULT 0,
         tokens_out INTEGER NOT NULL DEFAULT 0,
         cost_input REAL NOT NULL DEFAULT 0.0,
@@ -469,11 +470,12 @@ void MonitorTracker::recordGenerationCost(
 
   const char *upsertSql = R"(
     INSERT INTO provider_costs (
-      project_id, provider_id, model, tokens_in, tokens_out,
+      project_id, provider_id, model, calls, tokens_in, tokens_out,
       cost_input, cost_output, cost_cached, cost_total, last_updated
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(project_id, provider_id) DO UPDATE SET
       model = excluded.model,
+      calls = calls + 1,
       tokens_in = tokens_in + excluded.tokens_in,
       tokens_out = tokens_out + excluded.tokens_out,
       cost_input = cost_input + excluded.cost_input,
@@ -505,7 +507,10 @@ void MonitorTracker::recordGenerationCost(
   }
 }
 
-void MonitorTracker::recordEmbeddingCost(const std::string &providerId, size_t tokensIn, const ProvidersSettings &providers)
+void MonitorTracker::recordEmbeddingCost(
+  const std::string &providerId,
+  size_t tokensIn,
+  const ProvidersSettings &providers)
 {
   const ApiConfig *cfg = providers.findEmbedding(providerId);
   double inCost = 0.0;
@@ -524,11 +529,12 @@ void MonitorTracker::recordEmbeddingCost(const std::string &providerId, size_t t
 
   const char *upsertSql = R"(
     INSERT INTO provider_costs (
-      project_id, provider_id, model, tokens_in, tokens_out,
+      project_id, provider_id, model, calls, tokens_in, tokens_out,
       cost_input, cost_output, cost_cached, cost_total, last_updated
-    ) VALUES (?, ?, ?, ?, 0, ?, 0.0, 0.0, ?, ?)
+    ) VALUES (?, ?, ?, 1, ?, 0, ?, 0.0, 0.0, ?, ?)
     ON CONFLICT(project_id, provider_id) DO UPDATE SET
       model = excluded.model,
+      calls = calls + 1,
       tokens_in = tokens_in + excluded.tokens_in,
       cost_input = cost_input + excluded.cost_input,
       cost_total = cost_total + excluded.cost_total,
@@ -622,7 +628,7 @@ json MonitorTracker::toJson() const
 
       // 2. Read provider costs
       const char *selectCostSql = R"(
-        SELECT provider_id, model, tokens_in, tokens_out,
+        SELECT provider_id, model, calls, tokens_in, tokens_out,
                cost_input, cost_output, cost_cached, cost_total
         FROM provider_costs
         WHERE project_id = ?
@@ -633,12 +639,13 @@ json MonitorTracker::toJson() const
         while (sqlite3_step(costStmt.ref()) == SQLITE_ROW) {
           std::string providerId = reinterpret_cast<const char *>(sqlite3_column_text(costStmt.ref(), 0));
           std::string model = reinterpret_cast<const char *>(sqlite3_column_text(costStmt.ref(), 1));
-          size_t tIn = static_cast<size_t>(sqlite3_column_int64(costStmt.ref(), 2));
-          size_t tOut = static_cast<size_t>(sqlite3_column_int64(costStmt.ref(), 3));
-          double cIn = sqlite3_column_double(costStmt.ref(), 4);
-          double cOut = sqlite3_column_double(costStmt.ref(), 5);
-          double cCached = sqlite3_column_double(costStmt.ref(), 6);
-          double cTotal = sqlite3_column_double(costStmt.ref(), 7);
+          size_t calls = static_cast<size_t>(sqlite3_column_int64(costStmt.ref(), 2));
+          size_t tIn = static_cast<size_t>(sqlite3_column_int64(costStmt.ref(), 3));
+          size_t tOut = static_cast<size_t>(sqlite3_column_int64(costStmt.ref(), 4));
+          double cIn = sqlite3_column_double(costStmt.ref(), 5);
+          double cOut = sqlite3_column_double(costStmt.ref(), 6);
+          double cCached = sqlite3_column_double(costStmt.ref(), 7);
+          double cTotal = sqlite3_column_double(costStmt.ref(), 8);
 
           if (cOut == 0.0 && cCached == 0.0 && providerId.find("embed") != std::string::npos) {
             embeddingCost += cTotal;
@@ -650,6 +657,7 @@ json MonitorTracker::toJson() const
           totalCost += cTotal;
 
           byProviderJson[providerId] = {
+            { "calls", calls },
             { "input", cIn },
             { "output", cOut },
             { "cached_input", cCached },
