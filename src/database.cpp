@@ -301,11 +301,6 @@ size_t HnswSqliteVectorDatabase::chunkCount() const
   return static_cast<size_t>(countRowsNoLock("SELECT count(*) FROM chunks", ""));
 }
 
-size_t HnswSqliteVectorDatabase::chunkCountForTerm(const std::string &quoted) const
-{
-  return countRowsNoLock("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?", quoted);
-}
-
 std::vector<SearchResult> HnswSqliteVectorDatabase::bm25Search(const std::string &query, size_t top_k) const
 {
   const auto plan = planQuery(query);

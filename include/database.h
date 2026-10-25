@@ -74,7 +74,6 @@ public:
     const QueryPlan *plan = nullptr) const = 0;   // reuse caller's plan
   virtual QueryPlan planQuery(const std::string &text) const = 0;
   virtual size_t chunkCount() const = 0;
-  virtual size_t chunkCountForTerm(const std::string &quoted) const = 0;
 
   virtual size_t deleteDocumentsBySource(const std::string &sourceId) = 0;
   virtual void clear() = 0;
@@ -126,7 +125,6 @@ public:
     const QueryPlan * plan = nullptr) const override;
   QueryPlan planQuery(const std::string &text) const;
   size_t chunkCount() const override;
-  size_t chunkCountForTerm(const std::string &quoted) const override;
 
   DatabaseStats getStats() const override;
   void clear() override;
