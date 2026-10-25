@@ -1,15 +1,18 @@
 <script lang="ts">
   import * as icons from "@lucide/svelte";
   import { monitorStore } from "../../../stores/monitor.svelte";
+  import { instances, projectStore } from "#lib/store.svelte.js";
+  import { mapProjectToInstance } from "#lib/utils.js";
 
   const snapshot = $derived(monitorStore.snapshot);
   const progress = $derived(snapshot?.progress);
   const chunkProgress = $derived(!!progress && progress.chunks_total > 0);
-  const done = $derived(chunkProgress ? progress!.chunks_done : progress?.files_done ?? 0);
-  const total = $derived(chunkProgress ? progress!.chunks_total : progress?.files_total ?? 0);
+  const done = $derived(chunkProgress ? progress!.chunks_done : (progress?.files_done ?? 0));
+  const total = $derived(chunkProgress ? progress!.chunks_total : (progress?.files_total ?? 0));
   const percent = $derived(total > 0 ? Math.min(100, Math.max(0, (done / total) * 100)) : 0);
   const unit = $derived(chunkProgress ? "chunks" : "files");
   const eta = $derived(progress && progress.eta_seconds >= 0 ? progress.eta_seconds : null);
+  const hasInstance = $derived(!!projectStore.selected && !!mapProjectToInstance(projectStore.selected, instances));
 
   function formatEta(seconds: number): string {
     if (seconds < 60) return `${Math.ceil(seconds)}s`;
@@ -25,9 +28,9 @@
     {#if snapshot}
       <span class="badge preset-outlined">{snapshot.state}</span>
     {/if}
-    {#if !monitorStore.connected}
-      <span class="ml-auto text-xs text-surface-500">Snapshot / offline view</span>
-    {/if}
+    <span class="text-surface-500">
+      {hasInstance ? (monitorStore.connected ? "Live" : "Polling") : "Offline snapshot"}
+    </span>
   </header>
 
   {#if monitorStore.error && !snapshot}
@@ -47,12 +50,16 @@
       <div class="grid gap-3 sm:grid-cols-3">
         <div class="rounded bg-surface-100-900 p-3">
           <div class="text-xs text-surface-500">Phase</div>
-          <div class="mt-1 flex items-center gap-2 font-medium"><icons.Activity size={16} />{progress?.phase ?? "—"}</div>
+          <div class="mt-1 flex items-center gap-2 font-medium">
+            <icons.Activity size={16} />{progress?.phase ?? "—"}
+          </div>
         </div>
         <div class="rounded bg-surface-100-900 p-3">
           <div class="text-xs text-surface-500">Current batch</div>
           <div class="mt-1 font-medium">
-            {progress ? `${progress.current_batch || "—"}${progress.current_batch_size ? ` (${progress.current_batch_size} files)` : ""}` : "—"}
+            {progress
+              ? `${progress.current_batch || "—"}${progress.current_batch_size ? ` (${progress.current_batch_size} files)` : ""}`
+              : "—"}
           </div>
         </div>
         <div class="rounded bg-surface-100-900 p-3">

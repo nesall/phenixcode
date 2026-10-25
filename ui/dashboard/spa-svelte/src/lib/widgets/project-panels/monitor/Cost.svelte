@@ -85,7 +85,7 @@
                   <td>{usd(provider.cached_input)}</td>
                   <td>{usd(provider.output)}</td>
                   <td>{usd(provider.total)}</td>
-                  <td>{usd(provider.calls)}</td>
+                  <td>{provider.calls}</td>
                 </tr>
               {/each}
             </tbody>
