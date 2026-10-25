@@ -1,14 +1,9 @@
 #ifndef _MONITOR_H_
 #define _MONITOR_H_
 
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <unordered_map>
-#include <vector>
 #include "json_shim.h"
 
 class Settings;
@@ -19,7 +14,7 @@ enum class MonitorPhase { Idle, Walk, Chunk, Embed, Persist };
 
 class MonitorTracker {
 public:
-  explicit MonitorTracker(const Settings &settings);
+  explicit MonitorTracker(const Settings &settings, const std::string &dbPath = {});
   ~MonitorTracker();
 
   MonitorTracker(const MonitorTracker &) = delete;
