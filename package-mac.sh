@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-#VER="${1:-1.0.2}"
-#NAME="phenixcode-v${VER}-macos-arm64"
+# Resolve all build and package paths relative to this script.
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 # --- Parse version.cmake ---
 MAJOR=$(grep '^set(EMBEDDER_VERSION_MAJOR' version.cmake | sed -E 's/.* ([0-9]+).*/\1/')
@@ -19,24 +19,19 @@ EMBEDDER="./"
 CLIENT="ui/clients/webview"
 DASHBOARD="ui/dashboard/webview"
 
-cd "$EMBEDDER"
-./build_rel.sh
+(cd "$EMBEDDER" && ./build_rel.sh)
 echo "FINISHED $EMBEDDER"
 
-cd "$CLIENT"
-./build_rel.sh
-cd ../../..
+(cd "$CLIENT" && ./build_rel.sh)
 
-cd "$DASHBOARD"
-./build_rel.sh
-cd ../../..
+(cd "$DASHBOARD" && ./build_rel.sh)
 
 rm -rf "$NAME"
 mkdir "$NAME"
 
-cp -r "$EMBEDDER/dist/"* "$NAME/"
-cp -r "$CLIENT/dist/"* "$NAME/"
-cp -r "$DASHBOARD/dist/"* "$NAME/"
+cp -R "$EMBEDDER/dist/." "$NAME/"
+cp -R "$CLIENT/dist/." "$NAME/"
+cp -R "$DASHBOARD/dist/." "$NAME/"
 
 echo "$NAME.zip..."
 rm -f "$NAME.zip"

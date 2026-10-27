@@ -56,24 +56,115 @@ namespace {
   }
 
   std::string detectLanguage(const std::string &path) {
-    std::string ext = std::filesystem::path(path).extension().string();
+    namespace fs = std::filesystem;
+
+    const fs::path p(path);
+    const std::string ext = p.extension().string();
 
     static const std::map<std::string, std::string> ext_map = {
-        { ".cpp", "C++" },{ ".hpp", "C++" },{ ".h", "C++" },
-        { ".c", "C" },
-        { ".py", "Python" },
-        { ".js", "JavaScript" },{ ".ts", "TypeScript" },
-        { ".java", "Java" },
-        { ".go", "Go" },
-        { ".rs", "Rust" },
-        { ".md", "Markdown" },{ ".txt", "Text" }
+      // C / C++
+      { ".c", "C" },
+      { ".h", "C++" },{ ".hpp", "C++" },
+      { ".cc", "C++" },{ ".cpp", "C++" },
+      { ".cxx", "C++" },{ ".hxx", "C++" },
+
+      // Web / Frontend
+      { ".html", "HTML" },{ ".htm", "HTML" },
+      { ".css", "CSS" },{ ".scss", "SCSS" },
+      { ".sass", "Sass" },{ ".less", "Less" },
+      { ".js", "JavaScript" },{ ".mjs", "JavaScript" },
+      { ".cjs", "JavaScript" },{ ".jsx", "JavaScript" },
+      { ".ts", "TypeScript" },{ ".tsx", "TypeScript" },
+      { ".svelte", "Svelte" },
+      { ".vue", "Vue" },
+      { ".astro", "Astro" },
+      { ".php", "PHP" },
+
+      // General-purpose
+      { ".py", "Python" },
+      { ".java", "Java" },
+      { ".kt", "Kotlin" },{ ".kts", "Kotlin" },
+      { ".go", "Go" },
+      { ".rs", "Rust" },
+      { ".cs", "C#" },
+      { ".fs", "F#" },
+      { ".swift", "Swift" },
+      { ".m", "Objective-C" },
+      { ".mm", "Objective-C++" },
+      { ".rb", "Ruby" },
+      { ".pl", "Perl" },
+      { ".lua", "Lua" },
+      { ".dart", "Dart" },
+      { ".scala", "Scala" },
+      { ".ex", "Elixir" },{ ".exs", "Elixir" },
+      { ".erl", "Erlang" },
+      { ".hs", "Haskell" },
+      { ".clj", "Clojure" },
+      { ".r", "R" },{ ".R", "R" },
+      { ".jl", "Julia" },
+      { ".zig", "Zig" },
+
+      // Systems / GPU
+      { ".asm", "Assembly" },{ ".s", "Assembly" },
+      { ".cu", "CUDA" },{ ".cuh", "CUDA" },
+      { ".glsl", "GLSL" },
+      { ".hlsl", "HLSL" },
+      { ".wgsl", "WGSL" },
+
+      // Database / API
+      { ".sql", "SQL" },
+      { ".psql", "PostgreSQL" },
+      { ".graphql", "GraphQL" },{ ".gql", "GraphQL" },
+      { ".proto", "Protocol Buffers" },
+
+      // Shell / Scripting
+      { ".sh", "Shell" },
+      { ".bash", "Bash" },
+      { ".zsh", "Zsh" },
+      { ".ps1", "PowerShell" },
+      { ".bat", "Batch" },{ ".cmd", "Batch" },
+
+      // Configuration / Infrastructure
+      { ".json", "JSON" },{ ".jsonc", "JSON" },
+      { ".yaml", "YAML" },{ ".yml", "YAML" },
+      { ".toml", "TOML" },
+      { ".xml", "XML" },
+      { ".ini", "INI" },
+      { ".tf", "Terraform" },
+      { ".cmake", "CMake" },
+      { ".gradle", "Gradle" },
+
+      // Documentation
+      { ".md", "Markdown" },
+      { ".mdx", "MDX" },
+      { ".rst", "reStructuredText" },
+      { ".tex", "LaTeX" },
+      { ".txt", "Text" }
     };
 
-    auto it = ext_map.find(ext);
-    return it != ext_map.end() ? it->second : "Other";
+    // Handle extensionless and special filenames
+    static const std::map<std::string, std::string> filename_map = {
+        { "CMakeLists.txt", "CMake" },
+        { "Makefile", "Makefile" },
+        { "GNUmakefile", "Makefile" },
+        { "Dockerfile", "Dockerfile" },
+        { "Containerfile", "Dockerfile" },
+        { ".gitignore", "Git" },
+        { ".dockerignore", "Dockerfile" },
+        { ".env", "Environment" }
+    };
+
+    if (auto it = filename_map.find(p.filename().string());
+      it != filename_map.end())
+      return it->second;
+
+    if (auto it = ext_map.find(ext); it != ext_map.end())
+      return it->second;
+
+    return "Other";
   }
 
-  json computeStats(VectorDatabase &db) {
+  nlohmann::ordered_json computeStats(VectorDatabase &db) {
     auto trackedFiles = db.getTrackedFiles();
 
     auto chunkCounts = db.getChunkCountsBySources();
@@ -122,11 +213,21 @@ namespace {
       ar.push_back(*it);
     }
 
+    std::vector<std::pair<std::string, int>> sortedLanguages(byLanguage.begin(), byLanguage.end());
+    std::sort(sortedLanguages.begin(), sortedLanguages.end(), [](const auto &a, const auto &b) {
+      if (a.second != b.second) return a.second > b.second;
+      return a.first < b.first;
+    });
+    auto orderedLanguages = nlohmann::ordered_json::object();
+    for (const auto &[language, count] : sortedLanguages) {
+      orderedLanguages[language] = count;
+    }
+
     return {
         { "total_files", trackedFiles.size() },
         { "total_lines", totalLines },
         { "total_size_bytes", totalSize },
-        { "by_language", byLanguage },
+        { "by_language", orderedLanguages },
         { "by_directory", byDirectory },
         { "top_files", ar }
     };
@@ -134,12 +235,12 @@ namespace {
 
   class StatsCache {
   private:
-    json cachedStats_;
+    nlohmann::ordered_json cachedStats_;
   public:
     void clear() {
-      cachedStats_ = json{};
+      cachedStats_ = nlohmann::ordered_json{};
     }
-    json getStats(VectorDatabase &db, bool forceRefresh = false) {
+    nlohmann::ordered_json getStats(VectorDatabase &db, bool forceRefresh = false) {
       if (forceRefresh /*|| CACHE_TTL_SECONDS < elapsed*/ || cachedStats_.empty()) {
         cachedStats_ = computeStats(db);
       }
@@ -1157,7 +1258,7 @@ void App::printUsage()
   std::cout << std::endl;
 }
 
-json App::sourceStats() const
+nlohmann::ordered_json App::sourceStats() const
 {
   return imp->statsCache_.getStats(*imp->db_);
 }

@@ -101,7 +101,7 @@ public:
   size_t uptimeSeconds() const;
   size_t startTimestamp() const;
   size_t lastUpdateTimestamp() const;
-  nlohmann::json sourceStats() const;
+  nlohmann::ordered_json sourceStats() const;
 
   //std::string describeProjectTitle() const;
 

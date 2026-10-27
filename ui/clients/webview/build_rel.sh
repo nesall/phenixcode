@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 echo "Building RAG Code Assistant WebView..."
 
 # Build the SPA client first
@@ -12,6 +13,7 @@ npm run build
 # Build the webview
 echo "Building webview..."
 cd ../webview
+rm -rf build_rel
 mkdir -p build_rel/out
 cd build_rel
 cmake -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=out -DCMAKE_BUILD_TYPE=Release ..
@@ -21,7 +23,7 @@ cd ..
 echo "Copying release artifacts to dist folder..."
 rm -rf dist
 mkdir -p dist
-cp -r build_rel/out/* dist/
+cp -R build_rel/out/. dist/
 rm -f dist/output.log
 rm -f dist/diagnostics.log
 cp assets/appconfig.json dist/

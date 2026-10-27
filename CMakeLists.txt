@@ -98,6 +98,9 @@ add_executable(${PROJECT_NAME}
   include/monitor.h
   include/evaluator.h
   include/updater.h
+  include/context_builder.h
+  include/model_router.h
+  include/httpserver_internal.h
   src/main.cpp
   src/tokenizer.cpp
   src/settings.cpp
@@ -105,6 +108,10 @@ add_executable(${PROJECT_NAME}
   src/inference.cpp
   src/database.cpp
   src/sourceproc.cpp
+  src/context_builder.cpp
+  src/model_router.cpp
+  src/httpserver_generation.cpp
+  src/httpserver_admin.cpp
   src/httpserver.cpp
   src/app.cpp
   src/auth.cpp

@@ -103,7 +103,12 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE "${ROOT_DIR}/ui/shared" "${ROOT_DIR}/include")
 
-option(PROJECTS_FOLDER "Default folder name for user projects" "phenixcode_projects")
+# Migrate cache entries created by the former boolean option.
+get_property(PROJECTS_FOLDER_CACHE_TYPE CACHE PROJECTS_FOLDER PROPERTY TYPE)
+if(PROJECTS_FOLDER_CACHE_TYPE STREQUAL "BOOL")
+  unset(PROJECTS_FOLDER CACHE)
+endif()
+set(PROJECTS_FOLDER "phenixcode_projects" CACHE STRING "Default folder name for user projects")
 
 set(WEB_ASSETS "ui_assets_a")
 
@@ -172,9 +177,11 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   if(EXISTS "${ROOT_DIR}/assets/settings.json")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}"
       COMMAND ${CMAKE_COMMAND} -E copy
         "${ROOT_DIR}/assets/settings.json"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}/settings.json"
       COMMENT "Copying assets/settings.json"
     )
   else()
@@ -182,9 +189,11 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
   endif()
   if(EXISTS "${ROOT_DIR}/assets/providers.json")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}"
       COMMAND ${CMAKE_COMMAND} -E copy
         "${ROOT_DIR}/assets/providers.json"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}/providers.json"
       COMMENT "Copying assets/providers.json"
     )
   else()

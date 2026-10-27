@@ -4,6 +4,7 @@
 #include <memory>
 
 class App;
+class AdminAuth;
 
 class HttpServer {
   struct Impl;
@@ -18,6 +19,10 @@ public:
   void stop();
 
 private:
+  void registerSetupRoutes(AdminAuth &auth);
+  void registerGenerationRoutes(AdminAuth &auth);
+  void registerAdminRoutes(AdminAuth &auth);
+
   HttpServer(const HttpServer &) = delete;
   HttpServer &operator =(const HttpServer &) = delete;
 };
