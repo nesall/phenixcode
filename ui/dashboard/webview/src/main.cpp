@@ -245,7 +245,7 @@ int main() {
             }
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
         }
       }, nullptr
     );
@@ -264,7 +264,7 @@ int main() {
             }
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
         }
         return "null";
       }
@@ -283,7 +283,7 @@ int main() {
             }
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
         }
         return "null";
       }
@@ -340,7 +340,7 @@ int main() {
           res["settingsFilePath"] = (fs::absolute(ffname())).string();
           res["jsonData"] = ss.configJson();
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -369,7 +369,7 @@ int main() {
             }
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -416,7 +416,7 @@ int main() {
           file << jRefs.dump(2) << std::endl;
           res["status"] = "success";
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -481,7 +481,7 @@ int main() {
           res["status"] = "success";
           res["projects"] = projects;
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -515,7 +515,7 @@ int main() {
             throw std::runtime_error("Unable to locate the file");
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -544,7 +544,7 @@ int main() {
           res["message"] = "Providers saved successfully";
           LOG_MSG << "Saved providers to file:" << prv.string();
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -643,7 +643,7 @@ int main() {
             proc.detach();
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -700,7 +700,7 @@ int main() {
             throw std::runtime_error("Instance id not found: " + instanceId);
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -731,7 +731,7 @@ int main() {
             }
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -764,7 +764,7 @@ int main() {
             throw std::runtime_error("Path does not exist: " + p.string());
           }
         } catch (const std::exception &ex) {
-          LOG_MSG << ex.what();
+          LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
         }
@@ -815,8 +815,9 @@ int main() {
           json snap = json::parse(file);
           snap["offline"] = true;
           res = { { "status", "success" },{ "monitor", std::move(snap) } };
-        } catch (const std::exception &e) {
-          res = { {"status", "error"}, {"message", e.what()} };
+        } catch (const std::exception &ex) {
+          LOG_MSG_ERROR << ex.what();
+          res = { {"status", "error"}, {"message", ex.what()} };
         }
         return res.dump();
       }
@@ -891,9 +892,57 @@ int main() {
             { "lines", std::move(lines) },
             { "total_lines", total }
           };
-        } catch (const std::exception &e) {
-          res = { { "status", "error" },{ "message", e.what() },
+        } catch (const std::exception &ex) {
+          LOG_MSG_ERROR << ex.what();
+          res = { { "status", "error" },{ "message", ex.what() },
                   { "lines", json::array() },{ "total_lines", 0 } };
+        }
+        return res.dump();
+      }
+    );
+
+    w.bind("testProvider", [&w](const std::string &data) -> std::string
+      {
+        json res;
+        try {
+          auto j = json::parse(data);
+          if (!j.is_array() || j.size() == 0) {
+            throw std::runtime_error("Invalid parameters for testProvider");
+          }
+          const auto &params = j[0];
+          if (!params.is_object()) {
+            throw std::runtime_error("Invalid parameters for testProvider");
+          }
+
+          json request = {
+            { "id", params.value("id", std::string{}) },
+            { "url", params.value("url", std::string{}) },
+            { "apiKey", params.value("apiKey", std::string{}) },
+            { "model", params.value("model", std::string{}) }
+          };
+
+          InstanceRegistry registry;
+          const auto instances = registry.getActiveInstances();
+          if (!instances.empty()) {
+            const auto &instance = instances.front();
+            std::string host = instance.value("host", std::string("127.0.0.1"));
+            if (host == "localhost") host = "127.0.0.1";
+            const int port = instance.at("port").get<int>();
+            httplib::Client cli(host, port);
+            auto result = cli.Post("/api/providers/test", request.dump(), "application/json");
+            if (!result) {
+              throw std::runtime_error("Unable to reach provider test endpoint");
+            }
+            res = json::parse(result->body);
+            if (result->status < 200 || result->status >= 300) {
+              res["status"] = "error";
+            }
+          } else {
+            throw std::runtime_error("No active instances found to test provider");
+          }
+        } catch (const std::exception &ex) {
+          LOG_MSG_ERROR << ex.what();
+          res = { { "status", "error" },{ "message", ex.what() } };
         }
         return res.dump();
       }
@@ -919,7 +968,8 @@ int main() {
         pickSettingsJsonFile,
         checkPathExists,
         getMonitorSnapshot,
-        getLogTail
+        getLogTail,
+        testProvider
       };
       window.addEventListener('error', function(e) {
         console.error('JS Error:', e.message, e.filename, e.lineno);

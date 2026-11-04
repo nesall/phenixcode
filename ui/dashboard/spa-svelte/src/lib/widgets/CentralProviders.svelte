@@ -1,15 +1,17 @@
 <script lang="ts">
   import { getContext, onMount } from "svelte";
   import UpDownButton from "./misc/UpDownButton.svelte";
+  import * as icons from "@lucide/svelte";
   import { slide } from "svelte/transition";
   import { embeddingProviders, generationProviders, projectStore } from "../store.svelte";
   import {
     helper_readjustProject,
     helper_saveProjectSettings,
     helper_saveProvidersSettings,
+    helper_testProvider,
     type Renames,
   } from "../utils";
-  import type { ProjectItem, ProvidersSettings } from "../../app";
+  import type { GenerationApi, ProjectItem, ProvidersSettings } from "../../app";
 
   let currentTab = $state(0); // 0=>embedding, 1=>generation
 
@@ -92,6 +94,101 @@
     onChange();
   }
 
+  function toggleReasoning(api: GenerationApi, enabled: boolean) {
+    if (enabled) {
+      api.reasoning = { parameters: [] };
+      addReasoningParameter(api);
+    } else {
+      delete api.reasoning;
+    }
+    onChange();
+  }
+
+  function addReasoningParameter(api: GenerationApi) {
+    api.reasoning?.parameters.push({
+      name: "",
+      value_type: "scalar",
+      values: [],
+      default: "",
+    });
+    onChange();
+  }
+
+  function removeReasoningParameter(api: GenerationApi, index: number) {
+    api.reasoning?.parameters.splice(index, 1);
+    onChange();
+  }
+
+  type ReasoningParameter = NonNullable<GenerationApi["reasoning"]>["parameters"][number];
+
+  function addConstantField(parameter: ReasoningParameter) {
+    const fields = (parameter.constant_fields ??= {});
+    let name = "field";
+    let suffix = 2;
+    while (name in fields) name = `field_${suffix++}`;
+    fields[name] = "";
+    onChange();
+  }
+
+  function renameConstantField(parameter: ReasoningParameter, oldName: string, event: Event) {
+    const newName = (event.currentTarget as HTMLInputElement).value.trim();
+    const fields = parameter.constant_fields;
+    if (!fields || !newName || (newName !== oldName && newName in fields)) {
+      (event.currentTarget as HTMLInputElement).value = oldName;
+      return;
+    }
+    if (newName !== oldName) {
+      fields[newName] = fields[oldName];
+      delete fields[oldName];
+      onChange();
+    }
+  }
+
+  function updateConstantFieldValue(parameter: ReasoningParameter, name: string, event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const value = input.value;
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (parsed === null || typeof parsed === "string" || typeof parsed === "number" || typeof parsed === "boolean") {
+        if (parameter.constant_fields) parameter.constant_fields[name] = parsed;
+        onChange();
+        return;
+      }
+    } catch {
+      // Unquoted input is treated as a string value.
+    }
+    if (parameter.constant_fields) parameter.constant_fields[name] = value;
+    onChange();
+  }
+
+  function removeConstantField(parameter: ReasoningParameter, name: string) {
+    if (!parameter.constant_fields) return;
+    delete parameter.constant_fields[name];
+    if (Object.keys(parameter.constant_fields).length === 0) delete parameter.constant_fields;
+    onChange();
+  }
+
+  function addReasoningValue(input: HTMLInputElement, parameter: ReasoningParameter) {
+    const value = input.value.trim();
+    if (!value) return;
+
+    parameter.values.push(value);
+    input.value = "";
+    if (!parameter.default) parameter.default = value;
+    onChange();
+  }
+
+  function removeReasoningValue(
+    parameter: NonNullable<GenerationApi["reasoning"]>["parameters"][number],
+    index: number,
+  ) {
+    const dels = parameter.values.splice(index, 1);
+    if (parameter.default === dels[0]) {
+      parameter.default = parameter.values[0] ?? "";
+    }
+    onChange();
+  }
+
   // serialize: async onChange runs must not interleave
   let queue: Promise<void> = Promise.resolve();
   function commit(renames?: Renames) {
@@ -163,6 +260,18 @@
 
   function notifyProjectsAdjusted(arg: { reindex: string[]; dropped: Record<string, string[]> }) {
     // TODO:
+  }
+
+  async function onTestGenerationApi(api: GenerationApi) {
+    try {
+      const result = await helper_testProvider(
+        { url: api.api_url, apiKey: api.api_key, model: api.model, id: api.id },
+        "generation",
+      );
+      alert(`API test successful:\n${JSON.stringify(result, null, 2)}`);
+    } catch (err) {
+      alert(`API test failed:\n${err}`);
+    }
   }
 </script>
 
@@ -338,8 +447,176 @@
                 </div>
               </div>
 
+              <div class="border border-surface-500 p-3 rounded-md">
+                <div class="flex items-center gap-2 mb-4">
+                  <span class="label-text font-semibold">Reasoning Parameters</span>
+                  <label class="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      class="checkbox"
+                      checked={api.reasoning !== undefined}
+                      onchange={(event) => toggleReasoning(api, event.currentTarget.checked)}
+                    />
+                  </label>
+                </div>
+                {#if api.reasoning}
+                  {#each api.reasoning.parameters as parameter, parameterIndex}
+                    <div class="border border-surface-300 rounded-md p-3 mb-3">
+                      <div
+                        class="grid grid-cols-1 {parameter.value_type === 'object'
+                          ? 'md:grid-cols-2'
+                          : 'md:grid-cols-3'} gap-3"
+                      >
+                        <label class="label">
+                          <span class="label-text text-xs">Name</span>
+                          <input
+                            type="text"
+                            class="input"
+                            placeholder="reasoning_effort"
+                            bind:value={parameter.name}
+                            onchange={onChange}
+                          />
+                        </label>
+                        <label class="label">
+                          <span class="label-text text-xs">Value Type</span>
+                          <select
+                            class="select"
+                            bind:value={parameter.value_type}
+                            onchange={() => {
+                              if (parameter.value_type === "scalar") {
+                                delete parameter.value_field;
+                                delete parameter.constant_fields;
+                              }
+                              onChange();
+                            }}
+                          >
+                            <option value="scalar">Scalar</option>
+                            <option value="object">Object</option>
+                          </select>
+                        </label>
+                        {#if parameter.value_type === "object"}
+                          <label class="label">
+                            <span class="label-text text-xs">Value Field</span>
+                            <input type="text" class="input" bind:value={parameter.value_field} onchange={onChange} />
+                          </label>
+                        {/if}
+                        <label class="label">
+                          <span class="label-text text-xs">Default</span>
+                          <select class="select" bind:value={parameter.default} onchange={onChange}>
+                            {#each parameter.values as value}
+                              <option {value}>{value}</option>
+                            {/each}
+                          </select>
+                        </label>
+                      </div>
+                      <div class="mt-4">
+                        <span class="label-text text-xs font-semibold text-left">Values</span>
+                        <div class="flex flex-wrap gap-2 mt-1">
+                          {#each parameter.values as value, valueIndex}
+                            <div class="flex items-center bg-surface-100-900 rounded pl-3 pr-2 py-1">
+                              <span class="text-sm" aria-label="Value {valueIndex + 1}">
+                                {value}
+                              </span>
+                              <button
+                                type="button"
+                                class="ml-2 text-surface-500 hover:text-error-500"
+                                onclick={() => removeReasoningValue(parameter, valueIndex)}
+                              >
+                                <icons.X size="16" />
+                              </button>
+                            </div>
+                          {/each}
+                          <div class="flex">
+                            <input
+                              type="text"
+                              class="grow px-2 py-0 border border-dashed border-surface-300-700 rounded-l w-24 bg-surface-50-950"
+                              placeholder="e.g. max"
+                              onkeydown={(event) => {
+                                if (event.key === "Enter") addReasoningValue(event.currentTarget, parameter);
+                              }}
+                              onchange={onChange}
+                            />
+                            <button
+                              type="button"
+                              class="px-2 py-0 bg-surface-200-800 border border-l-0 border-surface-300-700 rounded-r hover:bg-surface-300-700"
+                              onclick={(event) => {
+                                const input =
+                                  event.currentTarget.parentElement?.querySelector<HTMLInputElement>("input");
+                                if (input) addReasoningValue(input, parameter);
+                              }}
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                        {#if parameter.value_type === "object"}
+                          <div class="mt-6">
+                            <span class="label-text text-xs font-semibold text-left"> Constant fields (optional) </span>
+                            {#each Object.entries(parameter.constant_fields ?? {}) as [fieldName, fieldValue]}
+                              <div class="grid grid-cols-[1fr_1fr_auto] items-center gap-2 mt-2">
+                                <input
+                                  type="text"
+                                  class="input text-xs"
+                                  id="constant-field-name-{api.id}-{fieldName}"
+                                  placeholder="field name"
+                                  aria-label="Constant field name"
+                                  value={fieldName}
+                                  onchange={(event) => renameConstantField(parameter, fieldName, event)}
+                                />
+                                <input
+                                  type="text"
+                                  class="input text-xs"
+                                  id="constant-field-value-{api.id}-{fieldName}"
+                                  placeholder="constant value (e.g. high, 10, true, null)"
+                                  aria-label="Constant field value"
+                                  value={String(fieldValue ?? "")}
+                                  onchange={(event) => updateConstantFieldValue(parameter, fieldName, event)}
+                                />
+                                <button
+                                  type="button"
+                                  class="btn btn-sm preset-outlined-error-500 h-full"
+                                  aria-label="Remove constant field {fieldName}"
+                                  onclick={() => removeConstantField(parameter, fieldName)}
+                                >
+                                  <icons.X size="16" />
+                                </button>
+                              </div>
+                            {/each}
+                            <div class="flex justify-start">
+                              <button
+                                type="button"
+                                class="btn btn-sm preset-outlined-primary-500 mt-2"
+                                onclick={() => addConstantField(parameter)}
+                              >
+                                + Add field
+                              </button>
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
+                      <div class="flex justify-end">
+                        <button
+                          type="button"
+                          class="btn btn-sm preset-tonal-error mt-3"
+                          onclick={() => removeReasoningParameter(api, parameterIndex)}
+                        >
+                          <icons.Trash /> Remove parameter
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
+                  <button
+                    type="button"
+                    class="btn btn-sm preset-outlined-primary-500"
+                    onclick={() => addReasoningParameter(api)}
+                  >
+                    + Add parameter
+                  </button>
+                {/if}
+              </div>
+
               <div class="flex justify-between mt-2">
-                <div class="space-x-2">
+                <div class="flex items-center gap-2">
                   <button
                     type="button"
                     class="btn btn-sm preset-tonal-primary"
@@ -356,6 +633,15 @@
                   >
                     ↓ Down
                   </button>
+                  <span class="vr"></span>
+                  <button
+                    type="button"
+                    class="btn btn-sm preset-tonal"
+                    disabled={!api.api_url || !api.api_key || !api.model}
+                    onclick={() => onTestGenerationApi(api)}
+                  >
+                    Test API
+                  </button>
                 </div>
                 <button
                   type="button"
@@ -363,7 +649,7 @@
                   onclick={() => removeApi(i)}
                   disabled={generationProviders.length === 1}
                 >
-                  Remove API
+                  <icons.Trash /> Remove API
                 </button>
               </div>
             </div>
@@ -481,7 +767,7 @@
               </div>
 
               <div class="flex justify-between">
-                <div class="space-x-2">
+                <div class="flex items-center gap-2">
                   <button
                     type="button"
                     class="btn btn-sm preset-tonal-primary"
@@ -505,7 +791,7 @@
                   onclick={() => removeApi(i)}
                   disabled={embeddingProviders.length === 1}
                 >
-                  Remove API
+                  <icons.Trash /> Remove API
                 </button>
               </div>
             </div>

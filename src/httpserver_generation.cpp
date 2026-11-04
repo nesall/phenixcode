@@ -30,7 +30,6 @@ using json = nlohmann::json;
 
 using namespace httpserver_detail;
 using namespace context;
-using model_router::getTargetApi;
 
 namespace {
   template <class T>
@@ -54,6 +53,24 @@ namespace {
       if (vecAddIfUnique(vec, item)) a = true;
     }
     return a;
+  }
+
+  std::map<std::string, std::string> getReasoningSelection(const json &request, const ApiConfig &cfg) {
+    std::map<std::string, std::string> selection;
+    const auto reasoning = request.find("reasoning");
+    for (const auto &param : cfg.reasoning) {
+      std::string value = param.defaultValue;
+      if (reasoning != request.end() && reasoning->is_object()) {
+        const auto requested = reasoning->find(param.name);
+        if (requested != reasoning->end() && requested->is_string()) {
+          const std::string candidate = requested->get<std::string>();
+          if (std::find(param.values.begin(), param.values.end(), candidate) != param.values.end())
+            value = candidate;
+        }
+      }
+      selection.emplace(param.name, std::move(value));
+    }
+    return selection;
   }
 
 }
@@ -108,6 +125,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
       std::vector<std::string> pendingInfoVec;
       ApiConfig apiConfig = model_router::selectApi(request, messagesJson, question, imp->app_, pendingInfoVec);
+      const auto reasoningSelection = getReasoningSelection(request, apiConfig);
       LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
 
       auto attachmentsJson = request["attachments"];
@@ -157,7 +175,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
       res.set_chunked_content_provider(
         "text/event-stream",
-        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig, pendingInfoVec, start]
+        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig, reasoningSelection, pendingInfoVec, start]
         (size_t offset, httplib::DataSink &sink) {
 
           auto packPayload = [](std::string data) {
@@ -179,8 +197,8 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
           try {
             size_t initialTokens = imp->app_.tokenizer().countTokensWithVocab(CompletionClient::queryTemplate());
             initialTokens += messagesNofTokens(messagesJson, imp->app_); // history + question
-            const auto [orderedResults, usedTokens] = processInputResults(imp->app_, apiConfig, initialTokens, question, attachments, sources,
-              contextSizeRatio, attachedOnly, onInfo
+            const auto [orderedResults, usedTokens] = processInputResults(
+              imp->app_, apiConfig, initialTokens, question, attachments, sources, contextSizeRatio, attachedOnly, onInfo
             );
 
             for (const auto &s : pendingInfoVec) {
@@ -199,7 +217,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
                 if (!success) {
                   return; // Client disconnected
                 }
-              });
+              }, reasoningSelection);
 
 #ifdef _DEBUG2
             testStreaming([&sink](const std::string &chunk) {
@@ -307,7 +325,8 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
         suffix = base64_decode(suffix);
       }
 
-      auto apiConfig = getTargetApi(request, imp->app_);
+      auto apiConfig = model_router::getTargetApi(request, imp->app_);
+      const auto reasoningSelection = getReasoningSelection(request, apiConfig);
 
       LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
 
@@ -323,7 +342,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
       LOG_MSG << "Generating FIM with prefix length" << prefix.size() << "and suffix length" << suffix.size();
       CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
-      std::string fullResponse = completionClient.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first);
+      std::string fullResponse = completionClient.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first, reasoningSelection);
       LOG_MSG << "[FIM] Generated tokens:" << imp->app_.tokenizer().countTokensWithVocab(fullResponse);
       json response = { { "completion", fullResponse } };
       size_t outTokens = imp->app_.tokenizer().countTokensWithVocab(fullResponse);

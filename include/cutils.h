@@ -33,6 +33,7 @@ namespace utils {
   [[nodiscard]] bool isIdentifierLike(const std::string &text);
   [[nodiscard]] bool isHeader(const std::string &path);
   [[nodiscard]] std::string stemKey(const std::string &path);
+  [[nodiscard]] std::string expandEnvVar(const std::string var);
 
   enum class QueryIntent : uint8_t { Neutral, Declaration, Implementation };
   [[nodiscard]] QueryIntent queryIntent(const std::string &query);

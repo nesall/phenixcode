@@ -40,7 +40,14 @@ namespace {
     return h;
   }
 
-  nlohmann::json buildRequestBody(const ApiConfig &cfg, const nlohmann::json &messages, float temperature, size_t maxTokens, bool skipMessagesIfEmpty = false) {
+  nlohmann::json buildRequestBody(
+    const ApiConfig &cfg,
+    const nlohmann::json &messages,
+    float temperature,
+    size_t maxTokens,
+    bool stream,
+    const std::map<std::string, std::string> &reasoningSelection,
+    bool skipMessagesIfEmpty = false) {
     nlohmann::json body;
     body["model"] = cfg.model;
     if (isAnthropic(cfg)) {
@@ -60,7 +67,20 @@ namespace {
       if (cfg.temperatureSupport) body["temperature"] = temperature;
       body[cfg.maxTokensName] = maxTokens;
     }
-    body["stream"] = cfg.stream;
+    body["stream"] = stream;
+
+    for (const auto &param : cfg.reasoning) {
+      const auto selected = reasoningSelection.find(param.name);
+      if (selected == reasoningSelection.end()) continue;
+
+      if (param.isObject()) {
+        nlohmann::json value = param.constantFields;
+        value[param.valueField] = selected->second;
+        body[param.name] = std::move(value);
+      } else {
+        body[param.name] = selected->second;
+      }
+    }
 
     // LOG_MSG body but skip messages for brevity.
      nlohmann::json bodyForLog = body;
@@ -226,7 +246,7 @@ std::string InferenceClient::generateChat(const nlohmann::json &messages, float 
   if (!httpClient)
     throw std::runtime_error("Failed to initialize http client");
 
-  nlohmann::json body = buildRequestBody(cfg(), messages, temperature, maxTokens);
+  nlohmann::json body = buildRequestBody(cfg(), messages, temperature, maxTokens, false, {});
   body["stream"] = false;
   body["temperature"] = temperature;
 
@@ -467,7 +487,8 @@ std::string CompletionClient::generateCompletion(
   const std::vector<SearchResult> &searchRes,
   float temperature,
   size_t maxTokens,
-  std::function<void(const std::string &)> onStream) const
+  std::function<void(const std::string &)> onStream,
+  const std::map<std::string, std::string> &reasoningSelection) const
 {
 #ifndef CPPHTTPLIB_OPENSSL_SUPPORT
   if (schemaHostPort().starts_with("https://")) {
@@ -522,7 +543,7 @@ std::string CompletionClient::generateCompletion(
 
   //std::cout << "Full context: " << modifiedMessages.dump() << "\n";
   
-  nlohmann::json requestBody = buildRequestBody(cfg(), modifiedMessages, temperature, maxTokens);
+  nlohmann::json requestBody = buildRequestBody(cfg(), modifiedMessages, temperature, maxTokens, cfg().stream, reasoningSelection);
   httplib::Headers headers = buildHeaders(cfg(), cfg().stream);
 
   std::string fullResponse;
@@ -645,7 +666,8 @@ std::string CompletionClient::generateFim(
   const std::vector<std::string> &stops,
   float temperature, 
   size_t maxTokens,
-  const std::vector<SearchResult> &searchRes) const
+  const std::vector<SearchResult> &searchRes,
+  const std::map<std::string, std::string> &reasoningSelection) const
 {
 #ifndef CPPHTTPLIB_OPENSSL_SUPPORT
   if (schemaHostPort().starts_with("https://")) {
@@ -694,7 +716,7 @@ std::string CompletionClient::generateFim(
     genericFim = true;
   }
 
-  nlohmann::json requestBody = buildRequestBody(cfg, messages, temperature, maxTokens, true);
+  nlohmann::json requestBody = buildRequestBody(cfg, messages, temperature, maxTokens, false, reasoningSelection, true);
 
   if (!genericFim) {
     if (!fimPrefixName.empty()) {

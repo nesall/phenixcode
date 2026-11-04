@@ -667,6 +667,17 @@ export async function helper_fetchSnapshot(settingsFilePath: string): Promise<{
   }
 }
 
+export async function helper_testProvider(params: { id: string, url: string, apiKey: string, model: string },
+  providerType: "embedding" | "generation" = "generation")
+  : Promise<{ status: "success" | "error"; message?: string }> {
+  if (window.cppApi) {
+    return window.cppApi.testProvider(params);
+  } else {
+    console.log("[mock] testing provider", providerType, params);
+    return { status: "success", message: "Provider test successful." };
+  }
+}
+
 export function standardizePath(path: string): string {
   return path.replace(/\\/g, '/').toLowerCase();
 }

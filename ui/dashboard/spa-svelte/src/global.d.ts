@@ -29,5 +29,11 @@ declare interface Window {
       offset?: number;
       count?: number;
     }): Promise<LogTailResult>;
+    testProvider(params: {
+      id: string;
+      url: string;
+      apiKey: string;
+      model: string;
+    }): Promise<{ status: "success" | "error"; message?: string }>;
   };
 }

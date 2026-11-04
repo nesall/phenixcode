@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext, onMount } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import * as icons from "@lucide/svelte";
   import { helper_importProject, standardizePath, toaster } from "../utils";
   import InstanceInfo from "./misc/InstanceInfo.svelte";
@@ -7,12 +7,14 @@
   import { slide } from "svelte/transition";
   import { instances, projectStore } from "../store.svelte";
 
-  const fetchInstances: () => void = getContext("FetchInstances");
+  const fetchInstances: () => Promise<void> = getContext("FetchInstances");
   const fetchProjects: () => void = getContext("FetchProjects");
 
   onMount(() => {
     fetchProjects();
   });
+
+  let refreshing = $state(false);
 
   function onInstClick(j: number) {
     instances[j]._hidden = !instances[j]._hidden;
@@ -39,7 +41,12 @@
   }
 
   function onRefresh() {
-    fetchInstances();
+    refreshing = true;
+    tick().then(() => {
+      fetchInstances().then(() => {
+        refreshing = false;
+      });
+    });
   }
 </script>
 
@@ -47,17 +54,19 @@
   <form class="w-full">
     <fieldset class="space-y-4">
       <div class="rounded-md shadow p-4 flex flex-col gap-4">
-        <div class="flex">
-          <button type="button" class="btn preset-tonal" onclick={onRefresh}>
-            <icons.RefreshCcw size={20} />
+        <button type="button" class="btn preset-tonal input max-w-36" onclick={onRefresh}>
+          <icons.RefreshCcw size={20} />
+          {#if refreshing}
+            Refreshing...
+          {:else}
             Refresh
-          </button>
-        </div>
+          {/if}
+        </button>
         <div class="text-left font-bold text-lg">List of currently running active instances ({instances.length})</div>
         <div class="flex flex-col space-y-2">
           {#each instances as inst, j}
             <div class="border rounded">
-              <button type="button" class="btn flex items-center p-2 flex items-center" onclick={() => onInstClick(j)}>
+              <button type="button" class="btn flex items-center p-2" onclick={() => onInstClick(j)}>
                 <span class="">
                   {#if inst._hidden}
                     <icons.ChevronDown />

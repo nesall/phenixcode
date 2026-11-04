@@ -10,6 +10,17 @@
 
 inline constexpr std::string_view kAutoApiId = "auto";
 
+struct ReasoningParam {
+  std::string name;        // wire key, e.g. "reasoning_effort" or "thinking"
+  std::string valueType;   // "scalar" | "object"; default "scalar"
+  std::string valueField;  // used when valueType == "object", e.g. "type"
+  std::vector<std::string> values;          // ordered, cheapest-first
+  std::map<std::string, std::string> constantFields; // merged into object payloads
+  std::string defaultValue; // must be one of `values`
+
+  bool isObject() const { return valueType == "object"; }
+};
+
 struct ApiConfig {
   std::string id;
   std::string name;
@@ -38,6 +49,7 @@ struct ApiConfig {
     std::string fileDivider; // Valid if using format. e.g. <|file_separator|> 
     std::vector<std::string> stopTokens;
   } fim;
+  std::vector<ReasoningParam> reasoning; // empty => provider has no reasoning controls
   enum class ApiStyle { OpenAI, Anthropic };
   ApiStyle apiStyle = ApiStyle::OpenAI;
 

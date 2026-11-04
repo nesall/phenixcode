@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <map>
 #include "json_shim.h"
 
 
@@ -49,7 +50,8 @@ public:
     const std::vector<SearchResult> &searchRes, 
     float temperature,
     size_t maxTokens,
-    std::function<void(const std::string &)> onStream) const;
+    std::function<void(const std::string &)> onStream,
+    const std::map<std::string, std::string> &reasoningSelection = {}) const;
 
   std::string generateFim(
     const std::string &prefix, 
@@ -57,7 +59,8 @@ public:
     const std::vector<std::string> &stops,
     float temperature, 
     size_t maxTokens,
-    const std::vector<SearchResult> &searchRes
+    const std::vector<SearchResult> &searchRes,
+    const std::map<std::string, std::string> &reasoningSelection = {}
   ) const;
 
   static std::string queryTemplate();

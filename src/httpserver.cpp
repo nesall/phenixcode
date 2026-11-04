@@ -318,7 +318,7 @@ bool HttpServer::startServer()
       res.status = 400;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
-      LOG_MSG_ERROR << "Error in /api/embed: " << e.what();
+      LOG_MSG_ERROR << "Error in /api/embed" << e.what();
     }
     Impl::requestCounter_++;
     Impl::embedCounter_++;
@@ -361,7 +361,7 @@ bool HttpServer::startServer()
       res.status = 400;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
-      LOG_MSG_ERROR << "Error in /api/documents: " << e.what();
+      LOG_MSG_ERROR << "Error in /api/documents" << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -383,7 +383,7 @@ bool HttpServer::startServer()
       json error = { {"error", e.what()} };
       res.status = 500;
       res.set_content(error.dump(), "application/json");
-      LOG_MSG_ERROR << "Error in /api/documents: " << e.what();
+      LOG_MSG_ERROR << "Error in /api/documents" << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -403,7 +403,7 @@ bool HttpServer::startServer()
       res.status = 500;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
-      LOG_MSG_ERROR << "Error in /api/stats: " << e.what();
+      LOG_MSG_ERROR << "Error in /api/stats" << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -419,7 +419,7 @@ bool HttpServer::startServer()
       res.status = 500;
       res.set_content(error.dump(), "application/json");
       Impl::errorCounter_++;
-      LOG_MSG_ERROR << "Error in /api/update: " << e.what();
+      LOG_MSG_ERROR << "Error in /api/update" << e.what();
     }
     Impl::requestCounter_++;
     });
@@ -431,28 +431,29 @@ bool HttpServer::startServer()
   server.Get("/api", [](const httplib::Request &, httplib::Response &res) {
     LOG_MSG << "GET /api";
     json info = {
-        {"name", "Embeddings RAG API"},
-        {"version", EMBEDDER_VERSION},
-        {"endpoints", {
-            {"GET /api/setup", "Fetch setup configuration"},
-            {"GET /api/health", "Health check"},
-            {"GET /api/documents", "Get documents"},
-            {"GET /api/stats", "Database statistics"},
-            {"GET /api/settings", "Available APIs"},
-            {"GET /api/instances", "List of running instances"},
-            {"GET /api/metrics", "Service and database metrics"},
-            {"GET /metrics", "Prometheus-compatible metrics"},
-            {"GET /api/monitor/snapshot", "Take a snapshot of the database"},
-            {"GET /api/logs/tail", "Tail log files with offset and maxBytes parameters"},
-            {"POST /api/setup", "Setup configuration"},
-            {"POST /api/search", "Semantic search"},
-            {"POST /api/chat", "Chat with context (streaming)"},
-            {"POST /api/fim", "Fill-In-Middle / Auto-complete"},
-            {"POST /api/embed", "Generate embeddings"},
-            {"POST /api/documents", "Add documents"},
-            {"POST /api/update", "Trigger manual update"},
-            {"POST /api/shutdown", "Initiate a shutdown"},
-        }}
+        { "name", "Embeddings RAG API" },
+        { "version", EMBEDDER_VERSION },
+        { "endpoints",{
+            { "GET /api/setup", "Fetch setup configuration" },
+            { "GET /api/health", "Health check" },
+            { "GET /api/documents", "Get documents" },
+            { "GET /api/stats", "Database statistics" },
+            { "GET /api/settings", "Available APIs" },
+            { "GET /api/instances", "List of running instances" },
+            { "GET /api/metrics", "Service and database metrics" },
+            { "GET /metrics", "Prometheus-compatible metrics" },
+            { "GET /api/monitor/snapshot", "Take a snapshot of the database" },
+            { "GET /api/logs/tail", "Tail log files with offset and maxBytes parameters" },
+            { "POST /api/setup", "Setup configuration" },
+            { "POST /api/search", "Semantic search" },
+            { "POST /api/chat", "Chat with context (streaming)" },
+            { "POST /api/fim", "Fill-In-Middle / Auto-complete" },
+            { "POST /api/embed", "Generate embeddings" },
+            { "POST /api/documents", "Add documents" },
+            { "POST /api/update", "Trigger manual update" },
+            { "POST /api/providers/test", "Test provider API connectivity" },
+            { "POST /api/shutdown", "Initiate a shutdown" },
+        } }
     };
     res.set_content(info.dump(2), "application/json");
     HttpServer::Impl::requestCounter_++;
@@ -478,6 +479,7 @@ bool HttpServer::startServer()
   LOG_MSG << "  POST /api/chat      - {\"messages\":[\"role\":\"...\", \"content\":\"...\"], \"temperature\": \"...\"}";
   LOG_MSG << "  POST /api/fim       - {\"prefix\": \"...\", \"suffix\":\"...\", \"temperature\": \"...\"}";
   LOG_MSG << "  POST /api/update    - Trigger manual update of sources";
+  LOG_MSG << "  POST /api/providers/test - {\"url\": \"...\", \"key\": \"...\", \"model\":\"...\"}";
   LOG_MSG << "  POST /api/shutdown  - Initiate server shutdown (expects X-App-Key header for the key)";
   LOG_MSG << "\nPress Ctrl+C to stop";
   return server.listen_after_bind();

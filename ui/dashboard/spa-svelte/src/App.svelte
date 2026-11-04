@@ -70,11 +70,11 @@
 
 <main
   class="mx-auto flex flex-col space-y-2 items-center justify-center
-    w-[100vw] h-[100vh] min-w-sx min-h-sx max-h-[100vh]"
+    w-screen h-screen min-w-sx min-h-sx max-h-screen"
 >
   <div class="p-4 m-0 flex flex-col w-full h-full gap-2">
     <!-- <Toolbar /> -->
-    <div class="flex-grow w-full h-0 mb-[-0.5rem]">
+    <div class="grow w-full h-0 -mb-2">
       <!-- Main content goes here -->
       <CentralWidget />
     </div>

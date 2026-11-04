@@ -5,20 +5,9 @@
 #include <stdexcept>
 #include <filesystem>
 #include <sstream>
-#include <cstdlib>
 #include <iomanip>
 
 namespace {
-  // Simple ${VAR} substitution
-  std::string expandEnvVar(const std::string var) {
-    if (var.starts_with("${") && var.ends_with("}")) {
-      std::string envVar = var.substr(2, var.length() - 3);
-      if (const char *envValue = getenv(envVar.c_str())) {
-        return std::string(envValue);
-      }
-    }
-    return var;
-  }
 
   ApiConfig::ApiStyle detectApiStyle(std::string_view url, const nlohmann::json &item) {
     if (item.contains("api_style")) {
@@ -39,7 +28,7 @@ namespace {
     cfg.id = item.value("id", "");
     cfg.name = item.value("name", "");
     cfg.apiUrl = item.value("api_url", item.value("apiUrl", ""));
-    cfg.apiKey = expandEnvVar(item.value("api_key", item.value("apiKey", "")));
+    cfg.apiKey = utils::expandEnvVar(item.value("api_key", item.value("apiKey", "")));
     cfg.model = item.value("model", "");
     cfg.maxTokensName = item.value("max_tokens_name", "");
     cfg.maxTokens = item.value("max_tokens", 0.f);
@@ -58,6 +47,31 @@ namespace {
         for (const auto &st : fim["stop_tokens"]) {
           if (st.is_string())
             cfg.fim.stopTokens.push_back(st.get<std::string>());
+        }
+      }
+    }
+
+    if (item.contains("reasoning") && item["reasoning"].is_object()) {
+      const auto &rj = item["reasoning"];
+      if (rj.contains("parameters") && rj["parameters"].is_array()) {
+        for (const auto &p : rj["parameters"]) {
+          if (!p.is_object()) continue;
+          ReasoningParam rp;
+          rp.name = p.value("name", "");
+          rp.valueType = p.value("value_type", "scalar");
+          rp.valueField = p.value("value_field", "");
+          rp.defaultValue = p.value("default", ""); // or size_t index variant
+          if (p.contains("values") && p["values"].is_array()) {
+            for (const auto &v : p["values"])
+              if (v.is_string()) rp.values.push_back(v.get<std::string>());
+          }
+          if (p.contains("constant_fields") && p["constant_fields"].is_object()) {
+            for (const auto &[k, v] : p["constant_fields"].items())
+              if (v.is_string()) rp.constantFields[k] = v.get<std::string>();
+          }
+          if (rp.defaultValue.empty() && !rp.values.empty())
+            rp.defaultValue = rp.values.front();
+          cfg.reasoning.push_back(std::move(rp));
         }
       }
     }
@@ -378,10 +392,21 @@ void Settings::validate()
   validateProviderSection("embedding", providers_.embeddingProviders(), false);
   validateProviderSection("generation", providers_.generationProviders());
 
+  for (const auto &cfg : providers_.generationProviders()) {
+    for (const auto &p : cfg.reasoning) {
+      if (p.name.empty()) throw std::runtime_error("reasoning parameter in provider '" + cfg.id + "' has empty 'name'");
+      if (p.values.empty()) throw std::runtime_error("reasoning parameter '" + p.name + "' in provider '" + cfg.id + "' has empty 'values'");
+      if (std::find(p.values.begin(), p.values.end(), p.defaultValue) == p.values.end())
+        throw std::runtime_error("reasoning parameter '" + p.name + "' default not in values for provider '" + cfg.id + "'");
+      if (p.isObject() && p.valueField.empty())
+        throw std::runtime_error("reasoning parameter '" + p.name + "' is object but 'value_field' is empty in provider '" + cfg.id + "'");
+    }
+  }
+
   if (generationIsAuto()) {
     const AutoRouterConfig router = autoRouterConfig();
     const auto enabled = enabledGenerationProviders();
-    const auto catalog = providers().generationProviders();
+    const auto &catalog = providers().generationProviders();
 
     auto requireRealGenId = [&](const std::string &id, const std::string &what) {
       if (id.empty())
@@ -390,7 +415,7 @@ void Settings::validate()
         throw std::runtime_error("auto_router: " + what + " cannot be 'auto'");
       if (std::find(enabled.begin(), enabled.end(), id) == enabled.end())
         throw std::runtime_error("auto_router: " + what + " '" + id + "' is not in generation.enabled_providers");
-      const bool inCatalog = std::any_of(catalog.begin(), catalog.end(), [&](const ApiConfig &a) { return a.id == id; });
+      const bool inCatalog = std::any_of(catalog.cbegin(), catalog.cend(), [&](const ApiConfig &a) { return a.id == id; });
       if (!inCatalog)
         throw std::runtime_error("auto_router: " + what + " '" + id + "' is not in generation_providers");
       };
@@ -495,17 +520,7 @@ std::vector<Settings::SourceItem> Settings::sources() const
       si.url = item["url"];
       if (item.contains("headers")) {
         for (const auto &[key, value] : item["headers"].items()) {
-          std::string headerValue = value;
-          // Simple ${VAR} substitution
-          if (headerValue.starts_with("${") && headerValue.ends_with("}")) {
-            std::string envVar = headerValue.substr(2, headerValue.length() - 3);
-            const char *envValue = nullptr;
-            envValue = getenv(envVar.c_str());
-            if (envValue) {
-              headerValue = std::string(envValue);
-            }
-          }
-          si.headers[key] = headerValue;
+          si.headers[key] = utils::expandEnvVar(value);
         }
       }
       si.urlTimeoutMs = item.value("timeout_ms", 10000);

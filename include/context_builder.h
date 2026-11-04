@@ -1,8 +1,10 @@
 #pragma once
 #include "json_shim.h"
 #include <functional>
+#include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 class App;
 struct ApiConfig;

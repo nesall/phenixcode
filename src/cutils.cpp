@@ -594,6 +594,18 @@ std::string utils::stemKey(const std::string &path)
   return (p.parent_path() / p.stem()).string();
 }
 
+[[nodiscard]] std::string utils::expandEnvVar(const std::string var)
+{
+  // Simple ${VAR} substitution
+  if (var.starts_with("${") && var.ends_with("}")) {
+    std::string envVar = var.substr(2, var.length() - 3);
+    if (const char *envValue = getenv(envVar.c_str())) {
+      return std::string(envValue);
+    }
+  }
+  return var;
+}
+
 utils::QueryIntent utils::queryIntent(const std::string &query)
 {
   std::string q = query;

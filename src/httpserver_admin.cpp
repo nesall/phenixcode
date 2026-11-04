@@ -1,12 +1,13 @@
 #include "httpserver.h"
 #include "httpserver_internal.h"
-#include "model_router.h"
 #include "app.h"
 #include "database.h"
 #include "settings.h"
 #include "instregistry.h"
 #include "auth.h"
+#include "cutils.h"
 #include "monitor.h"
+#include "inference.h"
 #include <3rdparty/fmt/format.h>
 #include <3rdparty/nlohmann/json.hpp>
 #include <httplib.h>
@@ -20,7 +21,6 @@
 using json = nlohmann::json;
 
 using namespace httpserver_detail;
-using model_router::getTargetApi;
 
 void HttpServer::registerSetupRoutes(AdminAuth &auth)
 {
@@ -235,6 +235,63 @@ void HttpServer::registerAdminRoutes(AdminAuth &auth)
       Impl::errorCounter_++;
       LOG_MSG_ERROR << "Failed to initiate shutdown: " << e.what();
     }
+    });
+
+
+  server.Post("/api/providers/test", [this](const httplib::Request &req, httplib::Response &res) {
+    try {
+      LOG_MSG << "POST /api/providers/test";
+      if (!httpserver_detail::requireAuth(imp->app_.auth(), req, res, nullptr)) return;
+      json body = req.body.empty() ? json::object() : json::parse(req.body);
+      std::string id = body.value("id", body.value("providerId", ""));
+      if (id.empty() && req.has_param("id")) id = req.get_param_value("id");
+      auto &settings = imp->app_.settings();
+      ApiConfig api{};
+      if (!id.empty()) {
+        if (id == kAutoApiId) throw std::invalid_argument("Auto-router cannot be tested directly");
+        const auto &catalog = settings.providers().generationProviders();
+        auto it = std::find_if(catalog.begin(), catalog.end(), [&](const ApiConfig &a) { return a.id == id; });
+        if (it == catalog.end()) throw std::invalid_argument("Provider not found: " + id);
+        api = *it;
+      } else {
+        api.id = "test";
+        api.apiUrl = body.value("url", body.value("apiUrl", ""));
+        api.apiKey = utils::expandEnvVar(body.value("apiKey", body.value("api_key", body.value("key", ""))));
+        api.model = body.value("model", "");
+        api.maxTokensName = body.value("maxTokensName", "max_tokens");
+        if (api.apiUrl.empty() || api.model.empty())
+          throw std::invalid_argument("Missing url/model for test");
+      }
+      try {
+        InferenceClient client(api, settings.generationTimeoutMs() ? settings.generationTimeoutMs() : 10000);
+        json messages = json::array({
+          { { "role", "system" },{ "content", "Keep it short." } },
+          { { "role", "user" },{ "content", "What is the capital of France?" } }
+          });
+        std::string response = client.generateChat(messages, 1, 10);
+        LOG_MSG_DEBUG << "Test successful, response: " << response;
+        json ok = { { "success",true },{ "status","Success" },{ "message","Success" },{ "id",api.id } };
+        res.set_content(ok.dump(), "application/json");
+      } catch (const std::exception &e) {
+        std::string m = e.what();
+        std::string d = m;
+        if (m.find("401") != std::string::npos || m.find("403") != std::string::npos) d = "Auth failed (bad api-key) - " + m;
+        else if (m.find("404") != std::string::npos) d = "Not found (bad url/model) - " + m;
+        else if (m.find("400") != std::string::npos) d = "Bad request (bad model/format) - " + m;
+        else if (m.find("timed out") != std::string::npos || m.find("timeout") != std::string::npos) d = "Timeout - " + m;
+        else if (!m.empty()) d = m;
+        json fail = { { "success",false },{ "status","Failure" },{ "error",d },{ "message","Failure - " + d } };
+        res.status = 200;
+        res.set_content(fail.dump(), "application/json");
+      }
+    } catch (const std::exception &e) {
+      json error = { { "error", e.what() } };
+      res.status = 500;
+      res.set_content(error.dump(), "application/json");
+      Impl::errorCounter_++;
+      LOG_MSG_ERROR << "Error in /api/providers/test" << e.what();
+    }
+    Impl::requestCounter_++;
     });
 
   server.Get("/api/metrics", [this](const httplib::Request &, httplib::Response &res) {

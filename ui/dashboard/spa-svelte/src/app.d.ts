@@ -22,7 +22,19 @@ export interface GenerationApi {
   temperature?: number; // The temperature setting for generation
   pricing_tpm: PricingTpm;
   context_length: number;
+  reasoning?: {
+    parameters: ReasoningParameter[];
+  };
   _hidden?: boolean;
+}
+
+export interface ReasoningParameter {
+  name: string;
+  value_type: "scalar" | "object";
+  value_field?: string;
+  values: string[];
+  default: string;
+  constant_fields?: Record<string, string | number | boolean | null>;
 }
 
 /**
