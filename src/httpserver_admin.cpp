@@ -175,6 +175,23 @@ void HttpServer::registerAdminRoutes(AdminAuth &auth)
         apiObj["model"] = api.model;
         apiObj["current"] = !isAuto && (api.id == cur);
         apiObj["combinedPrice"] = api.combinedPrice();
+        if (!api.reasoning.empty()) {
+          json parameters = json::array();
+          for (const auto &param : api.reasoning) {
+            json parameter = {
+              { "name", param.name },
+              { "value_type", param.valueType },
+              { "values", param.values },
+              { "default", param.defaultValue }
+            };
+            if (!param.valueField.empty())
+              parameter["value_field"] = param.valueField;
+            if (!param.constantFields.empty())
+              parameter["constant_fields"] = param.constantFields;
+            parameters.push_back(std::move(parameter));
+          }
+          apiObj["reasoning"] = { { "parameters", std::move(parameters) } };
+        }
         apisJson.push_back(apiObj);
       }
       nlohmann::json responseJson;
