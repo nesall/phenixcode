@@ -1,11 +1,13 @@
 <script lang="ts">
   import InputArea from "./InputArea.svelte";
+  import ReasoningPicker from "./ReasoningPicker.svelte";
   import * as icons from "@lucide/svelte";
   import { fade, slide } from "svelte/transition";
   import { onMount, tick } from "svelte";
   import DOMPurify from "dompurify";
   import { renderMarkdown } from "../markdown";
   import { apiUrl, clog, isGoodArray, newUUID, normalizeHeaders, saveChat, stripCommonPrefix, toaster } from "../utils";
+  import { reasoningParameters, reasoningReady, reasoningRequest } from "../reasoning";
   import {
     contextSizeRatio,
     messages,
@@ -18,6 +20,9 @@
     bLoading,
     sessionId,
   } from "../store";
+
+  const reasoningProvider = $derived($settings.completionApis.find(api => api.id === $settings.currentApi));
+  const hasReasoning = $derived(reasoningParameters(reasoningProvider).length > 0);
 
   export function resetUi() {
     $bLoading = false;
@@ -164,8 +169,9 @@
   function onSendMessage(message: string) {
     if (!message.trim() && attachments.length === 0) return;
     message = message.trim();
+    const request = reasoningRequest($settings.currentApi, $settings.completionApis);
     if (attachments.length === 0) {
-      sendMessage(message, [], sourceids, true);
+      sendMessage(message, [], sourceids, true, request);
     } else {
       let loaded = attachmentsLoaded.length === attachments.length;
       if (loaded) {
@@ -179,7 +185,7 @@
       }
       if (loaded) {
         clog("All attachments already loaded.");
-        sendMessage(message, attachmentsLoaded, sourceids, true);
+        sendMessage(message, attachmentsLoaded, sourceids, true, request);
         return;
       }
       const loadFile = (file: File) =>
@@ -193,7 +199,7 @@
       Promise.all(attachments.map(loadFile))
         .then((atts) => {
           attachmentsLoaded = atts;
-          sendMessage(message, atts, sourceids, true);
+          sendMessage(message, atts, sourceids, true, request);
         })
         .catch((err) => {
           toaster.error({
@@ -273,7 +279,13 @@
     return { parsed: fullResponse, remainder: buffer };
   }
 
-  async function sendMessage(input: string, attachments: Attachment[], sourceids: string[], appendQ = true) {
+  async function sendMessage(
+    input: string,
+    attachments: Attachment[],
+    sourceids: string[],
+    appendQ = true,
+    request = reasoningRequest($settings.currentApi, $settings.completionApis),
+  ) {
     if ($bLoading) return;
     let pendingRenderCounter = 0;
     $bLoading = true;
@@ -327,8 +339,9 @@
           messages: messagesToSend,
           attachments,
           sourceids,
-          targetapi: $settings.currentApi,
+          targetapi: request.targetapi,
           temperature: $temperature,
+          reasoning: request.reasoning,
           ctxratio: $contextSizeRatio,
           attachedonly: attachedFilesOnly,
         }),
@@ -483,7 +496,6 @@
       window.HLJS_CUSTOM.initHljs();
     }
   }
-
 </script>
 
 <div class="chat-panel p-3 w-full h-full flex flex-col space-y-8 overflow-y-auto">
@@ -585,7 +597,7 @@
             >
               <icons.ThumbsDown />
             </button> -->
-            <span class="vr mx-1 h-[1rem]"></span>
+            <span class="vr mx-1 h-4"></span>
             <button
               type="button"
               class="btn btn-sm px-1"
@@ -604,13 +616,13 @@
         {metaInfo || "Thinking..."}
       </div>
     {/if}
-    <div class="min-h-[4rem]"></div>
+    <div class="min-h-16"></div>
     <div bind:this={messagesEndDiv}></div>
   </div>
 
-  <div class="sticky bottom-0 flex items-end pb-0 pt-4 relative gradient-to-t from-surface-50-950">
+  <div class="sticky bottom-0 flex items-end pb-0 pt-4 gradient-to-t from-surface-50-950">
     {#if showScrollBtn}
-      <div class="absolute top-[-1.5rem] w-full flex" transition:fade>
+      <div class="absolute -top-6 w-full flex" transition:fade>
         <button
           type="button"
           class="btn preset-filled-surface-100-900 w-8 h-8 p-0 rounded-full mx-auto"
@@ -626,10 +638,12 @@
 
     <div
       class="flex items-center absolute left-4 bottom-0 z-50 bg-surface-50-950 px-2 rounded gap-1 translate-y-1/3"
+      style:max-width={hasReasoning ? "calc(100% - 7.5rem)" : undefined}
       title="If on, only files attached to the message will be used as context"
     >
       <input
         type="checkbox"
+        class="shrink-0"
         id="checkbox-attached-files-only"
         checked={attachedFilesOnly && hasAttachedFiles}
         disabled={!hasAttachedFiles}
@@ -637,9 +651,16 @@
           attachedFilesOnly = (ev.target as HTMLInputElement)?.checked;
         }}
       />
-      <label class="text-xs {hasAttachedFiles ? '' : 'text-surface-500'}" for="checkbox-attached-files-only">
+      <label class="min-w-0 text-xs {hasAttachedFiles ? '' : 'text-surface-500'}" for="checkbox-attached-files-only">
         Use attached files only
       </label>
     </div>
+    {#if hasReasoning}
+      <div class="absolute right-4 bottom-0 z-50 translate-y-1/3">
+        {#key JSON.stringify([reasoningProvider?.id, reasoningProvider?.reasoning])}
+          <ReasoningPicker provider={reasoningProvider} disabled={$bLoading || !$reasoningReady} />
+        {/key}
+      </div>
+    {/if}
   </div>
 </div>

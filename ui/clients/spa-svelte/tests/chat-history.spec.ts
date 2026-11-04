@@ -34,9 +34,9 @@ test("rows expand singly; Close leaves editor alone; Open loads the original cha
   await expect(row(page, "first").getByRole("button").first()).toHaveAttribute("aria-expanded", "true");
   await expect(row(page, "first")).toContainText("My project");
   await expect(row(page, "first")).toContainText("Original first question");
-  const preview = row(page, "first").getByText("Original first question Original answer", { exact: true });
+  const preview = row(page, "first").locator("p").filter({ hasText: "Original first question" });
   await expect(preview).toBeVisible();
-  expect((await preview.textContent())?.trim()).toBe("Original first question\nOriginal answer");
+  await expect(preview.locator(":scope > span")).toHaveText(["You:Original first question", "Assistant:Original answer"]);
   await page.screenshot({ path: testInfo.outputPath("expanded-history.png") });
   await row(page, "second").getByRole("button").click();
   await expect(row(page, "first").getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);

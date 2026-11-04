@@ -109,34 +109,6 @@
     >
       <icons.Plus />Add context
     </button>
-    <!-- <div
-      class="text-sm relative"
-      title={useUserFilesOnly
-        ? "Using attached files only"
-        : "Toggle on to use attached files only, otherwise all relevant context files may be used"}
-    >
-      {#if useUserFilesOnly}
-        <span class="absolute top-2 right-0 z-50"> ✓ </span>
-      {/if}
-      <Dropdown
-        classNames="btn btn-sm h-5 preset-filled-secondary-500 pl-1 pr-1 rounded-l-none border-l-1 border-secondary-300-700"
-        noButtonText={true}
-        disabled={loading}
-        values={[
-          {
-            value: useUserFilesOnly,
-            label: "Use attached files only",
-            hint: "If selected, only files attached to the message will be used as context",
-          },
-        ]}
-        value=""
-        onAboutToShow={async () => {}}
-        onChange={(i, v) => {
-          console.log(v);
-          useUserFilesOnly = v === "true";
-        }}
-      />
-    </div> -->
   </div>
   {#each documents.filter((d) => d._visible) as doc, i (doc.path)}
     <div transition:fly={{ y: 10, duration: 150 }} class="relative2">

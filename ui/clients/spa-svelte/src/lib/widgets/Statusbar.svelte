@@ -168,7 +168,7 @@
       {/if}
       <button
         type="button"
-        class="btn btn-sm btn-icon py-[1px] px-1 preset-tonal hover:preset-tonal-surface"
+        class="btn btn-sm btn-icon py-px px-1 preset-tonal hover:preset-tonal-surface"
         title="Retry connecting to API server"
         onclick={() => tryConnecting()}
       >

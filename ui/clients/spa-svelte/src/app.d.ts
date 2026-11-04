@@ -15,6 +15,18 @@ interface ModelItem {
   model: string;
   current: boolean;
   combinedPrice: number;
+  reasoning?: {
+    parameters: ReasoningParameter[];
+  };
+}
+
+interface ReasoningParameter {
+  name: string;
+  value_type: "scalar" | "object";
+  value_field?: string;
+  values: string[];
+  default: string;
+  constant_fields?: Record<string, string>;
 }
 
 interface ChatMessage {

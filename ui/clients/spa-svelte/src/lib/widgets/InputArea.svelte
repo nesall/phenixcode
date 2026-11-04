@@ -3,6 +3,7 @@
   import FileAttachments from "./FileAttachments.svelte";
   import ContextFiles from "./ContextFiles.svelte";
   import { bIncognito } from "../store";
+  import { reasoningReady } from "../reasoning";
 
   interface Props {
     onSendMessage: (message: string) => void;
@@ -21,6 +22,7 @@
 
   function onSubmit(e: Event) {
     e.preventDefault();
+    if (loading || !$reasoningReady) return;
     if (onSendMessage && (input.trim() || 0 < attachments.length || 0 < sourceids.length)) {
       onSendMessage(input.trim());
       input = "";
@@ -76,7 +78,8 @@
 
 <form class="flex flex-col space-y-2 w-full" onsubmit={onSubmit}>
   <div
-    class="flex flex-col rounded-xl p-3 w-full bg-surface-50-950 relative border-1
+    data-testid="message-input-frame"
+    class="flex flex-col rounded-xl p-3 pb-4 w-full bg-surface-50-950 relative border-1
     {$bIncognito ? 'border-tertiary-200-800' : 'border-surface-200-800'}"
     role="presentation"
     tabindex="-1"
@@ -98,14 +101,16 @@
     <div class="absolute2 left2-1 bottom2-1 flex flex-col space-y-2">
       <FileAttachments {loading} bind:attachments />
 
-      <div class="flex space-x-1 w-full">
-        <ContextFiles {loading} onChange={onContextFiles} />
-        <div class="relative">
+      <div class="flex flex-wrap items-end gap-2 w-full">
+        <div class="flex-1 min-w-32">
+          <ContextFiles {loading} onChange={onContextFiles} />
+        </div>
+        <div class="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
           <button
             type="submit"
-            class="btn btn-sm preset-filled w-7 h-7 px-0 m-0 rounded-lg absolute right-0 bottom-0"
+            class="btn btn-sm preset-filled w-7 h-7 px-0 m-0 rounded-lg shrink-0"
             aria-label="Send message"
-            disabled={loading || !input.trim()}
+            disabled={loading || !$reasoningReady || !input.trim()}
             title="Send message (Enter)"
           >
             <icons.ArrowUp />

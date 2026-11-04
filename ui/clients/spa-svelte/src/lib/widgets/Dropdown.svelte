@@ -21,6 +21,7 @@
     dropdownClassNames?: string;
     noButtonText?: boolean;
     disabled?: boolean;
+    ariaLabel?: string;
     showGroups?: boolean;
     dropdownWidth?: "auto" | "max-content" | "min-content" | string;
     onChange?: (i: number, value: string) => void;
@@ -35,6 +36,7 @@
     dropdownClassNames = "",
     noButtonText = false,
     disabled = false,
+    ariaLabel = "Select an option",
     showGroups = false,
     dropdownWidth = "",
     onChange = (i: number, value: string) => {},
@@ -145,6 +147,10 @@
 
   let show = $state(false);
 
+  $effect(() => {
+    if (disabled) show = false;
+  });
+
   let currentHint: string | undefined = $state();
 
   let elemFloat: HTMLElement | undefined = $state();
@@ -202,15 +208,16 @@
   class="combobox relative inline"
   role="combobox"
   aria-expanded={show}
-  aria-controls="{id}-combobox"
+  aria-controls="{id}-dropdown-list"
   aria-haspopup="listbox"
-  aria-label="Select an option"
+  aria-label={ariaLabel}
   bind:this={elemAnchor}
 >
   <button
     type="button"
     class="combobox-btn w-full flex items-center rounded px-2 py-1 {classNames}"
     {disabled}
+    aria-label={ariaLabel === "Select an option" ? undefined : ariaLabel}
     onclick={onClick}
     title={currentHint}
   >
@@ -268,6 +275,8 @@
           </div>
         {:else}
           <button
+            type="button"
+            {disabled}
             data-value={valueStr(item)}
             class="bg-surface-50-950 hover:bg-primary-50-950 text-left px-3 py-1 w-full
                 flex items-center gap-2 justify-between

@@ -211,65 +211,69 @@
                     }}
                   >
                     <span class="flex flex-col min-w-0 w-full gap-1">
-                      <span class="truncate">{chat.title || "Untitled chat"}</span>
+                      <span class="truncate text-sm">{chat.title || "Untitled chat"}</span>
                       <span class="text-surface-500 text-xs truncate">
                         {projectName(chat.project_id)} · {new Date(chat.updated_at * 1000).toLocaleString()}
                       </span>
                     </span>
                   </button>
                   {#if expanded === chat.id}
+                    {@const [first, ...rest] = (chat.preview || "No user message to preview.").split("\n")}
                     <div id={`chat-details-${chat.id}`} class="px-3 pb-3 space-y-3">
-                      <!-- <h3 class="font-bold whitespace-pre-wrap wrap-break-word">{chat.title || "Untitled chat"}</h3>
-                      <p class="text-surface-500 wrap-break-word">
-                        {projectName(chat.project_id)} · Modified {new Date(chat.updated_at * 1000).toLocaleString()}
-                      </p> -->
                       {#if chat.deleted_at != null}
                         <p class="text-surface-500">
                           Deleted {new Date(chat.deleted_at * 1000).toLocaleString()}
                         </p>
                       {/if}
-                      <p class="whitespace-pre-wrap wrap-break-word">
-                        {chat.preview || "No user message to preview."}
+                      <p class="text-xs">
+                        <span class="block">
+                          <span class="text-gray-500 pr-1">You:</span>{first}
+                        </span>
+                        {#if rest.length}
+                          <span class="block">
+                            <span class="text-gray-500 pr-1">Assistant:</span>{rest.join("\n").trim()}
+                          </span>
+                        {/if}
                       </p>
                       <div class="flex gap-2">
                         {#if view === "active"}
                           <button
                             type="button"
-                            class="btn preset-filled"
+                            class="btn preset-filled text-xs h-7"
                             disabled={!!busy || $bLoading}
                             onclick={(e) => select(chat.id, e)}
                           >
-                            <icons.Notebook /> Open
+                            <icons.MessageSquareText class="size-4" /> Open
                           </button>
                         {:else}
                           <button
                             type="button"
-                            class="btn preset-filled"
+                            class="btn preset-filled text-xs h-7"
                             disabled={!!busy}
                             onclick={(e) => restore(chat.id, e)}
                           >
-                            <icons.Undo2 /> Restore
+                            <icons.Undo2 class="size-4" /> Restore
                           </button>
                         {/if}
                         <button
                           type="button"
-                          class="btn preset-tonal"
+                          class="btn preset-tonal text-xs h-7"
                           disabled={!!busy}
                           onclick={(e) => {
                             e.stopPropagation();
                             if (e.detail <= 1) expanded = "";
                           }}
                         >
-                          <icons.X /> Close
+                          <icons.X class="size-4" /> Close
                         </button>
                         {#if view === "active"}
                           <button
                             type="button"
-                            class="btn preset-tonal-error ml-auto"
+                            class="btn preset-tonal-error ml-auto text-xs h-7"
                             disabled={!!busy || $bLoading}
                             onclick={(e) => remove(chat, e)}
                           >
-                            <icons.Trash /> Delete
+                            <icons.Trash class="size-4" /> Delete
                           </button>
                         {/if}
                       </div>
