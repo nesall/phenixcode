@@ -218,6 +218,8 @@ export function normalizeHeaders(s: string) {
 }
 
 const ChatsKey = "PhenixCode.chats";
+const PreviewSnippetLimit = 100;
+const PreviewEllipsis = "...";
 
 function loadLocalChats(): PersistedChat[] {
   try { return JSON.parse(localStorage.getItem(ChatsKey) || "[]"); }
@@ -228,12 +230,31 @@ function storeLocalChats(chats: PersistedChat[]) {
   localStorage.setItem(ChatsKey, JSON.stringify(chats));
 }
 
-export function listChats(projectId = ""): Promise<ChatResult> {
-  if (window.cppApi) return window.cppApi.listChats(projectId);
+function chatPreview(messages: SavedChatMessage[]): string {
+  const snippet = (content: string) => {
+    const characters = Array.from(content.replace(/\r\n|\r|\n/g, " "));
+    return characters.length > PreviewSnippetLimit + PreviewEllipsis.length
+      ? characters.slice(0, PreviewSnippetLimit).join("") + PreviewEllipsis
+      : characters.join("");
+  };
+  const firstUser = messages.findIndex(m => m.role === "user");
+  if (firstUser < 0) return "";
+  const preview = snippet(messages[firstUser].content);
+  for (let i = firstUser + 1; i < messages.length; ++i) {
+    if (messages[i].role === "assistant") return preview + "\n" + snippet(messages[i].content);
+    if (messages[i].role === "user") break;
+  }
+  return preview;
+}
+
+export function listChats(projectId = "", deleted = false): Promise<ChatResult> {
+  if (window.cppApi) return window.cppApi.listChats(projectId, deleted);
   const chats = loadLocalChats()
-    .filter(c => !projectId || c.project_id === projectId)
-    .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0))
-    .map(c => ({ id: c.id!, title: c.title, project_id: c.project_id, updated_at: c.updated_at ?? 0 }));
+    .filter(c => (c.deleted_at != null) === deleted && (!projectId || c.project_id === projectId))
+    .sort((a, b) => (deleted ? (b.deleted_at ?? 0) - (a.deleted_at ?? 0) : (b.updated_at ?? 0) - (a.updated_at ?? 0)) || a.id!.localeCompare(b.id!))
+    .slice(0, 500)
+    .map(c => ({ id: c.id!, title: c.title, project_id: c.project_id, updated_at: c.updated_at ?? 0,
+      deleted_at: c.deleted_at, preview: chatPreview(c.messages) }));
   return Promise.resolve({ status: "success", chats });
 }
 
@@ -243,10 +264,13 @@ export function saveChat(pc: PersistedChat): Promise<ChatResult> {
   const chats = loadLocalChats();
   const id = pc.id || newUUID();
   const idx = chats.findIndex(c => c.id === id);
+  if (idx >= 0 && chats[idx].deleted_at != null)
+    return Promise.resolve({ status: "error", message: "Cannot update a deleted chat: " + id });
   const row: PersistedChat = {
     ...pc, id,
     created_at: idx >= 0 ? chats[idx].created_at : now,
     updated_at: now,
+    deleted_at: null,
   };
   if (idx >= 0) chats[idx] = row; else chats.unshift(row);
   try { storeLocalChats(chats); }
@@ -256,7 +280,7 @@ export function saveChat(pc: PersistedChat): Promise<ChatResult> {
 
 export function getChat(id: string): Promise<ChatResult> {
   if (window.cppApi) return window.cppApi.getChat(id);
-  const chat = loadLocalChats().find(c => c.id === id);
+  const chat = loadLocalChats().find(c => c.id === id && c.deleted_at == null);
   return Promise.resolve(chat
     ? { status: "success", chat }
     : { status: "error", message: "Chat not found: " + id });
@@ -264,10 +288,20 @@ export function getChat(id: string): Promise<ChatResult> {
 
 export function deleteChat(id: string): Promise<ChatResult> {
   if (window.cppApi) return window.cppApi.deleteChat(id);
+  return setLocalChatDeleted(id, true);
+}
+
+export function restoreChat(id: string): Promise<ChatResult> {
+  if (window.cppApi) return window.cppApi.restoreChat(id);
+  return setLocalChatDeleted(id, false);
+}
+
+function setLocalChatDeleted(id: string, deleted: boolean): Promise<ChatResult> {
   const chats = loadLocalChats();
-  const next = chats.filter(c => c.id !== id);
-  if (next.length === chats.length)
-    return Promise.resolve({ status: "error", message: "Chat not found: " + id });
-  storeLocalChats(next);
-  return Promise.resolve({ status: "success", deleted: 1 });
+  const chat = chats.find(c => c.id === id && (c.deleted_at == null) === deleted);
+  if (!chat) return Promise.resolve({ status: "error", message: "Chat not found in requested state: " + id });
+  chat.deleted_at = deleted ? Math.floor(Date.now() / 1000) : null;
+  try { storeLocalChats(chats); }
+  catch (e) { return Promise.resolve({ status: "error", message: String(e) }); }
+  return Promise.resolve({ status: "success", ...(deleted ? { deleted: 1 } : { restored: 1 }) });
 }

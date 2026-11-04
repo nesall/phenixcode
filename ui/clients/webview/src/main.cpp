@@ -446,7 +446,7 @@ int main() {
         try {
           auto j = nlohmann::json::parse(data);
           if (j.is_array() && 0 < j.size()) {
-            return ChatDb::instance().listChats(j[0].get<std::string>()).dump();
+            return ChatDb::instance().listChats(j[0].get<std::string>(), j.size() > 1 && j[1].get<bool>()).dump();
           }
         } catch (const std::exception &ex) {
           LOG_MSG << ex.what();
@@ -505,6 +505,20 @@ int main() {
       }
     );
     
+    w.bind("restoreChat", [](const std::string &data) -> std::string
+      {
+        try {
+          auto j = nlohmann::json::parse(data);
+          if (j.is_array() && !j.empty())
+            return ChatDb::instance().restoreChat(j[0].get<std::string>()).dump();
+        } catch (const std::exception &ex) {
+          LOG_MSG << ex.what();
+          return nlohmann::json({ {"status", "error"}, {"message", ex.what()} }).dump();
+        }
+        return "null";
+      }
+    );
+
     w.init(R"(
       window.cppApi = {
         setServerUrl,
@@ -517,6 +531,7 @@ int main() {
         listChats,
         saveChat,
         deleteChat,
+        restoreChat,
         getChat
       };
       window.addEventListener('error', function(e) {

@@ -7,12 +7,10 @@
     apiUrl,
     clog,
     Consts,
-    deleteChat,
     getChat,
     getLastLogs,
     getPersistentKey,
     isGoodArray,
-    listChats,
     newUUID,
     normalizeHeaders,
     setPersistentKey,
@@ -20,6 +18,7 @@
     toaster,
   } from "../utils";
   import Dropdown from "./Dropdown.svelte";
+  import ChatHistory from "./ChatHistory.svelte";
   import {
     messages,
     settings,
@@ -82,7 +81,6 @@
 
   let statsData: StatsType | undefined = $state();
 
-  let chatList: ChatSummary[] = $state([]);
 
   const themeOptions = [
     { label: "Cerberus", value: "cerberus" },
@@ -322,36 +320,7 @@
     }
   }
 
-  function onDeleteChat(chatId: string) {
-    console.log("onDeleteChat", chatId);
-    if ($bLoading) {
-      toaster.error({ title: "Wait for the current response to finish." });
-      return;
-    }
-    deleteChat(chatId).then((res) => {
-      console.log("onDeleteChat", res);
-      if (res.status === "success") {
-        chatList = chatList.filter((c) => c.id !== chatId);
-        if ($currentChatId === chatId) {
-          onClearInternal();
-        }
-      } else {
-        toaster.error({ title: "Failed to delete chat.", description: res.message });
-      }
-    });
-  }
-
-  async function onViewHistory() {
-    listChats().then((res) => {
-      console.log("onViewHistory", res);
-      if (res.status === "success") {
-        if (res.chats) {
-          chatList = res.chats;
-        }
-      } else {
-        toaster.error({ title: "Failed to load chat history.", description: res.message });
-      }
-    });
+  function onViewHistory() {
     openChatsState = true;
   }
 
@@ -662,7 +631,7 @@
               <span class="whitespace-nowrap">Theme:</span>
               <Dropdown values={themeOptions} value={curTheme} onChange={onThemeChange} />
             </div>
-            <div class="flex flex-col space-x-2 items-left w-full max-h-[10rem]">
+            <div class="flex flex-col space-x-2 items-left w-full max-h-40">
               {#if $settings.completionApis.length === 0}
                 <span class="italic text-surface-500">No models available</span>
               {:else}
@@ -720,7 +689,7 @@
             <div class="flex space-x-2 items-center">
               <button
                 type="button"
-                class="btn hover:preset-tonal pl-0 mb-[-10px]"
+                class="btn hover:preset-tonal pl-0 -mb-2.5"
                 aria-label="Manage"
                 title="Manage Projects and Sources"
                 onclick={() => {
@@ -954,61 +923,9 @@
   </Portal>
 </Dialog>
 
-<Dialog open={openChatsState} onOpenChange={(e) => (openChatsState = e.open)}>
-  <Portal>
-    <Dialog.Backdrop class="" />
-    <Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
-      <Dialog.Content class="card bg-surface-100-900 w-xl p-4 space-y-2 shadow-xl">
-        <Dialog.Title class="text-lg font-bold">Chat History</Dialog.Title>
-        <hr class="hr" />
-        <Dialog.Description>
-          <div class="whitespace-pre-wrap text-xs max-h-[60vh] overflow-x-hidden overflow-y-auto">
-            <div class="flex flex-col">
-              {#if chatList.length === 0}
-                <p class="text-surface-500 text-center py-4">No chats yet</p>
-              {:else}
-                {#each [...chatList].sort((a: ChatSummary, b: ChatSummary) => b.updated_at - a.updated_at) as chat (chat.id)}
-                  <div class="flex items-center gap-1 min-w-0 even:bg-surface-200-800/25 hover:bg-surface-200-800/80">
-                    <button
-                      type="button"
-                      class="btn justify-between flex-1 min-w-0 text-left
-                      cursor-pointer text-xs
-                      w-full
-                      "
-                      onclick={() => onSelectChat(chat.id)}
-                    >
-                      <div class="flex flex-col w-full">
-                        <div class="flex items-center justify-between">
-                          <span class="text-surface-500 shrink-0 text-xxs" title="Last updated">
-                            {chat.project_id}
-                          </span>
-                          <span class="text-surface-500 shrink-0 text-xxs" title="Last updated">
-                            {new Date(chat.updated_at * 1000).toLocaleString()}
-                          </span>
-                        </div>
-                        <span class="min-w-0 flex-1 truncate">{chat.title}</span>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-icon preset-tonal-error shrink-0"
-                      aria-label="Delete chat"
-                      title="Delete chat"
-                      onclick={() => onDeleteChat(chat.id)}
-                    >
-                      <icons.Trash />
-                    </button>
-                  </div>
-                {/each}
-              {/if}
-            </div>
-          </div>
-        </Dialog.Description>
-        <Dialog.CloseTrigger class="btn preset-filled w-full">Close</Dialog.CloseTrigger>
-      </Dialog.Content>
-    </Dialog.Positioner>
-  </Portal>
-</Dialog>
+<ChatHistory bind:open={openChatsState} onOpen={onSelectChat} onDeleted={(id) => {
+  if ($currentChatId === id) onClearInternal();
+}} />
 
 <style>
   .text-right {

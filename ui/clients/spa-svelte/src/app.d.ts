@@ -44,6 +44,8 @@ interface ChatSummary {
   title: string;
   project_id: string;
   updated_at: number;
+  deleted_at?: number | null;
+  preview?: string;
 }
 
 interface SavedChatMessage {
@@ -59,4 +61,5 @@ interface PersistedChat {
   messages: SavedChatMessage[];
   created_at?: number;
   updated_at?: number;
+  deleted_at?: number | null;
 }
