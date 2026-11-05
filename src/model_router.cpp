@@ -110,8 +110,17 @@ namespace model_router {
   ApiConfig getTargetApi(const json &request, const App &app)
   {
     ApiConfig apiConfig = app.settings().generationCurrentApi();
+    std::string targetApi;
     if (request.contains("targetapi") && request["targetapi"].is_string()) {
-      std::string targetApi = request["targetapi"].get<std::string>();
+      targetApi = request["targetapi"].get<std::string>();
+    }
+    return getTargetApi(targetApi, app);
+  }
+
+  ApiConfig getTargetApi(const std::string &targetApi, const App &app)
+  {
+    ApiConfig apiConfig = app.settings().generationCurrentApi();
+    if (!targetApi.empty()) {
       if (targetApi == kAutoApiId) {
         LOG_MSG_WARN << "Auto should not be used in getTargetApi, using current API instead.";
         apiConfig = app.settings().generationCurrentApi();
@@ -131,6 +140,11 @@ namespace model_router {
     if (request.contains("targetapi") && request["targetapi"].is_string()) {
       targetApi = request["targetapi"].get<std::string>();
     }
+    return selectApi(targetApi, request.value("session_id", std::string{}), messagesJson, question, app, pendingInfoVec);
+  }
+
+  ApiConfig selectApi(const std::string &targetApi, const std::string &sessionId, const json &messagesJson, const std::string &question, const App &app, std::vector<std::string> &pendingInfoVec)
+  {
     bool runAutoRouter = false;
     if (targetApi == kAutoApiId) {
       // Explicit request-level override to use auto-routing
@@ -149,7 +163,6 @@ namespace model_router {
       std::string modelId = router.fallbackModelId;
       if (router.classifier.isInternal()) {
         if (auto *clf = getInternalClassifier()) {
-          const std::string sessionId = request.value("session_id", std::string{});
           const size_t userTurns = countUserTurns(messagesJson);
           classifier::Tier sessionCtx = g_sessionTiers.lookupPrefix(sessionId, userTurns > 0 ? userTurns - 1 : 0);
           classifier::ClassificationResult res = clf->classify(question, sessionCtx);
@@ -200,7 +213,7 @@ namespace model_router {
       pendingInfoVec.push_back("Auto routed to model " + modelId);
       apiConfig = *routed;
     } else {
-      apiConfig = getTargetApi(request, app);
+      apiConfig = getTargetApi(targetApi, app);
     }
     return apiConfig;
   }

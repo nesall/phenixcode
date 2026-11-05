@@ -2,6 +2,7 @@
 #include "settings.h"
 #include "database.h"
 #include "inference.h"
+#include "model_router.h"
 #include "chunker.h"
 #include "tokenizer.h"
 #include "sourceproc.h"
@@ -28,6 +29,7 @@
 #include <memory>
 #include <cassert>
 #include <map>
+#include <atomic>
 #include <json_shim.h>
 #include <utils_log/logger.hpp>
 #include "3rdparty/fmt/format.h"
@@ -663,6 +665,11 @@ void App::chat() const
   if (!isAuto)
     staticCfg = settings().generationCurrentApi();
 
+  const std::string targetApi = isAuto ? std::string(kAutoApiId) : staticCfg.id;
+  // The router's tier cache is process-local; distinguish each CLI conversation.
+  static std::atomic<uint64_t> nextSessionId{0};
+  const std::string sessionId = "cli-" + std::to_string(nextSessionId.fetch_add(1, std::memory_order_relaxed));
+
   if (isAuto)
     std::cout << "Using auto-router.\n";
   else
@@ -683,31 +690,10 @@ void App::chat() const
 
       messages.push_back({ {"role", "user"}, {"content", userInput} });
 
-      ApiConfig apiCfg = staticCfg;
-      if (isAuto) {
-        const AutoRouterConfig router = settings().autoRouterConfig();
-        std::string modelId = router.fallbackModelId;
-        try {
-          const ApiConfig *clfCfg = settings().providers().findGeneration(router.classifier.apiId);
-          if (!clfCfg)
-            throw std::runtime_error("classifier api_id not in generation_providers");
-
-          InferenceClient clf(*clfCfg, router.classifier.timeoutMs);
-          const nlohmann::json clfMsgs = nlohmann::json::array({
-            {{"role", "system"}, {"content", router.classifier.prompt}},
-            {{"role", "user"}, {"content", userInput}}
-            });
-          const std::string raw = clf.generateChat(clfMsgs, router.classifier.temperature, router.classifier.maxTokens);
-          modelId = router.resolveRoutedModelId(raw);
-          std::cout << "[router] tag=" << AutoRouterConfig::normalizeTierTag(raw) << " -> " << modelId << "\n";
-        } catch (const std::exception &e) {
-          std::cout << "[router] classifier failed (" << e.what() << "), fallback=" << modelId << "\n";
-        }
-        const ApiConfig *routed = settings().providers().findGeneration(modelId);
-        if (!routed)
-          throw std::runtime_error("auto-router resolved unknown id '" + modelId + "'");
-        apiCfg = *routed;
-      }
+      std::vector<std::string> routingInfo;
+      const ApiConfig apiCfg = model_router::selectApi(targetApi, sessionId, json(messages), userInput, *this, routingInfo);
+      for (const auto &info : routingInfo)
+        std::cout << "[router] " << info << '\n';
 
       std::vector<float> queryEmbedding;
       if (0 < db().chunkCount()) {
