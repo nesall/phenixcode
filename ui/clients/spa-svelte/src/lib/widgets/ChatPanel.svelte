@@ -221,6 +221,7 @@
   function stripModelEchoedSources(content: string): string {
     const blocks = [...content.matchAll(/\n*Sources:\s*(?:\n\s*[*_]?[\w./-]+[*_]?\s*)+/gi)];
     if (blocks.length < 2) return content;
+    console.log("stripModelEchoedSources: found", blocks.length, "matches");
     // remove every match except the last (the officially-appended one)
     for (let i = blocks.length - 2; i >= 0; i--) {
       const m = blocks[i];
@@ -256,12 +257,14 @@
             sources.push(a);
           }
           sources = stripCommonPrefix(sources);
+          console.log("parseFromSSE. sources: ", sources);
           fullResponse += `\n\nSources:  \n`;
           console.log("Sources: ", sources);
           for (const a of sources as string[]) {
             fullResponse += `*${a}*  \n`;
           }
           if (chunkJson.model) {
+            console.log("parseFromSSE. model: ", chunkJson.model);
             fullResponse += `\n\n<span class="text-surface-500 text-xs">Model: ${chunkJson.model}</span>  \n`;
           }
         } else if (chunkJson.error) {
