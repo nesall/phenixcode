@@ -11,7 +11,7 @@
     helper_testProvider,
     type Renames,
   } from "../utils";
-  import type { GenerationApi, ProjectItem, ProvidersSettings } from "../../app";
+  import type { GenerationApi, ProjectItem, ProvidersSettings, ReasoningParameter } from "../../app";
 
   let currentTab = $state(0); // 0=>embedding, 1=>generation
 
@@ -94,18 +94,31 @@
     onChange();
   }
 
-  function toggleReasoning(api: GenerationApi, enabled: boolean) {
+  function toggleReasoningParameters(api: GenerationApi, enabled: boolean) {
     if (enabled) {
-      api.reasoning = { parameters: [] };
+      api.reasoning = { ...api.reasoning, parameters: [] };
       addReasoningParameter(api);
-    } else {
+      return;
+    }
+    if (api.reasoning) {
+      delete api.reasoning.parameters;
+      if ((api.reasoning.history_replay ?? 0) === 0) delete api.reasoning;
+    }
+    onChange();
+  }
+
+  function changeHistoryReplay(api: GenerationApi, value: number) {
+    if (value === 0 && !Array.isArray(api.reasoning?.parameters)) {
       delete api.reasoning;
+    } else {
+      api.reasoning ??= {};
+      api.reasoning.history_replay = value;
     }
     onChange();
   }
 
   function addReasoningParameter(api: GenerationApi) {
-    api.reasoning?.parameters.push({
+    api.reasoning?.parameters?.push({
       name: "",
       value_type: "scalar",
       values: [],
@@ -115,11 +128,9 @@
   }
 
   function removeReasoningParameter(api: GenerationApi, index: number) {
-    api.reasoning?.parameters.splice(index, 1);
+    api.reasoning?.parameters?.splice(index, 1);
     onChange();
   }
-
-  type ReasoningParameter = NonNullable<GenerationApi["reasoning"]>["parameters"][number];
 
   function addConstantField(parameter: ReasoningParameter) {
     const fields = (parameter.constant_fields ??= {});
@@ -178,10 +189,7 @@
     onChange();
   }
 
-  function removeReasoningValue(
-    parameter: NonNullable<GenerationApi["reasoning"]>["parameters"][number],
-    index: number,
-  ) {
+  function removeReasoningValue(parameter: ReasoningParameter, index: number) {
     const dels = parameter.values.splice(index, 1);
     if (parameter.default === dels[0]) {
       parameter.default = parameter.values[0] ?? "";
@@ -271,6 +279,38 @@
       alert(`API test successful:\n${JSON.stringify(result, null, 2)}`);
     } catch (err) {
       alert(`API test failed:\n${err}`);
+    }
+  }
+
+  let curlCopied = $state(false);
+
+  async function onCopyCurl(api: GenerationApi) {
+    const reasoningFields = Object.fromEntries(
+      (api.reasoning?.parameters ?? [])
+        .filter((parameter) => parameter.name)
+        .map((parameter) => [
+          parameter.name,
+          parameter.value_type === "object"
+            ? {
+                ...parameter.constant_fields,
+                ...(parameter.value_field ? { [parameter.value_field]: parameter.default } : {}),
+              }
+            : parameter.default,
+        ]),
+    );
+    const requestBody = JSON.stringify({
+      model: api.model,
+      messages: [{ role: "user", content: "Say hello!" }],
+      ...reasoningFields,
+    });
+    const escapedBody = requestBody.replace(/'/g, "'\\''");
+    const curlCommand = `curl -X POST ${api.api_url} -H "Authorization: Bearer ${api.api_key}" -H "Content-Type: application/json" -d '${escapedBody}'`;
+    try {
+      await navigator.clipboard.writeText(curlCommand);
+      curlCopied = true;
+      setTimeout(() => (curlCopied = false), 1200);
+    } catch (err) {
+      alert(`Failed to copy cURL command:\n${err}`);
     }
   }
 </script>
@@ -448,18 +488,32 @@
               </div>
 
               <div class="border border-surface-500 p-3 rounded-md">
+                <span class="label-text font-semibold mb-2 block">Reasoning</span>
                 <div class="flex items-center gap-2 mb-4">
-                  <span class="label-text font-semibold">Reasoning Parameters</span>
                   <label class="flex items-center gap-2">
+                    <span class="label-text">Parameters</span>
                     <input
                       type="checkbox"
                       class="checkbox"
-                      checked={api.reasoning !== undefined}
-                      onchange={(event) => toggleReasoning(api, event.currentTarget.checked)}
+                      checked={Array.isArray(api.reasoning?.parameters)}
+                      onchange={(event) => toggleReasoningParameters(api, event.currentTarget.checked)}
                     />
                   </label>
+                  <label class="flex items-center gap-2 ml-auto">
+                    <span class="label-text whitespace-nowrap">History replay</span>
+                    <select
+                      class="select"
+                      value={api.reasoning?.history_replay ?? 0}
+                      onchange={(event) => changeHistoryReplay(api, Number(event.currentTarget.value))}
+                    >
+                      <option value={0}>Off</option>
+                      <option value={-1}>All</option>
+                      <option value={5}>Last 5</option>
+                      <option value={3}>Last 3</option>
+                    </select>
+                  </label>
                 </div>
-                {#if api.reasoning}
+                {#if api.reasoning?.parameters}
                   {#each api.reasoning.parameters as parameter, parameterIndex}
                     <div class="border border-surface-300 rounded-md p-3 mb-3">
                       <div
@@ -640,7 +694,20 @@
                     disabled={!api.api_url || !api.api_key || !api.model}
                     onclick={() => onTestGenerationApi(api)}
                   >
-                    Test API
+                    <icons.ArrowRightFromLine />Test API
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm preset-tonal"
+                    disabled={!api.api_url || !api.api_key || !api.model}
+                    onclick={() => onCopyCurl(api)}
+                  >
+                    {#if curlCopied}
+                      <icons.Check />
+                    {:else}
+                      <icons.Copy />
+                    {/if}
+                    cURL
                   </button>
                 </div>
                 <button

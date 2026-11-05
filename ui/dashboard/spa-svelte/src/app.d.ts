@@ -23,7 +23,8 @@ export interface GenerationApi {
   pricing_tpm: PricingTpm;
   context_length: number;
   reasoning?: {
-    parameters: ReasoningParameter[];
+    parameters?: ReasoningParameter[];
+    history_replay?: number; // 0 = Off, -1 = All, positive values = recent assistant turns
   };
   _hidden?: boolean;
 }
