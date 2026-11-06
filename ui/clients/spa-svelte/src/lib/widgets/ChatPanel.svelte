@@ -600,7 +600,7 @@
                       </button>
                       {#if msg._reasoningVisible}
                         <div
-                          class="max-h-32 overflow-y-auto text-left whitespace-normal break-words text-surface-500"
+                          class="max-h-36 overflow-y-auto text-left whitespace-normal wrap-break-word text-surface-500"
                           role="region"
                           aria-label="Reasoning content"
                           transition:slide
