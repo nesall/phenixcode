@@ -5,6 +5,7 @@
 #include "model_router.h"
 #include "database.h"
 #include "inference.h"
+#include "inference_messages.h"
 #include "settings.h"
 #include "tokenizer.h"
 #include "auth.h"
@@ -126,6 +127,16 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
       std::vector<std::string> pendingInfoVec;
       ApiConfig apiConfig = model_router::selectApi(request, messagesJson, question, imp->app_, pendingInfoVec);
       const auto reasoningSelection = getReasoningSelection(request, apiConfig);
+      const auto sessionId = request.value("session_id", std::string{});
+      const auto responseId = request.value("response_id", std::string{});
+      if (sessionId.size() > 128 || responseId.size() > 128)
+        throw std::invalid_argument("Session and response IDs must not exceed 128 characters");
+      for (const auto &message : messagesJson) {
+        if (!message.is_object() || !message.contains("role") || !message["role"].is_string() ||
+            !message.contains("content") || !message["content"].is_string() ||
+            (message.contains("replay_id") && !message["replay_id"].is_string()))
+          throw std::invalid_argument("Each message requires string role and content fields, with an optional string replay_id");
+      }
       LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
 
       auto attachmentsJson = request["attachments"];
@@ -175,7 +186,8 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
       res.set_chunked_content_provider(
         "text/event-stream",
-        [this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig, reasoningSelection, pendingInfoVec, start]
+        //[this, messagesJson, question, temperature, contextSizeRatio, attachedOnly, attachments, sources, maxTokens, request, apiConfig, reasoningSelection, pendingInfoVec, start, sessionId, responseId]
+        [=]
         (size_t offset, httplib::DataSink &sink) {
 
           auto packPayload = [](std::string data) {
@@ -195,8 +207,9 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
 
           try {
+            auto prepared = imp->app_.reasoningHistory().prepare(sessionId, responseId, apiConfig, messagesJson);
             size_t initialTokens = imp->app_.tokenizer().countTokensWithVocab(CompletionClient::queryTemplate());
-            initialTokens += messagesNofTokens(messagesJson, imp->app_); // history + question
+            initialTokens += messagesNofTokens(prepared.messages, imp->app_); // history + question, including replay
             const auto [orderedResults, usedTokens] = processInputResults(
               imp->app_, apiConfig, initialTokens, question, attachments, sources, contextSizeRatio, attachedOnly, onInfo
             );
@@ -205,19 +218,36 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
               onInfo(s);
             }
 
-            CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
-            const std::string fullResponse = completionClient.generateCompletion(
-              messagesJson, orderedResults, temperature, maxTokens,
-              [&sink, packPayload](const std::string &chunk) {
+            CompletionClient cc(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
+            json assistantMessage;
+            bool connected = true;
+            const std::string fullResponse = cc.generateCompletion(prepared.messages, orderedResults, temperature, maxTokens,
+              [&sink, packPayload, &connected](const std::string &chunk) 
+              {
 #ifdef _DEBUG2
                 LOG_MSG_DEBUG << chunk;
 #endif
                 std::string sse = packPayload(chunk);
-                bool success = sink.write(sse.data(), sse.size());
-                if (!success) {
+                if (!sink.write(sse.data(), sse.size())) {
+                  connected = false;
                   return; // Client disconnected
                 }
-              }, reasoningSelection);
+              },
+              reasoningSelection, 0 < apiConfig.historyReplay ? &assistantMessage : nullptr,
+              [&sink, packPayload, &connected](const std::string &reasoningChunk)
+              {
+                nlohmann::json payload = { 
+                  { "type", "reasoning_delta" },
+                  { "content", reasoningChunk }
+                };
+                auto sse = "data: " + payload.dump() + "\n\n";
+                if (!sink.write(sse.data(), sse.size())) {
+                  connected = false;
+                  return; // Client disconnected
+                }
+              }
+            );
+            const bool remembered = connected && !fullResponse.empty() && imp->app_.reasoningHistory().remember(prepared.ticket, assistantMessage);
 
 #ifdef _DEBUG2
             testStreaming([&sink](const std::string &chunk) {
@@ -271,6 +301,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
               { "empty_result", emptyResult },
               { "model", apiConfig.model }
             };
+            if (remembered) sourcesPayload["replay_id"] = responseId;
             std::string sourcesSse = "data: " + sourcesPayload.dump() + "\n\n";
             sink.write(sourcesSse.data(), sourcesSse.size());
 
@@ -299,7 +330,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
     }
     Impl::requestCounter_++;
     Impl::chatCounter_++;
-    recordDuration(start, Impl::avgChatTimeMs_);
+    httpserver_detail::recordDuration(start, Impl::avgChatTimeMs_);
     });
 
   server.Post("/api/fim", [this](const httplib::Request &req, httplib::Response &res) {
@@ -341,8 +372,8 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
 
       LOG_MSG << "Generating FIM with prefix length" << prefix.size() << "and suffix length" << suffix.size();
-      CompletionClient completionClient(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
-      std::string fullResponse = completionClient.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first, reasoningSelection);
+      CompletionClient cc(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);
+      std::string fullResponse = cc.generateFim(prefix, suffix, stops, temperature, maxTokens, searchResults.first, reasoningSelection);
       LOG_MSG << "[FIM] Generated tokens:" << imp->app_.tokenizer().countTokensWithVocab(fullResponse);
       json response = { { "completion", fullResponse } };
       size_t outTokens = imp->app_.tokenizer().countTokensWithVocab(fullResponse);
@@ -360,7 +391,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
       imp->app_.monitor().recordRequest("chat", ms, true, 0, 0);
       LOG_MSG_ERROR << "FIM generation failed: " << e.what();
     }
-    recordDuration(start, Impl::avgChatTimeMs_); // reuse chat timing metric
+    httpserver_detail::recordDuration(start, Impl::avgChatTimeMs_); // reuse chat timing metric
     });
 
 }

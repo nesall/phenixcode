@@ -18,6 +18,7 @@ class CompletionClient;
 class SimpleTokenizer;
 class InstanceRegistry;
 class MonitorTracker;
+namespace reasoning_history { class ReasoningHistory; }
 struct SearchResult;
 
 namespace eval {
@@ -87,6 +88,7 @@ public:
   const InstanceRegistry &registry() const;
   const MonitorTracker &monitor() const;
   MonitorTracker &monitor();
+  reasoning_history::ReasoningHistory &reasoningHistory() const;
 
   bool isValidPrivateAppKey(const std::string &appKey);
   void requestShutdownAsync();

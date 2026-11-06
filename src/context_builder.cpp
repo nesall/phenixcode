@@ -579,6 +579,11 @@ namespace context {
   size_t messagesNofTokens(const json &messages, const App &app) {
     size_t n = 0;
     for (const auto &m : messages) {
+      if (m.is_object() && ((m.contains("content") && m["content"].is_array()) ||
+          m.contains("reasoning_content") || m.contains("reasoning") || m.contains("reasoning_details"))) {
+        n += app.tokenizer().countTokensWithVocab(m.dump());
+        continue;
+      }
       if (m.is_object() && m.contains("content") && m["content"].is_string()) {
         std::string s = m["content"];
         if (!s.empty()) {

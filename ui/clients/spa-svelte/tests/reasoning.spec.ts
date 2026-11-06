@@ -327,3 +327,60 @@ test("keyboard radio navigation and Apply do not submit a chat", async ({ page }
   await expect(page.getByRole("textbox")).toHaveValue("Keep draft");
   expect(requests).toHaveLength(0);
 });
+
+test("replay references follow completed responses and edits invalidate the following turns", async ({ page }) => {
+  const requests: any[] = [];
+  await page.route("**/api/chat", route => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    return route.fulfill({ contentType: "text/event-stream", body:
+      `data: ${JSON.stringify({ content: `Reply ${requests.length}` })}\n\n` +
+      `data: ${JSON.stringify({ type: "context_sources", sources: null, replay_id: request.response_id })}\n\n` +
+      "data: [DONE]\n\n" });
+  });
+  await start(page);
+  async function send(text: string, reply: number) {
+    await page.getByRole("textbox").fill(text);
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect(page.getByText(`Reply ${reply}`, { exact: true })).toBeVisible();
+    await expect(page.getByTitle("Edit your original question", { exact: true }).first()).toBeEnabled();
+  }
+  await send("Original question", 1);
+  await send("Follow up", 2);
+  expect(requests[1].messages[1].replay_id).toBe(requests[0].response_id);
+  expect(requests[1].messages[1].content).toBe("Reply 1");
+  await expect.poll(() => page.evaluate(() => {
+    const chats = JSON.parse(localStorage.getItem("PhenixCode.chats") || "[]");
+    return chats[0]?.messages[1]?.replay;
+  })).toEqual({ id: requests[0].response_id, session: requests[0].session_id });
+  await page.getByTitle("Edit your original question", { exact: true }).first().click();
+  await page.locator("#user-message-0").fill("Edited question");
+  await page.getByRole("textbox").click();
+  await send("After edit", 3);
+  expect(requests[2].messages[0].content).toBe("Edited question");
+  expect(requests[2].messages.filter((message: any) => message.replay_id)).toHaveLength(0);
+  expect(requests[2].session_id).toBe(requests[0].session_id);
+  expect(requests[2].response_id).not.toBe(requests[1].response_id);
+  expect(JSON.stringify(requests)).not.toContain("reasoning_content");
+});
+
+test("reopening a saved chat restores its opaque replay references and backend session", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("PhenixCode.chats", JSON.stringify([{
+    id: "retained-chat", project_id: "project", title: "Retained chat", updated_at: 1,
+    messages: [{ role: "user", content: "Earlier question" },
+      { role: "assistant", content: "Earlier answer", replay: { id: "retained-reply", session: "retained-session" } }],
+  }])));
+  await start(page);
+  await page.getByTitle("View chat history", { exact: true }).click();
+  const row = page.locator('article[data-chat-id="retained-chat"]');
+  await row.getByRole("button").click();
+  await row.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByText("Earlier answer", { exact: true })).toBeVisible();
+  await page.getByRole("textbox").fill("Continue");
+  const outgoing = page.waitForRequest("**/api/chat");
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  expect((await outgoing).postDataJSON()).toMatchObject({ session_id: "retained-session",
+    messages: [{ role: "user", content: "Earlier question" },
+      { role: "assistant", content: "Earlier answer", replay_id: "retained-reply" },
+      { role: "user", content: "Continue" }] });
+});

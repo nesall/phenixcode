@@ -51,7 +51,9 @@ public:
     float temperature,
     size_t maxTokens,
     std::function<void(const std::string &)> onStream,
-    const std::map<std::string, std::string> &reasoningSelection = {}) const;
+    const std::map<std::string, std::string> &reasoningSelection = {},
+    nlohmann::json *assistantMessage = nullptr,
+    std::function<void(const std::string &)> onReasoning = nullptr) const;
 
   std::string generateFim(
     const std::string &prefix, 

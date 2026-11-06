@@ -1,4 +1,5 @@
 #include "app.h"
+#include "inference_messages.h"
 #include "settings.h"
 #include "database.h"
 #include "inference.h"
@@ -267,6 +268,7 @@ namespace {
 
 
 struct App::Impl {
+  reasoning_history::ReasoningHistory reasoningHistory_;
   std::unique_ptr<Settings> settings_;
   std::unique_ptr<AdminAuth> auth_;
   std::unique_ptr<VectorDatabase> db_;
@@ -294,6 +296,8 @@ App::App() : imp(new Impl)
 {
   imp->auth_ = std::make_unique<AdminAuth>();
 }
+
+reasoning_history::ReasoningHistory &App::reasoningHistory() const { return imp->reasoningHistory_; }
 
 App::~App()
 {
@@ -707,12 +711,19 @@ void App::chat() const
       auto searchResults = retrieve(userInput, queryEmbedding, 5, SearchMode::Auto);
 
       CompletionClient completionClient{ apiCfg, settings().generationTimeoutMs(), *this };
+      const auto responseId = sessionId + "-" + std::to_string(messages.size());
+      auto prepared = reasoningHistory().prepare(sessionId, responseId, apiCfg, messages);
+      json assistantMessage;
       std::cout << "\nAssistant: " << std::flush;
       const std::string assistantResponse = completionClient.generateCompletion(
-        messages, searchResults, 0.0f, settings().generationDefaultMaxTokens(),
-        [](const std::string &chunk) { std::cout << chunk << std::flush; });
+        prepared.messages, searchResults, 0.0f, settings().generationDefaultMaxTokens(),
+        [](const std::string &chunk) { std::cout << chunk << std::flush; }, {},
+        apiCfg.historyReplay > 0 ? &assistantMessage : nullptr);
       std::cout << std::endl;
-      messages.push_back({ {"role", "assistant"}, {"content", assistantResponse} });
+      json reply = {{"role", "assistant"}, {"content", assistantResponse}};
+      if (!assistantResponse.empty() && reasoningHistory().remember(prepared.ticket, assistantMessage))
+        reply["replay_id"] = responseId;
+      messages.push_back(std::move(reply));
     } catch (const std::exception &e) {
       LOG_MSG_ERROR << e.what();
     }

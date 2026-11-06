@@ -21,13 +21,14 @@
     sessionId,
   } from "../store";
 
-  const reasoningProvider = $derived($settings.completionApis.find(api => api.id === $settings.currentApi));
+  const reasoningProvider = $derived($settings.completionApis.find((api) => api.id === $settings.currentApi));
   const hasReasoning = $derived(reasoningParameters(reasoningProvider).length > 0);
 
   export function resetUi() {
     $bLoading = false;
     started = false;
     metaInfoArray = [];
+    reasoningTextRaw = "";
   }
 
   $effect(() => {
@@ -47,6 +48,9 @@
         content: "Hello! How can I assist you today?",
         _html: await renderMarkdown("Hello! How can I assist you today?"),
         _metaInfoArray: ["Searching for relevant content", "Processing attachment(s)", "Working on the response"],
+        _reasoningVisible: false,
+        _reasoningText:
+          "User wants to start a conversation. The assistant is greeting the user and asking how it can help.",
       },
       {
         role: "user",
@@ -98,6 +102,7 @@
   // let messages = $state<ChatMessage[]>([]);
   let showScrollBtn = $state(false);
 
+  let reasoningTextRaw = $state("");
   let metaInfoArray: string[] = $state([]);
   let sourceids: string[] = $state([]);
   let attachments: File[] = $state([]);
@@ -141,6 +146,7 @@
       messages: $messages.map((m) => ({
         role: m.role,
         content: m.content,
+        replay: m.replay?.content === m.content ? { id: m.replay.id, session: m.replay.session } : undefined,
       })),
     };
     // Filter out consecutive user messages that have identical content.
@@ -231,12 +237,15 @@
   }
 
   const metaTagBegin = "[meta]";
+  let receivedReplayId = "";
 
-  function parseFromSSE(chunk: string): { parsed: string; remainder: string } {
+  function parseFromSSE(chunk: string): { parsed: string; remainder: string; reasoning?: string; meta?: string[] } {
     // console.log("parseFromSSE chunk:", chunk);
     let len = chunk.length;
     if (len === 0) return { parsed: "", remainder: "" };
     let fullResponse: string = "";
+    let fullReasoning: string = "";
+    const meta: string[] = [];
     let buffer: string = ""; // holds leftover partial data
     // SSE format: "data: <payload>\n\n"
     buffer += chunk.substring(0, len);
@@ -251,35 +260,45 @@
           break;
         }
         const chunkJson = JSON.parse(jsonStr); // validate JSON
-        if (chunkJson.sources && chunkJson.type == "context_sources") {
-          let sources: string[] = [];
-          for (const a of chunkJson.sources as string[]) {
-            sources.push(a);
+        if (chunkJson.type === "context_sources") {
+          if (typeof chunkJson.replay_id === "string") {
+            receivedReplayId = chunkJson.replay_id;
           }
-          sources = stripCommonPrefix(sources);
-          console.log("parseFromSSE. sources: ", sources);
-          fullResponse += `\n\nSources:  \n`;
-          console.log("Sources: ", sources);
-          for (const a of sources as string[]) {
-            fullResponse += `*${a}*  \n`;
+          if (chunkJson.sources) {
+            let sources: string[] = [];
+            for (const a of chunkJson.sources as string[]) {
+              sources.push(a);
+            }
+            sources = stripCommonPrefix(sources);
+            console.log("parseFromSSE. sources: ", sources);
+            fullResponse += `\n\nSources:  \n`;
+            console.log("Sources: ", sources);
+            for (const a of sources as string[]) {
+              fullResponse += `*${a}*  \n`;
+            }
+            if (chunkJson.model) {
+              console.log("parseFromSSE. model: ", chunkJson.model);
+              fullResponse += `\n\n<span class="text-surface-500 text-xs">Model: ${chunkJson.model}</span>  \n`;
+            }
           }
-          if (chunkJson.model) {
-            console.log("parseFromSSE. model: ", chunkJson.model);
-            fullResponse += `\n\n<span class="text-surface-500 text-xs">Model: ${chunkJson.model}</span>  \n`;
+        } else if (chunkJson.type === "reasoning_delta") {
+          if (typeof chunkJson.content === "string") {
+            fullReasoning += chunkJson.content;
           }
         } else if (chunkJson.error) {
           fullResponse += `\n\nError: ${chunkJson.error}  \n`;
-          return { parsed: fullResponse, remainder: buffer };
+          return { parsed: fullResponse, remainder: buffer, reasoning: fullReasoning, meta };
         } else {
           const content = chunkJson.content || "";
-          fullResponse += content;
           if (content.startsWith(metaTagBegin)) {
-            return { parsed: content, remainder: buffer };
+            meta.push(content.substring(metaTagBegin.length));
+          } else {
+            fullResponse += content;
           }
         }
       }
     }
-    return { parsed: fullResponse, remainder: buffer };
+    return { parsed: fullResponse, remainder: buffer, reasoning: fullReasoning, meta };
   }
 
   async function sendMessage(
@@ -293,6 +312,7 @@
     let pendingRenderCounter = 0;
     $bLoading = true;
     started = false;
+    reasoningTextRaw = "";
     if (appendQ) {
       if (!input.trim()) {
         toaster.error({
@@ -314,16 +334,21 @@
     }
 
     if (!$sessionId) $sessionId = newUUID();
+    const requestSessionId = $sessionId;
+    const responseId = newUUID();
+    receivedReplayId = "";
 
     const inst = $instances.find((i) => i.id === $curInstance);
 
     persistChat(inst);
 
     console.log("ChatPanel.sendMessage");
+    let assistantMessage: ChatMessage | undefined;
     try {
       const messagesToSend = $messages.map((m) => ({
         role: m.role,
         content: m.content,
+        replay_id: m.replay?.content === m.content ? m.replay.id : undefined,
       }));
       clog("Sending message to server...", {
         messagesToSend,
@@ -338,7 +363,8 @@
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          session_id: $sessionId,
+          session_id: requestSessionId,
+          response_id: responseId,
           messages: messagesToSend,
           attachments,
           sourceids,
@@ -352,7 +378,6 @@
       if (!response.ok) {
         throw new Error("Failed to send message");
       }
-      let appended = false;
       let leftover = ""; // holds an incomplete trailing SSE frame across reads
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
@@ -363,58 +388,54 @@
         let bufferToParse = leftover + decoder.decode(value, { stream: true });
         leftover = "";
         while (bufferToParse) {
-          const { parsed: chunk, remainder } = parseFromSSE(bufferToParse);
+          const { parsed: chunk, remainder, reasoning, meta = [] } = parseFromSSE(bufferToParse);
           if (remainder.length === bufferToParse.length) {
             // no complete "\n\n" event in here — stash and wait for more data
             leftover = remainder;
             break;
           }
           bufferToParse = remainder;
-          if (!chunk && !appended) continue; // skip empty starting text
-          if (chunk.includes(metaTagBegin)) {
-            // console.log(chunk);
-            metaInfoArray = [...metaInfoArray, chunk.substring(6)];
-            continue;
+
+          if (reasoning) {
+            reasoningTextRaw += reasoning;
           }
-          if (appended) {
-            let lm = $messages[$messages.length - 1];
-            lm.content += chunk;
-            if (pendingRenderCounter++ % 3 === 0) {
-              lm._html = normalizeHeaders(await renderMarkdown(lm.content));
-            }
-            $messages = $messages;
-            tick().then(checkMessagesEndVisibility);
-          } else {
-            $messages = [
-              ...$messages,
-              {
-                role: "assistant",
-                content: chunk,
-                _html: normalizeHeaders(await renderMarkdown(chunk)),
-              },
-            ];
-            appended = true;
+          if (meta.length) metaInfoArray = [...metaInfoArray, ...meta];
+          if (!assistantMessage && (chunk || reasoning)) {
+            assistantMessage = { role: "assistant", content: "", _html: "" };
+            $messages = [...$messages, assistantMessage];
             started = true;
           }
+          if (!assistantMessage) continue;
+          assistantMessage.content += chunk;
+          assistantMessage._metaInfoArray = [...metaInfoArray];
+          if ((chunk || reasoning) && pendingRenderCounter++ % 3 === 0) {
+            assistantMessage._html = normalizeHeaders(await renderMarkdown(assistantMessage.content));
+            assistantMessage._reasoningText = normalizeHeaders(await renderMarkdown(reasoningTextRaw));
+          }
+          $messages = $messages;
+          tick().then(checkMessagesEndVisibility);
         }
       }
-      let lm = $messages[$messages.length - 1];
-      lm.content = processResponse(lm.content);
-      lm.content = stripModelEchoedSources(lm.content);
-      lm._html = normalizeHeaders(await renderMarkdown(lm.content));
-      lm._metaInfoArray = [...metaInfoArray];
-      $messages = $messages;
-      console.log("lm._metaInfoArray", lm._metaInfoArray);
+      if (assistantMessage) {
+        assistantMessage.content = stripModelEchoedSources(processResponse(assistantMessage.content));
+        assistantMessage._html = normalizeHeaders(await renderMarkdown(assistantMessage.content));
+        assistantMessage._metaInfoArray = [...metaInfoArray];
+        assistantMessage._reasoningText = normalizeHeaders(await renderMarkdown(reasoningTextRaw));
+        if (receivedReplayId === responseId)
+          assistantMessage.replay = { id: responseId, session: requestSessionId, content: assistantMessage.content };
+        $messages = $messages;
+      }
     } catch (error) {
       clog("Error sending message:", error);
-      $messages = [
-        ...$messages,
-        {
-          role: "assistant",
-          content: "Sorry, there was an error processing your request.",
-          _html: "",
-        },
-      ];
+      if (!assistantMessage) {
+        assistantMessage = { role: "assistant", content: "", _html: "" };
+        $messages = [...$messages, assistantMessage];
+      }
+      assistantMessage.content += (assistantMessage.content ? "\n\n" : "") + "Sorry, there was an error processing your request.";
+      assistantMessage._html = normalizeHeaders(await renderMarkdown(assistantMessage.content));
+      assistantMessage._metaInfoArray = [...metaInfoArray];
+      assistantMessage._reasoningText = normalizeHeaders(await renderMarkdown(reasoningTextRaw));
+      $messages = $messages;
     } finally {
       resetUi();
       setTimeout(() => {
@@ -462,6 +483,9 @@
           const newContent = (div.textContent || "").trim();
           console.log("Edited content:", newContent);
           div.innerHTML = newContent;
+          if ($messages[index].content !== newContent) {
+            $messages = $messages.map((message, i) => (i > index ? { ...message, replay: undefined } : message));
+          }
           $messages[index].content = newContent;
           $messages = $messages;
         },
@@ -537,29 +561,61 @@
         </div>
       {:else}
         <div class="flex flex-col overflow-y-hidden box-border pb-4 space-y-1 message" data-role="assistant">
-          {#if isGoodArray(msg._metaInfoArray) && msg._metaInfoArray}
-            <div class="text-xs flex flex-col space-y-0 self-end text-right">
-              <button
-                type="button"
-                class="btn btn-sm text-surface-500 border-surface-500 flex text-right justify-end"
-                onclick={() => ($messages[i]._metaVisible = !$messages[i]._metaVisible)}
-              >
-                <span class="text-xs">Ready</span>
+          <div class="flex items-start justify-end">
+            {#if isGoodArray(msg._metaInfoArray) || msg._reasoningText}
+              <div class="text-xs flex flex-col space-y-0 self-end text-right min-w-0 max-w-full">
+                <button
+                  type="button"
+                  class="btn btn-sm text-surface-500 border-surface-500 flex text-right justify-end"
+                  onclick={() => ($messages[i]._metaVisible = !$messages[i]._metaVisible)}
+                  aria-expanded={!!msg._metaVisible}
+                >
+                  <span class="text-xs">Ready</span>
+                  {#if msg._metaVisible}
+                    <icons.ChevronUp />
+                  {:else}
+                    <icons.ChevronDown />
+                  {/if}
+                </button>
                 {#if msg._metaVisible}
-                  <icons.ChevronUp />
-                {:else}
-                  <icons.ChevronDown />
+                  <div class="flex flex-col" transition:slide>
+                    {#each [...(msg._metaInfoArray ?? [])].reverse() as info}
+                      <span>{info} ✓</span>
+                    {/each}
+                  </div>
+                  <div class="text-xs flex flex-col space-y-0 self-end text-right">
+                    {#if msg._reasoningText}
+                      <button
+                        type="button"
+                        class="btn btn-sm text-surface-500 border-surface-500 flex text-right justify-end"
+                        onclick={() => ($messages[i]._reasoningVisible = !$messages[i]._reasoningVisible)}
+                        aria-expanded={!!msg._reasoningVisible}
+                      >
+                        <span class="text-xs">Reasoning</span>
+                        {#if msg._reasoningVisible}
+                          <icons.ChevronUp />
+                        {:else}
+                          <icons.ChevronDown />
+                        {/if}
+                      </button>
+                      {#if msg._reasoningVisible}
+                        <div
+                          class="max-h-32 overflow-y-auto text-left whitespace-normal break-words text-surface-500"
+                          role="region"
+                          aria-label="Reasoning content"
+                          transition:slide
+                        >
+                          <div class="text-xs">
+                            {@html DOMPurify.sanitize(msg._reasoningText)}
+                          </div>
+                        </div>
+                      {/if}
+                    {/if}
+                  </div>
                 {/if}
-              </button>
-              {#if msg._metaVisible}
-                <div class="flex flex-col" transition:slide>
-                  {#each msg._metaInfoArray as info, i}
-                    <span>{msg._metaInfoArray[msg._metaInfoArray?.length - 1 - i]} ✓</span>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
+              </div>
+            {/if}
+          </div>
           <div
             class="text-sm border2 border-surface-100-900 bg-surface-500/5 shadow2 rounded-xl whitespace-normal p-4 pb-1 break-normal text-left message-content"
           >

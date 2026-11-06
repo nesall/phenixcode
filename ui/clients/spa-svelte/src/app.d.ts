@@ -30,11 +30,14 @@ interface ReasoningParameter {
 }
 
 interface ChatMessage {
+  replay?: { id: string; session: string; content: string };
   role: "user" | "assistant" | "system";
   content: string;
   _html: string;
   _metaInfoArray?: string[];
   _metaVisible?: boolean;
+  _reasoningText?: string;
+  _reasoningVisible?: boolean;
 }
 
 interface AppInstance {
@@ -61,6 +64,7 @@ interface ChatSummary {
 }
 
 interface SavedChatMessage {
+  replay?: { id: string; session: string };
   role: "user" | "assistant" | "system";
   content: string;
   _metaInfoArray?: string[];

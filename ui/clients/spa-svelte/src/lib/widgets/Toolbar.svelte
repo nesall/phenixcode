@@ -300,6 +300,7 @@
         newMessages.push({
           role: m.role,
           content: m.content,
+          replay: m.replay ? { ...m.replay, content: m.content } : undefined,
           _metaInfoArray: m._metaInfoArray,
           _html: m.role === "assistant" ? normalizeHeaders(await renderMarkdown(m.content)) : m.content,
         });
@@ -307,7 +308,7 @@
       messages.set(newMessages);
 
       currentChatId.set(chat.id || "");
-      sessionId.set(newUUID()); // fresh server-side session for the next /api/chat
+      sessionId.set(chat.messages.find((m) => m.replay)?.replay?.session || newUUID());
       openChatsState = false;
 
       setTimeout(() => {

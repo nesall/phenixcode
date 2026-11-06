@@ -53,6 +53,12 @@ namespace {
 
     if (item.contains("reasoning") && item["reasoning"].is_object()) {
       const auto &rj = item["reasoning"];
+      if (rj.contains("history_replay")) {
+        const auto &replay = rj["history_replay"];
+        if (!replay.is_number_integer() || replay < -1 || replay > ApiConfig::kMaxHistoryReplay)
+          throw std::runtime_error("reasoning.history_replay in provider '" + cfg.id + "' must be -1 or an integer from 0 to 255");
+        cfg.historyReplay = replay == -1 ? ApiConfig::kMaxHistoryReplay : replay.get<std::uint8_t>();
+      }
       if (rj.contains("parameters") && rj["parameters"].is_array()) {
         for (const auto &p : rj["parameters"]) {
           if (!p.is_object()) continue;

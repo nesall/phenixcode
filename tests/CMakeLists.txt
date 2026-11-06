@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.16)
+project(inference_content_tests LANGUAGES CXX)
+enable_testing()
+add_executable(inference_content_tests inference_content_tests.cpp ../src/inference_messages.cpp)
+target_compile_features(inference_content_tests PRIVATE cxx_std_20)
+target_include_directories(inference_content_tests PRIVATE ../include ../src)
+add_test(NAME inference_content_tests COMMAND inference_content_tests)
+
+add_executable(reasoning_history_tests reasoning_history_tests.cpp ../src/inference_messages.cpp)
+target_compile_features(reasoning_history_tests PRIVATE cxx_std_20)
+target_include_directories(reasoning_history_tests PRIVATE ../include)
+add_test(NAME reasoning_history_tests COMMAND reasoning_history_tests)

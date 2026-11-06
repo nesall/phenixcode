@@ -1,4 +1,5 @@
 #include "inference.h"
+#include "inference_messages.h"
 #include "app.h"
 #include "cutils.h"
 #include "database.h"
@@ -23,6 +24,7 @@ namespace {
       jsonStr = (lineEnd == std::string::npos)
         ? event.substr(lineStart)
         : event.substr(lineStart, lineEnd - lineStart);
+      if (!jsonStr.empty() && jsonStr.back() == '\r') jsonStr.pop_back();
       return true;
     }
     return false;
@@ -89,7 +91,8 @@ namespace {
        const size_t maxExamples = 2;
        for (size_t i = 0; i < messages.size() && i < maxExamples; ++i) {
          nlohmann::json mForLog = messages[i];
-         if (mForLog.contains("content")) mForLog["content"] = "<omitted>";
+         for (auto &[key, value] : mForLog.items())
+           if (key != "role") value = "<omitted>";
          messagesForLog.push_back(mForLog);
        }
        if (messages.size() > maxExamples) {
@@ -104,28 +107,6 @@ namespace {
      }
 
     return body;
-  }
-
-  std::string extractDeltaContent(const ApiConfig &cfg, const nlohmann::json &chunk, std::string &reasoning) {
-    if (isAnthropic(cfg)) {
-      if (chunk.value("type", "") == "content_block_delta") {
-        const auto delta = chunk.value("delta", nlohmann::json::object());
-        const auto type = delta.value("type", "");
-        if (type == "text_delta")
-          return delta.value("text", "");
-        if (type == "thinking_delta")
-          reasoning += delta.value("thinking", "");
-      }
-      return {};
-    }
-    if (chunk.contains("choices") && !chunk["choices"].empty()) {
-      const auto &d = chunk["choices"][0].value("delta", nlohmann::json::object());
-      if (d.contains("reasoning_content") && d["reasoning_content"].is_string())
-        reasoning += d["reasoning_content"].get<std::string>();
-      if (d.contains("content") && d["content"].is_string())
-        return d["content"].get<std::string>();
-    }
-    return {};
   }
 
   std::string extractStopReason(const ApiConfig &cfg, const nlohmann::json &chunk) {
@@ -143,48 +124,6 @@ namespace {
     return {};
   }
 
-  //std::string extractFullContent(const ApiConfig &cfg, const nlohmann::json &res, std::string &reasoning) {
-  //  if (isAnthropic(cfg)) {
-  //    if (res.contains("content") && res["content"].is_array() && !res["content"].empty())
-  //      return res["content"][0].value("text", "");
-  //    return {};
-  //  }
-  //  if (!res["choices"].empty()) {
-  //    const auto &c = res["choices"][0];
-  //    if (c.contains("message") && c["message"].contains("content")) return c["message"]["content"].get<std::string>();
-  //  }
-  //  return {};
-  //}
-  std::string extractFullContent(const ApiConfig &cfg, const nlohmann::json &res, std::string &reasoning) {
-    if (isAnthropic(cfg)) {
-      std::string answer;
-      if (res.contains("content") && res["content"].is_array()) {
-        for (const auto &block : res["content"]) {
-          const std::string type = block.value("type", "");
-          if (type == "text") {
-            if (block.contains("text") && block["text"].is_string())
-              answer += block["text"].get<std::string>();
-          } else if (type == "thinking" || type == "reasoning") {
-            if (block.contains("thinking") && block["thinking"].is_string())
-              reasoning += block["thinking"].get<std::string>();
-          }
-        }
-      }
-      return answer;
-    }
-    std::string answer;
-    if (res.contains("choices") && !res["choices"].empty()) {
-      const auto &choice = res["choices"][0];
-      if (choice.contains("message") && choice["message"].is_object()) {
-        const auto &msg = choice["message"];
-        if (msg.contains("content") && msg["content"].is_string())
-          answer = msg["content"].get<std::string>();
-        if (msg.contains("reasoning_content") && msg["reasoning_content"].is_string())
-          reasoning += msg["reasoning_content"].get<std::string>();
-      }
-    }
-    return answer;
-  }
 } // anonymous namespace
 
 
@@ -258,7 +197,7 @@ std::string InferenceClient::generateChat(const nlohmann::json &messages, float 
     throw std::runtime_error(fmt::format("Server returned error: {} - {}", res->status, res->body));
 
   std::string reasoning;
-  return extractFullContent(cfg(), nlohmann::json::parse(res->body), reasoning);
+  return inference_contant::extractFullContent(cfg(), nlohmann::json::parse(res->body), reasoning);
 }
 
 const ApiConfig &InferenceClient::cfg() const
@@ -488,8 +427,12 @@ std::string CompletionClient::generateCompletion(
   float temperature,
   size_t maxTokens,
   std::function<void(const std::string &)> onStream,
-  const std::map<std::string, std::string> &reasoningSelection) const
+  const std::map<std::string, std::string> &reasoningSelection,
+  nlohmann::json *assistantMessage,
+  std::function<void(const std::string &)> onReasoning) const
 {
+  if (assistantMessage) *assistantMessage = nullptr;
+  reasoning_history::AssistantMessageAccumulator accumulator(cfg().apiStyle);
 #ifndef CPPHTTPLIB_OPENSSL_SUPPORT
   if (schemaHostPort().starts_with("https://")) {
     throw std::runtime_error("HTTPS not supported in this build");
@@ -562,44 +505,58 @@ std::string CompletionClient::generateCompletion(
       headers,
       std::move(requestStr),
       "application/json",
-      [&fullResponse, &reasoningBuffer, &onStream, &buffer, &stopReason, &lastChunk, this](const char *data, size_t len) {
+      [&fullResponse, &reasoningBuffer, &onStream, &onReasoning, &buffer, &stopReason, &lastChunk, &accumulator, assistantMessage, this]
+      (const char *data, size_t len) {
         // llama-server sends SSE format: "data: {...}\n\n"
         buffer.append(data, len);
-        size_t pos;
-        while ((pos = buffer.find("\n\n")) != std::string::npos) {
+        while (true) {
+          const auto lf = buffer.find("\n\n");
+          const auto crlf = buffer.find("\r\n\r\n");
+          const auto pos = std::min(lf, crlf);
+          if (pos == std::string::npos) break;
           std::string event = buffer.substr(0, pos); // one SSE event
-          buffer.erase(0, pos + 2);
+          buffer.erase(0, pos + (pos == crlf ? 4 : 2));
           std::string jsonStr;
           if (jsonStrFromSSEEvent(event, jsonStr)) {
             if (jsonStr == "[DONE]") {
+              if (assistantMessage) accumulator.finish();
               break;
             }
             try {
               nlohmann::json chunkJson = nlohmann::json::parse(jsonStr);
               lastChunk = jsonStr;
+              if (assistantMessage) {
+                try {
+                  accumulator.add(chunkJson);
+                } catch (const std::exception &e) {
+                  accumulator.invalidate();
+                  LOG_MSG_WARN << "Unable to retain provider message:" << e.what();
+                }
+              }
 
               std::string reason = extractStopReason(cfg(), chunkJson);
               if (!reason.empty()) stopReason = reason;
 
-              std::string content = extractDeltaContent(cfg(), chunkJson, reasoningBuffer);
+              std::string reasoningDelta;
+              std::string content = inference_contant::extractDeltaContent(cfg(), chunkJson, reasoningDelta);
+              reasoningBuffer += reasoningDelta;
+              if (onReasoning && !reasoningDelta.empty()) onReasoning(reasoningDelta);
               if (!content.empty()) {
                 fullResponse += content;
                 if (onStream) onStream(content);
               }
             } catch (const std::exception &e) {
+              if (assistantMessage) accumulator.invalidate();
               LOG_MSG_ERROR << "Error parsing chunk" << e.what() << "in" << jsonStr;
             }
           }
         }
-        if (utils::strFindIn(buffer, "unauthorized", false) != std::string::npos 
-          || utils::strFindIn(buffer, "invalid", false) != std::string::npos
-          || utils::strFindIn(buffer, "error", false) != std::string::npos
-          ) {
-          if (onStream) onStream(buffer);
-        }
         return true; // Continue receiving
       }
     );
+
+    if (assistantMessage && res && res->status == 200)
+      *assistantMessage = accumulator.message();
 
     if (fullResponse.empty()) {
       LOG_MSG_DEBUG << "[completion] Empty response from" << cfg().model
@@ -627,7 +584,19 @@ std::string CompletionClient::generateCompletion(
       try {
         nlohmann::json jsonRes = nlohmann::json::parse(res->body);
         std::string reasoning;
-        fullResponse = extractFullContent(cfg(), jsonRes, reasoning);
+        fullResponse = inference_contant::extractFullContent(cfg(), jsonRes, reasoning);
+        if (onReasoning && !reasoning.empty()) onReasoning(reasoning);
+        if (assistantMessage) {
+          if (isAnthropic(cfg())) {
+            const auto stop = inference_contant::stringField(jsonRes, "stop_reason");
+            if (stop == "end_turn" || stop == "stop_sequence")
+              *assistantMessage = {{"role", "assistant"}, {"content", jsonRes.at("content")}};
+          } else {
+            const auto message = inference_contant::firstChoiceContent(jsonRes, "message");
+            const auto stop = inference_contant::stringField(jsonRes["choices"][0], "finish_reason");
+            if (message && stop == "stop") *assistantMessage = *message;
+          }
+        }
         size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoning);
         LOG_MSG << "[completion] Reasoning tokens " << reasoningTokens;
         if (onStream) {

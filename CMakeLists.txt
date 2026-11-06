@@ -101,11 +101,13 @@ add_executable(${PROJECT_NAME}
   include/context_builder.h
   include/model_router.h
   include/httpserver_internal.h
+  include/inference_messages.h
   src/main.cpp
   src/tokenizer.cpp
   src/settings.cpp
   src/chunker.cpp
   src/inference.cpp
+  src/inference_messages.cpp
   src/database.cpp
   src/sourceproc.cpp
   src/context_builder.cpp

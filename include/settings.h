@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <cstdint>
 #include "json_shim.h"
 
 inline constexpr std::string_view kAutoApiId = "auto";
@@ -50,6 +51,8 @@ struct ApiConfig {
     std::vector<std::string> stopTokens;
   } fim;
   std::vector<ReasoningParam> reasoning; // empty => provider has no reasoning controls
+  static constexpr std::uint8_t kMaxHistoryReplay = 255;
+  std::uint8_t historyReplay = 0; // Previous assistant turns, 0 disables replay.
   enum class ApiStyle { OpenAI, Anthropic };
   ApiStyle apiStyle = ApiStyle::OpenAI;
 
