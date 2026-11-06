@@ -18,7 +18,7 @@
 namespace fs = std::filesystem;
 namespace {
 
-  constexpr size_t kPreviewSnippetLimit = 100;
+  constexpr size_t kPreviewSnippetLimit = 120;
   constexpr std::string_view kPreviewEllipsis = "...";
 
   const char *kSchema =
