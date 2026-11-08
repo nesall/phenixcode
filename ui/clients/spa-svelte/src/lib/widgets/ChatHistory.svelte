@@ -17,6 +17,7 @@
 
   let view = $state<"active" | "trash">("active");
   let chats = $state<ChatSummary[]>([]);
+  let searchText = $state("");
   let expanded = $state("");
   let busy = $state("");
   let loading = $state(false);
@@ -25,9 +26,22 @@
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   let request = 0;
   let ignoreExpansionUntil = 0;
+  const searchQuery = $derived(searchText.trim().toLowerCase());
+  // Keep Undo placeholders visible throughout their existing expiration window.
+  const filteredChats = $derived(chats.filter((chat) =>
+    (view === "active" && placeholders[chat.id]) || !searchQuery ||
+    [chat.title || "Untitled chat", projectName(chat.project_id), chat.preview || ""].some((text) => text.toLowerCase().includes(searchQuery)),
+  ));
 
   $effect(() => {
-    if (open) void load("active");
+    if (open) {
+      searchText = "";
+      void load("active");
+    }
+  });
+
+  $effect(() => {
+    if (expanded && !filteredChats.some((chat) => chat.id === expanded)) expanded = "";
   });
 
   onDestroy(() => {
@@ -142,8 +156,16 @@
     <Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
       <Dialog.Content class="card bg-surface-100-900 w-xl max-w-[95vw] p-4 space-y-3 shadow-xl">
         <Dialog.Title>
-          <div class="flex flex-row items-center justify-between">
-            <span class="text-lg font-bold">Chat History</span>
+          <div class="flex flex-row gap-3 items-center justify-between">
+            <span class="text-lg font-bold whitespace-nowrap">Chat History</span>
+            <input
+              type="search"
+              aria-label="Search chats"
+              placeholder="Search chats…"
+              class="input text-xs min-w-0 max-w-48 order-3 basis-full sm:order-0 sm:basis-auto sm:flex-1"
+              bind:value={searchText}
+              disabled={!!busy}
+            />
             <div class="flex gap-2 justify-end" role="group" aria-label="Chat history view">
               <button
                 type="button"
@@ -176,8 +198,10 @@
             <button type="button" class="btn preset-tonal" onclick={() => load(view)}>Retry</button>
           {:else if chats.length === 0}
             <p class="text-surface-500 text-center py-4">{view === "trash" ? "Trash is empty" : "No chats yet"}</p>
+          {:else if filteredChats.length === 0}
+            <p role="status" class="text-surface-500 text-center py-4">No matching chats</p>
           {:else}
-            {#each chats as chat (chat.id)}
+            {#each filteredChats as chat (chat.id)}
               <article
                 data-chat-id={chat.id}
                 class="border-b border-surface-300-700 even:bg-surface-200-800/25"

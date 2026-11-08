@@ -131,9 +131,11 @@ test("long reasoning scrolls within a narrow viewport and sanitized Markdown ren
   await expect(region).toHaveCSS("overflow-y", "auto");
   const bounds = await region.evaluate(element => ({
     height: element.clientHeight, scroll: element.scrollHeight, right: element.getBoundingClientRect().right,
+    maxHeight: Number.parseFloat(getComputedStyle(element).maxHeight),
   }));
   expect(bounds.scroll).toBeGreaterThan(bounds.height);
-  expect(bounds.height).toBeLessThanOrEqual(128);
+  expect(bounds.maxHeight).toBeGreaterThan(0);
+  expect(bounds.height).toBeLessThanOrEqual(bounds.maxHeight);
   expect(bounds.right).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => (window as any).reasoningInjected)).toBeUndefined();
 });

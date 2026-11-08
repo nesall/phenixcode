@@ -10,6 +10,7 @@ const fixtures = [
 const row = (page: Page, id: string) => page.locator(`article[data-chat-id="${id}"]`);
 const stored = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem("PhenixCode.chats") || "[]"));
 const history = (page: Page) => page.getByTitle("View chat history", { exact: true });
+const search = (page: Page) => page.getByRole("searchbox", { name: "Search chats", exact: true });
 
 test.beforeEach(async ({ page }) => {
   // Only test-origin localStorage and mocked service data; no user's database.
@@ -48,6 +49,104 @@ test("rows expand singly; Close leaves editor alone; Open loads the original cha
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByText("Original answer", { exact: true })).toBeVisible();
 });
+
+test("live search matches title, project, and both preview turns without reloading or reordering", async ({ page }) => {
+  await page.evaluate(async () => {
+    const api = await import("/src/lib/utils.ts");
+    const rows = await api.listChats();
+    (window as any).listCalls = 0;
+    (window as any).cppApi = { listChats: async () => { (window as any).listCalls++; return rows; } };
+  });
+  await row(page, "first").getByRole("button").click();
+  await search(page).fill("  FIRST CHAT  ");
+  await expect(row(page, "first")).toBeVisible();
+  await expect(row(page, "second")).toHaveCount(0);
+  await expect(row(page, "first").getByRole("button").first()).toHaveAttribute("aria-expanded", "true");
+  await search(page).fill("original ANSWER");
+  await expect(row(page, "first")).toBeVisible();
+  await search(page).fill("second question");
+  await expect(row(page, "first")).toHaveCount(0);
+  await expect(row(page, "second")).toBeVisible();
+  await search(page).fill("my PROJECT");
+  await expect(page.locator("article[data-chat-id]")).toHaveCount(2);
+  await expect(page.locator("article[data-chat-id]").first()).toHaveAttribute("data-chat-id", "first");
+  await expect(row(page, "first").getByRole("button")).toHaveAttribute("aria-expanded", "false");
+  await search(page).fill("[");
+  await expect(page.getByText("No matching chats", { exact: true })).toBeVisible();
+  await search(page).fill("   ");
+  await expect(page.locator("article[data-chat-id]")).toHaveCount(2);
+  await search(page).fill("");
+  await expect(row(page, "first")).toBeVisible();
+  expect(await page.evaluate(() => (window as any).listCalls)).toBe(0);
+});
+
+test("search carries between Active and Trash, distinguishes empty views, and resets on reopening", async ({ page }) => {
+  await page.evaluate(() => {
+    const chats = JSON.parse(localStorage.getItem("PhenixCode.chats") || "[]");
+    chats.push({ id: "deleted", project_id: "project", title: "First archived chat", updated_at: 100,
+      deleted_at: 300, messages: [{ role: "user", content: "Archived question" }] });
+    localStorage.setItem("PhenixCode.chats", JSON.stringify(chats));
+  });
+  await search(page).fill("first");
+  await page.getByRole("button", { name: "Trash", exact: true }).click();
+  await expect(search(page)).toHaveValue("first");
+  await expect(row(page, "deleted")).toBeVisible();
+  await search(page).fill("second");
+  await expect(page.getByText("No matching chats", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Active", exact: true }).click();
+  await expect(row(page, "second")).toBeVisible();
+  await expect(row(page, "first")).toHaveCount(0);
+  await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click();
+  await history(page).click();
+  await expect(search(page)).toHaveValue("");
+  await expect(page.locator("article[data-chat-id]")).toHaveCount(2);
+  await page.evaluate(() => localStorage.setItem("PhenixCode.chats", "[]"));
+  await page.getByRole("button", { name: "Trash", exact: true }).click();
+  await expect(page.getByText("Trash is empty", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Active", exact: true }).click();
+  await expect(page.getByText("No chats yet", { exact: true })).toBeVisible();
+});
+
+test("filtered deletion retains the Undo placeholder through query changes and expiration", async ({ page }) => {
+  await page.clock.install();
+  await search(page).fill("first");
+  await row(page, "first").getByRole("button").click();
+  await row(page, "first").getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(row(page, "first")).toContainText("Chat moved to Trash");
+  await search(page).fill("second");
+  await expect(row(page, "first").getByRole("button", { name: "Undo", exact: true })).toBeVisible();
+  await expect(row(page, "second")).toBeVisible();
+  await row(page, "first").getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(row(page, "first")).toHaveCount(0);
+  await search(page).fill("");
+  await expect(page.locator("article[data-chat-id]").first()).toHaveAttribute("data-chat-id", "first");
+  await row(page, "first").getByRole("button").click();
+  await row(page, "first").getByRole("button", { name: "Delete", exact: true }).dblclick();
+  await search(page).fill("second");
+  await expect(row(page, "first")).toContainText("Chat moved to Trash");
+  await page.clock.fastForward(5100);
+  await expect(row(page, "first")).toHaveCount(0);
+  await expect(row(page, "second")).toBeVisible();
+  expect((await stored(page)).find((chat: any) => chat.id === "second").deleted_at).toBeUndefined();
+});
+
+for (const width of [320, 390]) {
+  test(`history search and view controls fit a ${width}px screen`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(search(page)).toBeVisible();
+    const input = await search(page).boundingBox();
+    const active = await page.getByRole("button", { name: "Active", exact: true }).boundingBox();
+    const trash = await page.getByRole("button", { name: "Trash", exact: true }).boundingBox();
+    for (const bounds of [input!, active!, trash!]) {
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    }
+    expect(input!.y).toBeGreaterThanOrEqual(Math.max(active!.y + active!.height, trash!.y + trash!.height));
+    await search(page).fill("second");
+    await expect(row(page, "second")).toBeVisible();
+    await expect(row(page, "first")).toHaveCount(0);
+  });
+}
 
 test("two physical clicks at Delete coordinates cannot delete or open the next chat", async ({ page }) => {
   await row(page, "first").getByRole("button").click();
