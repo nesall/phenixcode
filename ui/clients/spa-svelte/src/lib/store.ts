@@ -12,3 +12,4 @@ export const bIncognito = writable<boolean>(false);
 export const currentChatId = writable<string>("");
 export const bLoading = writable<boolean>(false);
 export const sessionId = writable<string>("");
+export const bFreeChat = writable(false)

@@ -98,12 +98,12 @@
 
 <main
   class="mx-auto flex flex-col space-y-2 items-center justify-center
-    w-[100vw] h-[100vh] min-w-sx min-h-sx max-h-[100vh]"
+    w-screen h-screen min-w-sx min-h-sx max-h-screen"
   style="max-width: 60rem"
 >
   <div class="p-4 m-0 flex flex-col w-full h-full">
     <Toolbar {fetchInstances} {onClear} />
-    <div class="chatpanel-wrapper flex-grow w-full h-0 mb-[-0.5rem]">
+    <div class="chatpanel-wrapper grow w-full h-0 -mb-2">
       <ChatPanel bind:this={chatPanel} />
     </div>
   </div>

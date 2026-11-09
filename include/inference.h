@@ -53,7 +53,7 @@ public:
     std::function<void(const std::string &)> onStream,
     const std::map<std::string, std::string> &reasoningSelection = {},
     nlohmann::json *assistantMessage = nullptr,
-    std::function<void(const std::string &)> onReasoning = nullptr) const;
+    std::function<void(const std::string &)> onReasoning = nullptr, bool freeChat = false) const;
 
   std::string generateFim(
     const std::string &prefix, 
@@ -65,11 +65,11 @@ public:
     const std::map<std::string, std::string> &reasoningSelection = {}
   ) const;
 
-  static std::string queryTemplate();
+  static std::string queryTemplate(bool freeChat = false);
   static std::string fimTemplate();
 
 private:
-  std::string buildContext(const std::vector<SearchResult> &searchRes, bool commentOut = false, const std::string &fileDivider = {}, bool fim = false) const;
+  std::string buildContext(const std::vector<SearchResult> &searchRes, bool commentOut = false, const std::string &fileDivider = {}, bool fim = false, bool freeChat = false) const;
 };
 
 #endif // _INFERENCE_H_

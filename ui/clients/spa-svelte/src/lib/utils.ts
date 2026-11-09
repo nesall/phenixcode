@@ -270,7 +270,7 @@ export function saveChat(pc: PersistedChat): Promise<ChatResult> {
     ...pc, id,
     created_at: idx >= 0 ? chats[idx].created_at : now,
     updated_at: now,
-    deleted_at: null,
+    deleted_at: null
   };
   if (idx >= 0) chats[idx] = row; else chats.unshift(row);
   try { storeLocalChats(chats); }

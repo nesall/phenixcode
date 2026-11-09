@@ -4,8 +4,7 @@
   import { Dialog, Portal } from "@skeletonlabs/skeleton-svelte";
   import { onMount } from "svelte";
   import { apiUrl, bytesToSize, clog, Consts, hash, stripCommonPrefix } from "../utils";
-  import { fade, fly } from "svelte/transition";
-  // import Dropdown from "./Dropdown.svelte";
+  import { fly } from "svelte/transition";
 
   interface Props {
     loading: boolean;
@@ -32,6 +31,12 @@
   onMount(() => {
     fetchFiles();
   });
+
+  export function clear() {
+    documents = documents.map((d) => ({ ...d, _visible: false, _checked: false }));
+    saveToSession();
+    onChange([]);
+  }
 
   function fetchFiles() {
     const saved = JSON.parse(sessionStorage.getItem(Consts.ContextFilesKey) || "[]");

@@ -175,6 +175,17 @@ void HttpServer::registerAdminRoutes(AdminAuth &auth)
         apiObj["model"] = api.model;
         apiObj["current"] = !isAuto && (api.id == cur);
         apiObj["combinedPrice"] = api.combinedPrice();
+        if (!api.fim.apiUrl.empty()) {
+          nlohmann::json fimObj;
+          fimObj["apiUrl"] = api.fim.apiUrl;
+          fimObj["prefixName"] = api.fim.prefixName;
+          fimObj["suffixName"] = api.fim.suffixName;
+          fimObj["format"] = api.fim.format;
+          fimObj["fileDivider"] = api.fim.fileDivider;
+          fimObj["stopTokens"] = api.fim.stopTokens;
+          fimObj["supported"] = true;
+          apiObj["fim"] = std::move(fimObj);
+        }
         if (!api.reasoning.empty()) {
           json parameters = json::array();
           for (const auto &param : api.reasoning) {

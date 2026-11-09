@@ -31,6 +31,7 @@
     currentChatId,
     sessionId,
     bLoading,
+    bFreeChat,
   } from "../store";
   import { slide } from "svelte/transition";
   import ToggleButton from "./ToggleButton.svelte";
@@ -80,7 +81,6 @@
   }
 
   let statsData: StatsType | undefined = $state();
-
 
   const themeOptions = [
     { label: "Cerberus", value: "cerberus" },
@@ -271,7 +271,14 @@
     messages.set([]);
     currentChatId.set("");
     $sessionId = newUUID();
+    bFreeChat.set(false);    
     onClear();
+  }
+
+  function onFreeChat() {
+    onClearInternal();
+    isOpen = false;
+    bFreeChat.set(true);
   }
 
   async function onSelectChat(chatId: string) {
@@ -309,6 +316,7 @@
 
       currentChatId.set(chat.id || "");
       sessionId.set(chat.messages.find((m) => m.replay)?.replay?.session || newUUID());
+      bFreeChat.set(!!chat.free_chat);
       openChatsState = false;
 
       setTimeout(() => {
@@ -521,6 +529,14 @@
       toaster.error({ title: `Failed to stop: ${error instanceof Error ? error.message : "Unknown error"}` });
     }
   }
+
+  let isOpen = $state(false);
+  let containerButtonSplit: HTMLDivElement | undefined = $state();
+
+  function toggleMenu(e: MouseEvent) {
+    e.stopPropagation();
+    isOpen = !isOpen;
+  }
 </script>
 
 <div class="toolbar flex space-x-2 items-center w-full bg-surface-100-900 px-2 py-1 rounded">
@@ -602,18 +618,72 @@
     >
       <icons.SunMoon />
     </button>
-    <span class="vr h-6"></span>
-    <button
-      type="button"
-      class="btn btn-sm btn-icon flex hover:preset-tonal"
-      aria-label="New Chat"
-      onclick={onClearInternal}
-      title="New chat"
-    >
-      <icons.MessageSquarePlus />
-    </button>
+
+    <div bind:this={containerButtonSplit} class="relative inline-flex">
+      <div class="btn-group py-0 px-1 hover:preset-tonal border border-surface-500/20 inline-flex items-center gap-0">
+        <!-- Primary action -->
+        <button
+          type="button"
+          class="btn btn-sm btn-icon hover:text-surface-900-100"
+          aria-label="New Chat"
+          onclick={onClearInternal}
+          title="New chat"
+        >
+          <icons.MessageSquarePlus class="size-4" />
+        </button>
+        <!-- Tiny drop-down arrow trigger -->
+        <button
+          type="button"
+          class="btn btn-sm btn-icon"
+          aria-label="Chat options"
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          onclick={toggleMenu}
+          title="More chat options"
+        >
+          <icons.ChevronDown class="size-3 transition-transform duration-150 {isOpen ? 'rotate-180' : ''}" />
+        </button>
+      </div>
+
+      <!-- Dropdown Menu -->
+      {#if isOpen}
+        <div
+          role="menu"
+          class="preset-filled-surface-100-900 border border-surface-300-700/30 absolute right-0 top-full z-50 mt-1 min-w-40 flex flex-col p-1 shadow-xl rounded"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            class="btn btn-sm flex w-full items-center justify-start gap-2 rounded text-left hover:preset-tonal"
+            onclick={onClearInternal}
+          >
+            <icons.MessageSquarePlus class="size-4 opacity-75" />
+            <span>New chat</span>
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            class="btn btn-sm flex w-full items-center justify-start gap-2 rounded text-left hover:preset-tonal"
+            title="Start a free chat with the AI (no project context)"
+            onclick={onFreeChat}
+          >
+            <icons.MessageCircleQuestionMark class="size-4 opacity-75" />
+            <span>Free chat</span>
+          </button>
+        </div>
+      {/if}
+    </div>
   </div>
 </div>
+
+<svelte:window
+  onclick={(e) => {
+    if (isOpen && containerButtonSplit && !containerButtonSplit.contains(e.target as Node)) {
+      isOpen = false;
+    }
+  }}
+/>
 
 <Dialog open={openSettingsState} onOpenChange={(e) => (openSettingsState = e.open)}>
   <Portal>
@@ -924,9 +994,13 @@
   </Portal>
 </Dialog>
 
-<ChatHistory bind:open={openChatsState} onOpen={onSelectChat} onDeleted={(id) => {
-  if ($currentChatId === id) onClearInternal();
-}} />
+<ChatHistory
+  bind:open={openChatsState}
+  onOpen={onSelectChat}
+  onDeleted={(id) => {
+    if ($currentChatId === id) onClearInternal();
+  }}
+/>
 
 <style>
   .text-right {

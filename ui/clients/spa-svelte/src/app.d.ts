@@ -78,4 +78,5 @@ interface PersistedChat {
   created_at?: number;
   updated_at?: number;
   deleted_at?: number | null;
+  free_chat?: number;
 }

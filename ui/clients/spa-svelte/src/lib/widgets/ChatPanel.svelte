@@ -19,16 +19,23 @@
     currentChatId,
     bLoading,
     sessionId,
+    bFreeChat,
   } from "../store";
 
   const reasoningProvider = $derived($settings.completionApis.find((api) => api.id === $settings.currentApi));
   const hasReasoning = $derived(reasoningParameters(reasoningProvider).length > 0);
+
+  let inputArea: InputArea;
 
   export function resetUi() {
     $bLoading = false;
     started = false;
     metaInfoArray = [];
     reasoningTextRaw = "";
+    sourceids = [];
+    attachments = [];
+    attachmentsLoaded = [];
+    inputArea?.resetContext();
   }
 
   $effect(() => {
@@ -148,6 +155,7 @@
         content: m.content,
         replay: m.replay?.content === m.content ? { id: m.replay.id, session: m.replay.session } : undefined,
       })),
+      free_chat: $bFreeChat ? 1 : 0,
     };
     // Filter out consecutive user messages that have identical content.
     // Might happen e.g. when server stopped responding and user retries the same message.
@@ -373,6 +381,7 @@
           reasoning: request.reasoning,
           ctxratio: $contextSizeRatio,
           attachedonly: attachedFilesOnly,
+          free_chat: $bFreeChat,
         }),
       });
       if (!response.ok) {
@@ -431,7 +440,8 @@
         assistantMessage = { role: "assistant", content: "", _html: "" };
         $messages = [...$messages, assistantMessage];
       }
-      assistantMessage.content += (assistantMessage.content ? "\n\n" : "") + "Sorry, there was an error processing your request.";
+      assistantMessage.content +=
+        (assistantMessage.content ? "\n\n" : "") + "Sorry, there was an error processing your request.";
       assistantMessage._html = normalizeHeaders(await renderMarkdown(assistantMessage.content));
       assistantMessage._metaInfoArray = [...metaInfoArray];
       assistantMessage._reasoningText = normalizeHeaders(await renderMarkdown(reasoningTextRaw));
@@ -693,27 +703,37 @@
         </button>
       </div>
     {/if}
-    <InputArea {onSendMessage} bind:sourceids bind:attachments loading={$bLoading} />
+    <InputArea bind:this={inputArea} {onSendMessage} bind:sourceids bind:attachments loading={$bLoading} />
 
-    <div
-      class="flex items-center absolute left-4 bottom-0 z-50 bg-surface-50-950 px-2 rounded gap-1 translate-y-1/3"
-      style:max-width={hasReasoning ? "calc(100% - 7.5rem)" : undefined}
-      title="If on, only files attached to the message will be used as context"
-    >
-      <input
-        type="checkbox"
-        class="shrink-0"
-        id="checkbox-attached-files-only"
-        checked={attachedFilesOnly && hasAttachedFiles}
-        disabled={!hasAttachedFiles}
-        onchange={(ev) => {
-          attachedFilesOnly = (ev.target as HTMLInputElement)?.checked;
-        }}
-      />
-      <label class="min-w-0 text-xs {hasAttachedFiles ? '' : 'text-surface-500'}" for="checkbox-attached-files-only">
-        Use attached files only
-      </label>
-    </div>
+    {#if !$bFreeChat}
+      <div
+        class="flex items-center absolute left-4 bottom-0 z-50 bg-surface-50-950 px-2 rounded gap-1 translate-y-1/3"
+        style:max-width={hasReasoning ? "calc(100% - 7.5rem)" : undefined}
+        title="If on, only files attached to the message will be used as context"
+      >
+        {#if hasAttachedFiles}
+          <input
+            type="checkbox"
+            class="shrink-0"
+            id="checkbox-attached-files-only"
+            checked={attachedFilesOnly && hasAttachedFiles}
+            disabled={!hasAttachedFiles}
+            onchange={(ev) => {
+              attachedFilesOnly = (ev.target as HTMLInputElement)?.checked;
+            }}
+          />
+          <label
+            class="min-w-0 text-xs {hasAttachedFiles ? '' : 'text-surface-500'}"
+            for="checkbox-attached-files-only"
+          >
+            Use attached files only
+          </label>
+        {:else}
+          <span class="text-xs text-surface-500">No attached files</span>
+        {/if}
+      </div>
+    {/if}
+
     {#if hasReasoning}
       <div class="absolute right-4 bottom-0 z-50 translate-y-1/3">
         {#key JSON.stringify([reasoningProvider?.id, reasoningProvider?.reasoning])}

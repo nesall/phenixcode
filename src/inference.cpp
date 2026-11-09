@@ -341,6 +341,16 @@ namespace {
   Answer:
   )" };
 
+  const std::string _freeChatTemplate{ R"(
+  Use the attached files when relevant to answer the user's question.
+  Do not add a "Sources" section. The application displays the attachment names.
+  Attached files:
+  __CONTEXT__
+
+  Question:
+  __QUESTION__
+  )" };
+
 #if 0
   const std::string &_fimTemplate{ R"(
   You are a helpful coding assistant. When asked to fill the missing middle between a prefix and a suffix, 
@@ -429,7 +439,8 @@ std::string CompletionClient::generateCompletion(
   std::function<void(const std::string &)> onStream,
   const std::map<std::string, std::string> &reasoningSelection,
   nlohmann::json *assistantMessage,
-  std::function<void(const std::string &)> onReasoning) const
+  std::function<void(const std::string &)> onReasoning,
+  bool freeChat) const
 {
   if (assistantMessage) *assistantMessage = nullptr;
   reasoning_history::AssistantMessageAccumulator accumulator(cfg().apiStyle);
@@ -459,30 +470,32 @@ std::string CompletionClient::generateCompletion(
     onStream("[meta]Working on the response");
   }
 
-  std::string context = buildContext(searchRes);
-  std::string question = messagesJson.back()["content"].get<std::string>();
-
-  std::string prompt = _queryTemplate;
-
-  const std::string questionPlaceholder{ "__QUESTION__" };
-  const std::string contextPlaceholder{ "__CONTEXT__" };
-
-  size_t questionPos = prompt.find(questionPlaceholder);
-  size_t contextPos = prompt.find(contextPlaceholder);
-  assert(questionPos != std::string::npos);
-  assert(contextPos != std::string::npos);
-
-  if (questionPos < contextPos) {
-    prompt.replace(contextPos, contextPlaceholder.length(), context);
-    prompt.replace(questionPos, questionPlaceholder.length(), question);
-  } else {
-    prompt.replace(questionPos, questionPlaceholder.length(), question);
-    prompt.replace(contextPos, contextPlaceholder.length(), context);
-  }
-
-  // Assign propmt to the last messagesJson's content field
   nlohmann::json modifiedMessages = messagesJson;
-  modifiedMessages.back()["content"] = prompt;
+  if (!freeChat || !searchRes.empty()) {
+    std::string context = buildContext(searchRes, false, {}, false, freeChat);
+    std::string question = messagesJson.back()["content"].get<std::string>();
+
+    std::string prompt = queryTemplate(freeChat);
+
+    const std::string questionPlaceholder{ "__QUESTION__" };
+    const std::string contextPlaceholder{ "__CONTEXT__" };
+
+    size_t questionPos = prompt.find(questionPlaceholder);
+    size_t contextPos = prompt.find(contextPlaceholder);
+    assert(questionPos != std::string::npos);
+    assert(contextPos != std::string::npos);
+
+    if (questionPos < contextPos) {
+      prompt.replace(contextPos, contextPlaceholder.length(), context);
+      prompt.replace(questionPos, questionPlaceholder.length(), question);
+    } else {
+      prompt.replace(questionPos, questionPlaceholder.length(), question);
+      prompt.replace(contextPos, contextPlaceholder.length(), context);
+    }
+
+    // Apply the selected context template to the current user message.
+    modifiedMessages.back()["content"] = prompt;
+  }
 
   //std::cout << "Full context: " << modifiedMessages.dump() << "\n";
   
@@ -758,9 +771,9 @@ std::string CompletionClient::generateFim(
   return fullResponse;
 }
 
-std::string CompletionClient::queryTemplate()
+std::string CompletionClient::queryTemplate(bool freeChat)
 {
-  return _queryTemplate;
+  return freeChat ? _freeChatTemplate : _queryTemplate;
 }
 
 std::string CompletionClient::fimTemplate()
@@ -768,11 +781,11 @@ std::string CompletionClient::fimTemplate()
   return _fimTemplate;
 }
 
-std::string CompletionClient::buildContext(const std::vector<SearchResult> &searchRes, bool commentOut, const std::string &fileDivider, bool fim) const
+std::string CompletionClient::buildContext(const std::vector<SearchResult> &searchRes, bool commentOut, const std::string &fileDivider, bool fim, bool freeChat) const
 {
   const auto labelFmt = app_.settings().generationPrependLabelFormat();
   const auto maxContextTokens = cfg().contextLength;
-  size_t nofTokens = fim ? app_.tokenizer().countTokensWithVocab(_fimTemplate) : app_.tokenizer().countTokensWithVocab(_queryTemplate);
+  size_t nofTokens = app_.tokenizer().countTokensWithVocab(fim ? _fimTemplate : queryTemplate(freeChat));
   std::string context;
   for (const auto &r : searchRes) {
     std::string filename = std::filesystem::path(r.sourceId).filename().string();

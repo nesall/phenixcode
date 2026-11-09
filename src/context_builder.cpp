@@ -258,7 +258,8 @@ namespace context {
     std::vector<std::string> sources,
     float contextSizeRatio,
     bool attachedOnly,
-    std::function<void(std::string_view)> onInfo
+    std::function<void(std::string_view)> onInfo,
+    bool freeChat
   ) {
     LOG_START;
     if (!onInfo) onInfo = [](std::string_view) {};
@@ -272,7 +273,7 @@ namespace context {
     const auto maxTokenBudget = static_cast<size_t>(apiConfig.contextLength * std::clamp(contextSizeRatio, 0.1f, 1.0f));
     assert(0 < maxTokenBudget);
 
-    if (attachedOnly && attachments.empty() && sources.empty()) {
+    if (!freeChat && attachedOnly && attachments.empty() && sources.empty()) {
       assert(!"Should not happen");
       attachedOnly = false;
       LOG_MSG_WARN << "'attachedOnly' is set but no attachments or sources provided. Ignored.";
@@ -286,6 +287,17 @@ namespace context {
     LOG_MSG << "Total context budget:" << maxTokenBudget;
     LOG_MSG << "Budget used for question:" << questionTokens;
     LOG_MSG << "Budget used for history messages:" << usedTokens - questionTokens;
+
+    auto finishResults = [&](std::vector<SearchResult> results) {
+      if (app.settings().generationMaxChunks() < results.size()) {
+        size_t lastN = results.size() - app.settings().generationMaxChunks();
+        for (size_t j = 0; j < lastN; j++)
+          usedTokens -= app.tokenizer().countTokensWithVocab(results[results.size() - lastN + j].content);
+        results.resize(app.settings().generationMaxChunks());
+      }
+      onInfo(fmt::format("Context token budget used {}/{}", usedTokens, maxTokenBudget));
+      return std::make_pair(std::move(results), usedTokens);
+    };
 
     {
       if (!attachments.empty()) {
@@ -325,6 +337,8 @@ namespace context {
     }
 
     LOG_MSG << "Budget used for attachments:" << usedTokens - initialTokens;
+
+    if (freeChat) return finishResults(std::move(attachmentResults));
 
     std::vector<std::vector<float>> questionEmbeddingVectors;
     std::unordered_map<std::string, SearchResult> sourceToChunk;
@@ -556,14 +570,6 @@ namespace context {
     orderedResults.insert(orderedResults.end(), directSrcResults.begin(), directSrcResults.end());
     orderedResults.insert(orderedResults.end(), relatedSrcResults.begin(), relatedSrcResults.end());
     orderedResults.insert(orderedResults.end(), filteredChunkResults.begin(), filteredChunkResults.end());
-    if (app.settings().generationMaxChunks() < orderedResults.size()) {
-      size_t lastN = orderedResults.size() - app.settings().generationMaxChunks();
-      for (size_t j = 0; j < lastN; j ++) {
-        usedTokens -= app.tokenizer().countTokensWithVocab(orderedResults[orderedResults.size() - lastN + j].content);
-      }
-      orderedResults.resize(app.settings().generationMaxChunks());
-    }
-    onInfo(fmt::format("Context token budget used {}/{}", usedTokens, maxTokenBudget));
 
     //#ifdef _DEBUG
     //    size_t nn = 0;
@@ -573,7 +579,7 @@ namespace context {
     //    LOG_MSG << "Total context tokens used:" << nn;
     //#endif
 
-    return { orderedResults, usedTokens };
+    return finishResults(std::move(orderedResults));
   }
 
   size_t messagesNofTokens(const json &messages, const App &app) {

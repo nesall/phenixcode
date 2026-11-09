@@ -28,7 +28,8 @@ namespace {
     " title TEXT NOT NULL DEFAULT '',"
     " created_at INTEGER NOT NULL,"
     " updated_at INTEGER NOT NULL,"
-    " messages_json TEXT NOT NULL);"
+    " messages_json TEXT NOT NULL,"
+    " free_chat INTEGER NOT NULL DEFAULT 0);"
     "CREATE INDEX IF NOT EXISTS idx_chats_proj_upd ON chats(project_id, updated_at DESC);";
 
   fs::path chatDbPath() {
@@ -133,14 +134,21 @@ ChatDb::ChatDb(const std::string &path) {
     try {
       // Older databases have no schema version. Inspect before altering so reopening is safe.
       bool hasDeletedAt = false;
+      bool hasFreeChat = false;
       {
         utils::SqliteStmt columns(db_);
         columns.stmt_ = prepareOrThrow(db_, "PRAGMA table_info(chats)");
-        while (sqlite3_step(columns.ref()) == SQLITE_ROW)
-          if (columns.getStr(1) == "deleted_at") hasDeletedAt = true;
+        while (sqlite3_step(columns.ref()) == SQLITE_ROW) {
+          const auto name = columns.getStr(1);
+          if (name == "deleted_at") hasDeletedAt = true;
+          if (name == "free_chat") hasFreeChat = true;
+        }
       }
       if (!hasDeletedAt && sqlite3_exec(db_,
         "ALTER TABLE chats ADD COLUMN deleted_at INTEGER DEFAULT NULL", nullptr, nullptr, nullptr) != SQLITE_OK)
+        throw std::runtime_error(sqlite3_errmsg(db_));
+      if (!hasFreeChat && sqlite3_exec(db_,
+        "ALTER TABLE chats ADD COLUMN free_chat INTEGER NOT NULL DEFAULT 0", nullptr, nullptr, nullptr) != SQLITE_OK)
         throw std::runtime_error(sqlite3_errmsg(db_));
     } catch (const std::exception &ex) {
       LOG_MSG << "ChatDb migration failed:" << ex.what();
@@ -167,18 +175,20 @@ nlohmann::json ChatDb::saveChat(const nlohmann::json &chat)
   if (title.size() > 200) title.resize(200);
   std::string messages = chat["messages"].dump();
   sqlite3_int64 now = (sqlite3_int64)std::time(nullptr);
+  sqlite3_int64 freeChat = chat.value("free_chat", 0);
 
   utils::SqliteStmt st(db_);
   st.stmt_ = prepareOrThrow(db_,
-    "INSERT INTO chats (id, project_id, title, created_at, updated_at, messages_json) "
-    "VALUES (?1, ?2, ?3, ?4, ?4, ?5) "
-    "ON CONFLICT(id) DO UPDATE SET project_id=?2, title=?3, updated_at=?4, messages_json=?5 "
+    "INSERT INTO chats (id, project_id, title, created_at, updated_at, messages_json, free_chat) "
+    "VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6) "
+    "ON CONFLICT(id) DO UPDATE SET project_id=?2, title=?3, updated_at=?4, messages_json=?5, free_chat=?6"
     "WHERE chats.deleted_at IS NULL");
   st.bindText(1, id);
   st.bindText(2, projectId);
   st.bindText(3, title);
   st.bindInt64(4, now);
   st.bindText(5, messages);
+  st.bindInt64(6, freeChat);
   if (sqlite3_step(st.ref()) != SQLITE_DONE)
     throw std::runtime_error(std::string("saveChat: ") + sqlite3_errmsg(db_));
   if (sqlite3_changes(db_) == 0)
@@ -192,7 +202,7 @@ nlohmann::json ChatDb::listChats(const std::string &projectId, bool deleted)
   if (!db_) throw std::runtime_error("Chat DB not available");
   utils::SqliteStmt st(db_);
   const std::string sql =
-    std::string("SELECT id, title, project_id, updated_at, deleted_at, messages_json FROM chats WHERE deleted_at IS ") +
+    std::string("SELECT id, title, project_id, updated_at, deleted_at, messages_json, free_chat FROM chats WHERE deleted_at IS ") +
     (deleted ? "NOT NULL" : "NULL") + (projectId.empty() ? "" : " AND project_id=?1") +
     (deleted ? " ORDER BY deleted_at DESC, id LIMIT 500" : " ORDER BY updated_at DESC, id LIMIT 500");
   st.stmt_ = prepareOrThrow(db_, sql.c_str());
@@ -202,9 +212,15 @@ nlohmann::json ChatDb::listChats(const std::string &projectId, bool deleted)
   int rc;
   while ((rc = sqlite3_step(st.ref())) == SQLITE_ROW) {
     auto messages = nlohmann::json::parse(st.getStr(5), nullptr, false);
-    arr.push_back({ {"id", st.getStr(0)}, {"title", st.getStr(1)}, {"project_id", st.getStr(2)},
-      {"updated_at", st.getInt64(3)}, {"deleted_at", deleted ? nlohmann::json(st.getInt64(4)) : nlohmann::json(nullptr)},
-      {"preview", chatPreview(messages)} });
+    arr.push_back({ 
+      {"id", st.getStr(0)}, 
+      {"title", st.getStr(1)}, 
+      {"project_id", st.getStr(2)},
+      {"updated_at", st.getInt64(3)}, 
+      {"deleted_at", deleted ? nlohmann::json(st.getInt64(4)) : nlohmann::json(nullptr)},
+      {"preview", chatPreview(messages)},
+      { "free_chat", st.getInt64(6) }
+      });
   }
   if (rc != SQLITE_DONE) throw std::runtime_error(std::string("listChats: ") + sqlite3_errmsg(db_));
   return { {"status", "success"}, {"chats", arr} };
@@ -218,7 +234,7 @@ nlohmann::json ChatDb::getChat(const std::string &id)
 
   utils::SqliteStmt st(db_);
   st.stmt_ = prepareOrThrow(db_,
-    "SELECT id, project_id, title, created_at, updated_at, messages_json "
+    "SELECT id, project_id, title, created_at, updated_at, messages_json, free_chat "
     "FROM chats WHERE id=?1 AND deleted_at IS NULL");
   st.bindText(1, id);
 
@@ -236,6 +252,7 @@ nlohmann::json ChatDb::getChat(const std::string &id)
   } catch (const std::exception &ex) {
     throw std::runtime_error("Corrupt messages JSON for chat " + id + ": " + ex.what());
   }
+  chat["free_chat"] = st.getInt64(6);
   return { {"status", "success"}, {"chat", chat} };
 }
 

@@ -102,10 +102,12 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
         "max_tokens": 800,
         "targetapi": "xai",
         "ctxratio": 0.5,
-        "attachedonly": false
+        "attachedonly": false,
+        "free_chat": false,
       }
       */
       json request = json::parse(req.body);
+      const bool freeChat = request.value("free_chat", false);
       if (!request.contains("messages") || !request["messages"].is_array() || request["messages"].empty()) {
         throw std::invalid_argument("'messages' field required and must be non-empty array");
       }
@@ -131,6 +133,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
       const auto responseId = request.value("response_id", std::string{});
       if (sessionId.size() > 128 || responseId.size() > 128)
         throw std::invalid_argument("Session and response IDs must not exceed 128 characters");
+      const auto replaySessionId = sessionId.empty() ? sessionId : (freeChat ? "free:" : "context:") + sessionId;
       for (const auto &message : messagesJson) {
         if (!message.is_object() || !message.contains("role") || !message["role"].is_string() ||
             !message.contains("content") || !message["content"].is_string() ||
@@ -143,8 +146,8 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
       auto attachments = parseAttachments(attachmentsJson);
 
       std::vector<std::string> sources;
-      if (request.contains("sourceids")) {
-        auto sourceidsJson = request["sourceids"];
+      if (!freeChat && request.contains("sourceids")) {
+        const auto &sourceidsJson = request["sourceids"];
         for (const auto &sid : sourceidsJson) {
           if (sid.is_string()) {
             vecAddIfUnique(sources, sid.get<std::string>());
@@ -196,7 +199,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
             return "data: " + payload.dump() + "\n\n";
             };
 
-          auto initialInfo = packPayload("[meta]Searching for relevant content");
+          auto initialInfo = packPayload(freeChat ? "[meta]Preparing conversation" : "[meta]Searching for relevant content");
           sink.write(initialInfo.data(), initialInfo.size());
 
           auto onInfo = [packPayload, &sink](std::string_view info)
@@ -207,11 +210,12 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
 
           try {
-            auto prepared = imp->app_.reasoningHistory().prepare(sessionId, responseId, apiConfig, messagesJson);
-            size_t initialTokens = imp->app_.tokenizer().countTokensWithVocab(CompletionClient::queryTemplate());
-            initialTokens += messagesNofTokens(prepared.messages, imp->app_); // history + question, including replay
+            auto prepared = imp->app_.reasoningHistory().prepare(replaySessionId, responseId, apiConfig, messagesJson);
+            size_t initialTokens = messagesNofTokens(prepared.messages, imp->app_); // history + question, including replay
+            if (!freeChat || !attachments.empty())
+              initialTokens += imp->app_.tokenizer().countTokensWithVocab(CompletionClient::queryTemplate(freeChat));
             const auto [orderedResults, usedTokens] = processInputResults(
-              imp->app_, apiConfig, initialTokens, question, attachments, sources, contextSizeRatio, attachedOnly, onInfo
+              imp->app_, apiConfig, initialTokens, question, attachments, sources, contextSizeRatio, attachedOnly, onInfo, freeChat
             );
 
             for (const auto &s : pendingInfoVec) {
@@ -245,7 +249,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
                   connected = false;
                   return; // Client disconnected
                 }
-              }
+              }, freeChat
             );
             const bool remembered = connected && !fullResponse.empty() && imp->app_.reasoningHistory().remember(prepared.ticket, assistantMessage);
 

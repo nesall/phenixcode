@@ -54,11 +54,12 @@ int main() {
       sqlite3 *inspection = nullptr;
       check(sqlite3_open_v2(path.string().c_str(), &inspection, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK, "Inspect test database");
       sqlite3_stmt *row = nullptr;
-      check(sqlite3_prepare_v2(inspection, "SELECT messages_json, updated_at FROM chats WHERE id='legacy' AND deleted_at IS NOT NULL",
+      check(sqlite3_prepare_v2(inspection, "SELECT free_chat, messages_json, updated_at FROM chats WHERE id='legacy' AND deleted_at IS NOT NULL",
         -1, &row, nullptr) == SQLITE_OK, "Inspect soft-deleted row");
       check(sqlite3_step(row) == SQLITE_ROW, "Deleted row remains in SQLite");
-      check(nlohmann::json::parse(reinterpret_cast<const char *>(sqlite3_column_text(row, 0))) == original["messages"], "SQLite retains original messages while deleted");
-      check(sqlite3_column_int64(row, 1) == 200, "SQLite retains modification timestamp while deleted");
+      check(sqlite3_column_int(row, 0) == 0, "Legacy chat defaults to not free_chat");
+      check(nlohmann::json::parse(reinterpret_cast<const char *>(sqlite3_column_text(row, 1))) == original["messages"], "SQLite retains original messages while deleted");
+      check(sqlite3_column_int64(row, 2) == 200, "SQLite retains modification timestamp while deleted");
       sqlite3_finalize(row);
       sqlite3_close(inspection);
       rejects([&] { db.deleteChat("legacy"); });

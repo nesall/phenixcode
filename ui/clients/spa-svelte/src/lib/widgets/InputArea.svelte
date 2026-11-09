@@ -2,7 +2,7 @@
   import * as icons from "@lucide/svelte";
   import FileAttachments from "./FileAttachments.svelte";
   import ContextFiles from "./ContextFiles.svelte";
-  import { bIncognito } from "../store";
+  import { bIncognito, bFreeChat } from "../store";
   import { reasoningReady } from "../reasoning";
 
   interface Props {
@@ -74,13 +74,28 @@
   function onContextFiles(files: string[]) {
     sourceids = [...files];
   }
+
+  const borderColor = $derived(
+    $bIncognito
+      ? $bFreeChat
+        ? "border-secondary-500"
+        : "border-tertiary-200-800"
+      : $bFreeChat
+        ? "border-primary-500"
+        : "border-surface-200-800",
+  );
+
+  let ctxRef: ContextFiles;
+  export function resetContext() {
+    ctxRef?.clear(); // -> triggers onContextFiles([]) -> sourceids=[]
+    attachments = [];
+  }
 </script>
 
 <form class="flex flex-col space-y-2 w-full" onsubmit={onSubmit}>
   <div
     data-testid="message-input-frame"
-    class="flex flex-col rounded-xl p-3 pb-4 w-full bg-surface-50-950 relative border-1
-    {$bIncognito ? 'border-tertiary-200-800' : 'border-surface-200-800'}"
+    class="flex flex-col rounded-xl p-3 pb-4 w-full bg-surface-50-950 relative border-1 {borderColor}"
     role="presentation"
     tabindex="-1"
   >
@@ -95,16 +110,20 @@
         bind:value={input}
         disabled={loading}
         onkeydown={onTextereaKeyDown}
-        oninput={onTextareaChange}
-      ></textarea>
+        oninput={onTextareaChange}></textarea>
     </div>
     <div class="absolute2 left2-1 bottom2-1 flex flex-col space-y-2">
-      <FileAttachments {loading} bind:attachments />
-
+      {#if !$bFreeChat}
+        <FileAttachments {loading} bind:attachments />
+      {/if}
       <div class="flex flex-wrap items-end gap-2 w-full">
-        <div class="flex-1 min-w-32">
-          <ContextFiles {loading} onChange={onContextFiles} />
-        </div>
+        {#if !$bFreeChat}
+          <div class="flex-1 min-w-32">
+            <ContextFiles bind:this={ctxRef} {loading} onChange={onContextFiles} />
+          </div>
+        {:else}
+          <FileAttachments {loading} bind:attachments />
+        {/if}
         <div class="ml-auto flex max-w-full flex-wrap items-center justify-end gap-1">
           <button
             type="submit"

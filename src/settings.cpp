@@ -37,7 +37,7 @@ namespace {
     }
 
     if (item.contains("fim") && item["fim"].is_object()) {
-      auto fim = item["fim"];
+      const auto &fim = item["fim"];
       cfg.fim.apiUrl = fim.value("api_url", cfg.apiUrl);
       cfg.fim.prefixName = fim.value("prefix_name", "");
       cfg.fim.suffixName = fim.value("suffix_name", "");

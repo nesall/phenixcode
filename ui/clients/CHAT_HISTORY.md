@@ -20,8 +20,9 @@ The existing `window.cppApi` bridge now supports:
 - `deleteChat(id)` — mark an active chat deleted.
 - `restoreChat(id)` — restore a deleted chat, also used by Undo.
 
-`ChatDb` adds nullable `deleted_at` to older SQLite databases on initialization.
-Deletion and restoration only change that column. IDs, project, title, creation
+`ChatDb` adds nullable `deleted_at` and `free_chat` (a boolean stored as an
+integer with a default of false) to older SQLite databases on initialization.
+Deletion and restoration only change `deleted_at`. IDs, project, title, creation
 and modification timestamps, and messages survive recovery. Stale saves cannot
 overwrite a chat while it is in Trash. Browser mode applies the same behavior
 to the existing localStorage store. There is no permanent deletion or retention
