@@ -4,6 +4,8 @@
 
   const cost = $derived(monitorStore.snapshot?.cost);
 
+  const providersByTotal = $derived(Object.entries(cost?.by_provider ?? {}).sort(([, a], [, b]) => b.total - a.total));
+
   function usd(amount: number | undefined): string {
     return `$${(amount ?? 0).toFixed(6)}`;
   }
@@ -65,27 +67,28 @@
       </div>
       {#if cost.by_provider && Object.keys(cost.by_provider).length}
         <div class="overflow-x-auto rounded-md border border-surface-200-800">
-          <table class="table table-compact w-full">
+          <table class="table table-compact w-full text-left">
             <thead>
               <tr>
                 <th>Provider</th>
                 <th>Model</th>
-                <th>Input</th>
-                <th>Cached input</th>
-                <th>Output</th>
-                <th>Total</th>
-                <th>Calls</th>
+                <th class="text-right">Input</th>
+                <th class="text-right">Cached input</th>
+                <th class="text-right">Output</th>
+                <th class="text-right">Total</th>
+                <th class="text-right">Calls</th>
               </tr>
             </thead>
             <tbody>
-              {#each Object.entries(cost.by_provider) as [providerId, provider]}
-                <tr>
-                  <td>{providerId}</td><td>{provider.model || "—"}</td>
-                  <td>{usd(provider.input)}</td>
-                  <td>{usd(provider.cached_input)}</td>
-                  <td>{usd(provider.output)}</td>
-                  <td>{usd(provider.total)}</td>
-                  <td>{provider.calls}</td>
+              {#each providersByTotal as [providerId, provider]}
+                <tr class="hover:bg-surface-100-900">
+                  <td>{providerId}</td>
+                  <td>{provider.model || "—"}</td>
+                  <td class="text-right tabular-nums">{usd(provider.input)}</td>
+                  <td class="text-right tabular-nums">{usd(provider.cached_input)}</td>
+                  <td class="text-right tabular-nums">{usd(provider.output)}</td>
+                  <td class="text-right tabular-nums">{usd(provider.total)}</td>
+                  <td class="text-right tabular-nums">{provider.calls}</td>
                 </tr>
               {/each}
             </tbody>

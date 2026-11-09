@@ -425,12 +425,91 @@ async function test_fetchSnapshot(settingsFilePath: string): Promise<{
         latency_samples: 0,
       },
       cost: {
-        generation_input: 0,
-        generation_output: 0,
-        generation_cached_input: 0,
+        // generation_input: 0,
+        // generation_output: 0,
+        // generation_cached_input: 0,
+        // embedding: 0,
+        // total: 0,
+        // pricing_version: "",
         embedding: 0,
-        total: 0,
-        pricing_version: "",
+        generation_cached_input: 0.0013553546205790018,
+        generation_input: 0.346934227890889,
+        generation_output: 0.03341680001635849,
+        note: "embedding cost not included",
+        pricing_version: "8f22e7d0c586d92a",
+        total: 0.38170638252782646,
+        by_provider: {
+          "EmbeddingGemma": {
+            "cached_input": 0,
+            "calls": 746,
+            "input": 0,
+            "model": "embeddinggemma",
+            "output": 0,
+            "tokens_in": 2021096,
+            "tokens_out": 0,
+            "total": 0
+          },
+          "deepseek-flash": {
+            "cached_input": 0.000004793100041663275,
+            "calls": 1,
+            "input": 0.004553445180937647,
+            "model": "deepseek-flash",
+            "output": 0.0009936000394821167,
+            "tokens_in": 15977,
+            "tokens_out": 828,
+            "total": 0.005551838320461428
+          },
+          "deepseek-v4.1-flash": {
+            "cached_input": 0.000008301480394299141,
+            "calls": 4,
+            "input": 0.007886405823725089,
+            "model": "deepseek-v4.1-flash",
+            "output": 0.000819839981675148,
+            "tokens_in": 69179,
+            "tokens_out": 1708,
+            "total": 0.008714547285794537
+          },
+          "mimo-v2.6-flash": {
+            "cached_input": 0,
+            "calls": 18,
+            "input": 0.048023638926587994,
+            "model": "mimo-v2.6-flash",
+            "output": 0.002094610037997365,
+            "tokens_in": 400197,
+            "tokens_out": 9107,
+            "total": 0.05011824896458537
+          },
+          "mimo-v2.6-pro": {
+            "cached_input": 0,
+            "calls": 9,
+            "input": 0.06721714885529875,
+            "model": "mimo-v2.6-pro",
+            "output": 0.003848599934458732,
+            "tokens_in": 192049,
+            "tokens_out": 5498,
+            "total": 0.0710657487897575
+          },
+          "mistral-small": {
+            "cached_input": 0.00021249749525031078,
+            "calls": 11,
+            "input": 0.040374526604339475,
+            "model": "mistral-small-latest",
+            "output": 0.0005724000227451324,
+            "tokens_in": 283330,
+            "tokens_out": 954,
+            "total": 0.04115942412233493
+          },
+          "muse-spark-open": {
+            "cached_input": 0.0011297625448927285,
+            "calls": 9,
+            "input": 0.17887906250000002,
+            "model": "meta-models/muse-spark-open-1026",
+            "output": 0.025087749999999995,
+            "tokens_in": 152609,
+            "tokens_out": 6061,
+            "total": 0.2050965750448927
+          }
+        }
       },
     },
   };
