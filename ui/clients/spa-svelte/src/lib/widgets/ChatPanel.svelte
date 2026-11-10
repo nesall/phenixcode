@@ -25,7 +25,7 @@
   const reasoningProvider = $derived($settings.completionApis.find((api) => api.id === $settings.currentApi));
   const hasReasoning = $derived(reasoningParameters(reasoningProvider).length > 0);
 
-  let inputArea: InputArea;
+  let inputArea = $state<InputArea>();
 
   export function resetUi() {
     $bLoading = false;

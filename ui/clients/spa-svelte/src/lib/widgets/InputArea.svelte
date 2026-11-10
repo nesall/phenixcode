@@ -85,7 +85,7 @@
         : "border-surface-200-800",
   );
 
-  let ctxRef: ContextFiles;
+  let ctxRef = $state<ContextFiles>();
   export function resetContext() {
     ctxRef?.clear(); // -> triggers onContextFiles([]) -> sourceids=[]
     attachments = [];
