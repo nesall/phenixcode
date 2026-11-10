@@ -3,7 +3,7 @@
   import * as icons from "@lucide/svelte";
   import { projectStore } from "../../../store.svelte";
   import { onMount } from "svelte";
-  import { helper_saveProjectSettings } from "../../../utils";
+  import { helper_checkPathExists, helper_saveProjectSettings } from "../../../utils";
 
   interface Props {
     onChanged: any;
@@ -17,6 +17,7 @@
   let newGlobalExclude = $state("");
   let newPathExclude = $state("");
   let newPathExtension = $state("");
+  let pathToValidState = $state<{ [key: string]: boolean }>({});
 
   onMount(() => {});
 
@@ -37,6 +38,30 @@
       }
       helper_saveProjectSettings(projectStore.selected);
       onChanged(projectStore.selected);
+    }
+  }
+  
+  function isValidPath(path: string | undefined | null) {
+    if (!path) return false;
+    return pathToValidState[path] !== false;
+  }
+
+  function onPathChange(e: Event) {
+    const ev = e as InputEvent;
+    if (ev && ev.target) {
+      onChange();
+      const path = (ev.target as HTMLInputElement).value;
+      if (!path) {
+        pathToValidState[path] = false;
+        return;
+      }
+      helper_checkPathExists(path).then((res: any) => {
+        if (res.status !== "success") {
+          pathToValidState[path] = false;
+        } else {
+          pathToValidState[path] = true;
+        }
+      });
     }
   }
 
@@ -210,8 +235,7 @@
           class="input"
           bind:value={projectStore.selected.jsonData.source.project_description}
           rows="3"
-          onchange={onChange}
-        ></textarea>
+          onchange={onChange}></textarea>
       </label>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -321,10 +345,16 @@
           <div class="flex flex-col md:flex-row gap-4 mb-4">
             <label class="label flex-4">
               <span class="label-text">Path</span>
-              <input type="text" id="path-{i}" class="input" bind:value={path.path} onchange={onChange} />
+              <input
+                type="text"
+                id="path-{i}"
+                class="input {!isValidPath(path.path) ? 'outline-2 outline-red-500' : ''}"
+                bind:value={path.path}
+                onchange={onPathChange}
+              />
             </label>
 
-            <label class="label min-w-[10rem] flex-1">
+            <label class="label min-w-40 flex-1">
               <span class="label-text">Type</span>
               <select id="type-{i}" class="input" bind:value={path.type} onchange={onChange}>
                 <option value="directory">Directory</option>

@@ -348,6 +348,7 @@ async function test_checkPathExists(path: string) {
   let ok = true;
   if (path.includes("test2")) ok = false;
   else if (path === "./phenixcode-core2") ok = false;
+  else if (path.includes("workspace2")) ok = false;
   console.log("test_checkPathExists", path, ok);
   if (ok) {
     return { status: "success", message: "Path exists." };
