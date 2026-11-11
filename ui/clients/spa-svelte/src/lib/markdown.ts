@@ -3,6 +3,20 @@ import { apiUrl, escapeHtml } from './utils';
 
 let procUrl = (url: string) => { return url; }
 
+const svgCopy = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy preview-icon">
+        <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>
+        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+      </svg>`;
+
+const svgCheck = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check preview-icon">
+      <path d="M20 6 9 17l-5-5"/>
+    </svg>`;
+// const svgCopy = "Copy";
+// const svgCheck = "Done";
+
+
 // Custom renderer
 const renderer: RendererObject = {
   heading({ tokens, depth }) {
@@ -53,7 +67,6 @@ const renderer: RendererObject = {
     if (!token.escaped) {
       text = escapeHtml(text);
     }
-    // return `<pre class="bg-surface-100-900 py-4 px-8 m-4 rounded"><code class="code text-xs whitespace-pre-wrap break-words">${text}</code></pre>`;
 
     // Unique id for the code block to target copy
     const codeId = `codeblock-${Math.random().toString(36).substring(2, 9)}`;
@@ -62,8 +75,14 @@ const renderer: RendererObject = {
         <button
           type="button"
           class="copy-code cursor-pointer absolute top-2 right-2 bg-surface-200-800 hover:bg-surface-300-700 text-xs px-2 py-1 rounded shadow"
+          title="Copy code"
+          aria-label="Copy code"
           data-code-id="${codeId}">
-          Copy
+          <span class="copy-code-icons" aria-hidden="true">
+            <span class="copy-code-default">${svgCopy}</span>
+            <span class="copy-code-success">${svgCheck}</span>
+            <span class="copy-code-error">✗</span>
+          </span>
         </button>
         <pre class="bg-surface-100-900 py-4 px-8 rounded leading-none">
           <code id="${codeId}" class="code text-xs whitespace-pre-wrap wrap-break-word">${text}</code>
@@ -131,41 +150,42 @@ export function renderMarkdown(content: string, urlProcessor?: (url: string) => 
   return marked.parse(content);
 }
 
+const copyFeedbackTimers = new WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+
+function showCopyFeedback(button: HTMLButtonElement, state: 'success' | 'error') {
+  clearTimeout(copyFeedbackTimers.get(button));
+  button.dataset.copyState = state;
+  const label = state === 'success' ? 'Copied' : 'Copy failed';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  copyFeedbackTimers.set(button, setTimeout(() => {
+    delete button.dataset.copyState;
+    button.title = 'Copy code';
+    button.setAttribute('aria-label', 'Copy code');
+    copyFeedbackTimers.delete(button);
+  }, 1500));
+}
+
 document.addEventListener('click', async (event) => {
   const target = event.target as HTMLElement;
   const button = target.closest<HTMLButtonElement>('.copy-code');
-
   if (!button) {
     return;
   }
-
   const codeId = button.dataset.codeId;
   if (!codeId) {
     return;
   }
-
   const code = document.getElementById(codeId);
   if (!code) {
     return;
   }
-
   try {
     await navigator.clipboard.writeText(code.innerText);
-
-    const originalText = button.textContent;
-    button.textContent = '✓ Copied';
-
-    setTimeout(() => {
-      button.textContent = originalText;
-    }, 1500);
+    console.log("markdown.ts code copied OK");
+    showCopyFeedback(button, 'success');
   } catch (error) {
     console.error('Failed to copy code:', error);
-
-    const originalText = button.textContent;
-    button.textContent = '✗ Failed';
-
-    setTimeout(() => {
-      button.textContent = originalText;
-    }, 1500);
+    showCopyFeedback(button, 'error');
   }
 });

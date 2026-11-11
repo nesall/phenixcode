@@ -18,6 +18,7 @@
 
 @custom-variant dark (&:where([data-mode=dark], [data-mode=dark] *));
 
+
 .card {
   padding: 2em;
 }
@@ -62,4 +63,35 @@ html[data-mode="light"] .hljs-template-tag,
 html[data-mode="light"] .hljs-template-variable,
 html[data-mode="light"] .hljs-type {
   color: #2B91AF
+}
+
+.message-content pre,
+.message-content pre code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.copy-code-icons {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+
+.copy-code-icons>span {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.copy-code:not([data-copy-state]) .copy-code-default,
+.copy-code[data-copy-state="success"] .copy-code-success,
+.copy-code[data-copy-state="error"] .copy-code-error {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copy-code-icons>span {
+    transition: none;
+  }
 }

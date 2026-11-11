@@ -23,6 +23,6 @@ declare interface Window {
 
   HLJS_CUSTOM: {
     initHljs: () => any;
-    hlAuto: (s: string, lang?: string) => string;
+    hlAuto: (content: string, languages?: string[]) => { value: string };
   }
 }

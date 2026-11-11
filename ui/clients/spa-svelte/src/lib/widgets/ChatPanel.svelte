@@ -52,8 +52,10 @@
       },
       {
         role: "assistant",
-        content: "Hello! How can I assist you today?",
-        _html: await renderMarkdown("Hello! How can I assist you today?"),
+        content: 'int main() {\n    printf("Hello, World!");\n    return 0;\n}',
+        _html: normalizeHeaders(
+          await renderMarkdown('```cpp\n\nint main() {\n    printf("Hello, World!");\n    return 0;\n}\n```'),
+        ),
         _metaInfoArray: ["Searching for relevant content", "Processing attachment(s)", "Working on the response"],
         _reasoningVisible: false,
         _reasoningText:
@@ -90,8 +92,8 @@
       },
       {
         role: "assistant",
-        content: "Sure! Why don't scientists trust atoms? Because they make up everything!",
-        _html: await renderMarkdown("Sure! Why don't scientists trust atoms? Because they make up everything!"),
+        content: 'int main() {\n    printf("Hello, World!");\n    return 0;\n}',
+        _html: await renderMarkdown('```\nint main() {\n    printf("Hello, World!");\n    return 0;\n}\n```'),
       },
     ];
   }
@@ -552,7 +554,7 @@
           <div class="flex gap-2 mt-1">
             <button
               type="button"
-              class="btn btn-sm px-1"
+              class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
               onclick={() => onCopyMsg(msg.content)}
               title="Copy to clipboard"
             >
@@ -560,7 +562,7 @@
             </button>
             <button
               type="button"
-              class="btn btn-sm px-1"
+              class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
               onclick={() => onEditMsg(i)}
               disabled={$bLoading}
               title="Edit your original question"
@@ -640,7 +642,7 @@
           <div class="flex items-center">
             <button
               type="button"
-              class="btn btn-sm px-2"
+              class="btn btn-sm px-2 preset-filled-surface-50-950 cursor-pointer"
               onclick={() => onCopyMsg(msg.content)}
               disabled={$bLoading}
               title="Copy to clipboard"
@@ -669,7 +671,7 @@
             <span class="vr mx-1 h-4"></span>
             <button
               type="button"
-              class="btn btn-sm px-1"
+              class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
               onclick={() => onRetry(i)}
               disabled={$bLoading}
               title="Retry the answer"
