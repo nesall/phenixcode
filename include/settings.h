@@ -162,6 +162,22 @@ private:
   ProvidersSettings providers_;
 
 public:
+  enum class ReconcileMode { ExistingProject, NewProject };
+  struct ProviderRenames {
+    std::map<std::string, std::string> embedding;
+    std::map<std::string, std::string> generation;
+  };
+  struct ReconcileResult {
+    nlohmann::json jsonData;
+    bool changed = false;
+    bool needsReindex = false;
+    std::vector<std::string> dropped;
+    std::vector<std::string> needsSelection;
+  };
+  static Settings createBlank(const ProvidersSettings &providers);
+  static ReconcileResult reconcileProject(const nlohmann::json &project, const ProvidersSettings &providers,
+    const ProviderRenames &renames = {}, ReconcileMode mode = ReconcileMode::ExistingProject);
+
   struct SourceItem {
     std::string type; // "directory", "file", "url"
     std::string path; // for "directory" and "file"

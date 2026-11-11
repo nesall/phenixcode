@@ -82,6 +82,8 @@ message("Root directory - ${ROOT_DIR}")
 # Main executable
 set(SOURCES
   src/main.cpp
+  src/database_browser.cpp
+  src/database_browser.h
   "${ROOT_DIR}/ui/shared/utils.h"
   "${ROOT_DIR}/ui/shared/utils.cpp"
   "${ROOT_DIR}/ui/shared/wb.h"
@@ -91,6 +93,7 @@ set(SOURCES
   "${ROOT_DIR}/src/instregistry.cpp"
   "${ROOT_DIR}/src/cutils.cpp"
   "${ROOT_DIR}/src/sqlite3_helper.cpp"
+  "${ROOT_DIR}/include/3rdparty/nlohmann/nlohmann_json.natvis"
   admconfig.json  
 )
 if (WIN32)
@@ -139,7 +142,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 # Platform-specific libraries
 if(WIN32)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ole32 Comctl32 win_dark)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ole32 Comctl32 shell32 win_dark)
 elseif(APPLE)
   find_library(COCOA Cocoa)
   find_library(WEBKIT WebKit)
@@ -175,18 +178,6 @@ endif()
 
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-  if(EXISTS "${ROOT_DIR}/assets/settings.json")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E make_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}"
-      COMMAND ${CMAKE_COMMAND} -E copy
-        "${ROOT_DIR}/assets/settings.json"
-        "${CMAKE_CURRENT_SOURCE_DIR}/assets/${PROJECTS_FOLDER}/settings.json"
-      COMMENT "Copying assets/settings.json"
-    )
-  else()
-    message(WARNING "assets/settings.json not found at ${ROOT_DIR}/assets/settings.json")
-  endif()
   if(EXISTS "${ROOT_DIR}/assets/providers.json")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -200,16 +191,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     message(WARNING "assets/providers.json not found at ${ROOT_DIR}/assets/providers.json")
   endif()
 else()
-  if(EXISTS "${ROOT_DIR}/assets/settings.json")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy
-        "${ROOT_DIR}/assets/settings.json"
-        "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
-      COMMENT "Copying assets/settings.json"
-    )
-  else()
-    message(WARNING "assets/settings.json not found at ${ROOT_DIR}/assets/settings.json")
-  endif()
   if(EXISTS "${ROOT_DIR}/assets/providers.json")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy

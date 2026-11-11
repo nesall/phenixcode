@@ -13,6 +13,8 @@
   // }
   // let { fetchInstances }: Props = $props();
 
+  let tab = $state("projects");
+
   function setDarkOrLight(dl: string | null) {
     console.log("setDarkOrLight", dl);
     const htmlEl = document.documentElement;
@@ -41,7 +43,7 @@
   }
 </script>
 
-<Tabs defaultValue="projects" class="h-full">
+<Tabs value={tab} onValueChange={details => tab = details.value} class="h-full">
   <Tabs.List>
     <Tabs.Trigger value="projects">
       <icons.FolderGit2 size={20} /><span class="hidden lg:inline">Projects</span>
@@ -68,7 +70,7 @@
     </div>
   </Tabs.List>
   <Tabs.Content value="projects" class="h-full">
-    <CentralProjects />
+    <CentralProjects active={tab === "projects"} />
   </Tabs.Content>
   <Tabs.Content value="providers" class="h-0 flex-grow">
     <CentralProviders />

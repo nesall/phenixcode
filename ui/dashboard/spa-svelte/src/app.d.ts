@@ -234,7 +234,7 @@ export interface InstanceItem {
   started_at_str: string;
   status: string;
   _hidden?: boolean;
-  params: { watch_interval?: number };
+  params: { watch_interval?: number; database_path?: string };
 }
 
 
@@ -342,3 +342,56 @@ export interface LogTailResult {
   lines: string[];
   total_lines: number;
 }
+export interface DatabaseRequest {
+  settingsFilePath: string;
+  search?: string;
+  offset?: number;
+  limit?: number;
+  source_id?: string;
+}
+
+export interface DatabaseSource {
+  source_id: string;
+  is_url: boolean;
+  last_modified: number | null;
+  file_size: number | null;
+  line_count: number | null;
+  indexed_at: string | null;
+  chunk_count: number;
+  token_count: number;
+}
+
+export interface DatabasePage {
+  sources: DatabaseSource[];
+  total: number;
+  offset: number;
+  limit: number;
+  database_path: string;
+  base_directory: string;
+}
+
+export interface DatabaseChunk {
+  id: number;
+  content: string;
+  start: number;
+  end: number;
+  unit: string;
+  type: string;
+  tokens: number;
+  truncated: boolean;
+}
+
+export interface DatabaseChunks {
+  chunks: DatabaseChunk[];
+  offset: number;
+  has_more: boolean;
+}
+
+export interface DatabaseFile {
+  content: string;
+  path: string;
+  truncated: boolean;
+  may_have_changed: boolean | null;
+}
+
+export type DatabaseResult<T> = ({ status: "success" } & T) | { status: "error"; code: string; message: string };

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
 
 namespace {
 
@@ -283,6 +284,257 @@ void ProvidersSettings::save()
 
 //----------------------------------------------------------------------------------------
 
+Settings::ReconcileResult Settings::reconcileProject(const nlohmann::json &project, const ProvidersSettings &providers,
+  const ProviderRenames &renames, ReconcileMode mode)
+{
+  if (!project.is_object()) throw std::invalid_argument("Project settings must be an object");
+  ReconcileResult result;
+  result.jsonData = project;
+  auto &cfg = result.jsonData;
+  for (const auto *section : {"embedding", "generation"}) {
+    if (!cfg.contains(section) || cfg[section].is_null()) cfg[section] = nlohmann::json::object();
+    if (!cfg[section].is_object()) throw std::invalid_argument(std::string(section) + " must be an object");
+  }
+  const bool creating = mode == ReconcileMode::NewProject;
+  std::vector<std::string> embeddingIds, generationIds;
+  for (const auto &provider : providers.embeddingProviders())
+    if (!provider.id.empty() && std::find(embeddingIds.begin(), embeddingIds.end(), provider.id) == embeddingIds.end())
+      embeddingIds.push_back(provider.id);
+  for (const auto &provider : providers.generationProviders())
+    if (!provider.id.empty() && provider.id != kAutoApiId &&
+        std::find(generationIds.begin(), generationIds.end(), provider.id) == generationIds.end())
+      generationIds.push_back(provider.id);
+
+  auto rename = [](const std::string &id, const std::map<std::string, std::string> &mapping) {
+    const auto found = mapping.find(id);
+    return found == mapping.end() ? id : found->second;
+  };
+  auto &embedding = cfg["embedding"];
+  const auto previousEmbedding = rename(embedding.value("current_api", std::string{}), renames.embedding);
+  std::string embeddingId = previousEmbedding;
+  if (std::find(embeddingIds.begin(), embeddingIds.end(), embeddingId) == embeddingIds.end())
+    embeddingId = creating && !embeddingIds.empty() ? embeddingIds.front() : std::string{};
+  embedding["current_api"] = embeddingId;
+  if (embeddingId.empty()) result.needsSelection.push_back("embedding.current_api");
+  result.needsReindex = !creating && previousEmbedding != embeddingId;
+
+  auto &generation = cfg["generation"];
+  const auto oldEnabled = generation.value("enabled_providers", std::vector<std::string>{});
+  std::vector<std::string> enabled;
+  for (const auto &oldId : oldEnabled) {
+    const auto id = rename(oldId, renames.generation);
+    if (std::find(generationIds.begin(), generationIds.end(), id) == generationIds.end()) {
+      result.dropped.push_back(id);
+    } else if (std::find(enabled.begin(), enabled.end(), id) == enabled.end()) {
+      enabled.push_back(id);
+    }
+  }
+  if (creating && enabled.empty() && !generationIds.empty()) enabled.push_back(generationIds.front());
+  generation["enabled_providers"] = enabled;
+  auto current = rename(generation.value("current_api", std::string{}), renames.generation);
+  if (std::find(enabled.begin(), enabled.end(), current) == enabled.end())
+    current = enabled.empty() ? std::string{} : enabled.front();
+  generation["current_api"] = current;
+  if (enabled.empty()) result.needsSelection.push_back("generation.enabled_providers");
+
+  auto fixGenerationId = [&](nlohmann::json &object, const char *field) {
+    const auto id = rename(object.value(field, std::string{}), renames.generation);
+    object[field] = std::find(enabled.begin(), enabled.end(), id) == enabled.end() ? current : id;
+  };
+  const auto router = generation.find("auto_router");
+  if (router != generation.end() && !router->is_null()) {
+    if (!router->is_object()) throw std::invalid_argument("generation.auto_router must be an object");
+    if (router->contains("fallback")) fixGenerationId(router->at("fallback"), "default_model_id");
+    if (router->contains("classifier")) {
+      auto &classifier = router->at("classifier");
+      if (classifier.value("type", std::string{}) != "internal") fixGenerationId(classifier, "api_id");
+    }
+    if (router->contains("routing_rules")) {
+      if (!router->at("routing_rules").is_object()) throw std::invalid_argument("auto_router.routing_rules must be an object");
+      for (auto &[tag, rule] : router->at("routing_rules").items()) {
+        if (!rule.is_object()) throw std::invalid_argument("Auto-router rules must be objects");
+        if (rule.contains("direct_model_id")) fixGenerationId(rule, "direct_model_id");
+        if (rule.contains("synthesizer_model_id")) fixGenerationId(rule, "synthesizer_model_id");
+        if (rule.contains("draft_model_ids")) {
+          std::vector<std::string> drafts;
+          for (const auto &oldId : rule.at("draft_model_ids").get<std::vector<std::string>>()) {
+            const auto id = rename(oldId, renames.generation);
+            if (std::find(enabled.begin(), enabled.end(), id) != enabled.end() &&
+                std::find(drafts.begin(), drafts.end(), id) == drafts.end()) drafts.push_back(id);
+          }
+          rule["draft_model_ids"] = drafts;
+        }
+        if (rule.value("strategy", std::string{}) == "ensemble" && rule.value("draft_model_ids", std::vector<std::string>{}).empty()) {
+          rule["strategy"] = "direct";
+          rule["direct_model_id"] = current;
+        }
+      }
+    }
+    if (enabled.empty() && router->value("enabled", false)) (*router)["enabled"] = false;
+  }
+  result.changed = result.jsonData != project;
+  return result;
+}
+
+Settings Settings::createBlank(const ProvidersSettings &providers)
+{
+  const auto defaults = nlohmann::json::parse(R"defaults({
+  "_comment": "PhenixCode RAG minimal configuration",
+  "_version": "1.0.0",
+  "_docs": "https://github.com/nesall/embedder_cpp/wiki/configuration",
+  "tokenizer": {
+    "config_path": "./bge_tokenizer.json"
+  },
+  "embedding": {
+    "current_api": "",
+    "batch_size": 4,
+    "timeout_ms": 30000,
+    "retry_attempts": 3,
+    "top_k": 5,
+    "prepend_label_format": "[Source: {}]\n"
+  },
+  "generation": {
+    "auto_router": {
+      "classifier": {
+        "max_tokens": 20,
+        "prompt": "Classify the user programming task into exactly one tier:\n[TIER_1_SIMPLE]: quick syntax, single function, lookup, explanation\n[TIER_2_MEDIUM]: multi-file changes, bug fixing, medium edits\n[TIER_3_COMPLEX]: deep architectural reasoning, tricky algorithms, math/threading\nAnswer ONLY with the tag.",
+        "temperature": 0,
+        "timeout_ms": 3500,
+        "type": "internal"
+      },
+      "enabled": true,
+      "fallback": {
+        "_comment": "used on classifier timeout, transport error, or unparseable tag",
+        "default_model_id": ""
+      },
+      "routing_rules": {
+        "tier_1_simple": {
+          "direct_model_id": "",
+          "strategy": "direct"
+        },
+        "tier_2_medium": {
+          "direct_model_id": "",
+          "strategy": "direct"
+        },
+        "tier_3_complex": {
+          "direct_model_id": "",
+          "strategy": "direct"
+        }
+      }
+    },
+    "enabled_providers": [],
+    "current_api": "",
+    "timeout_ms": 120000,
+    "max_chunks": 7,
+    "max_full_sources": 2,
+    "max_related_per_source": 3,
+    "default_context_length": 64000,
+    "default_temperature": 0.1,
+    "default_max_tokens": 2048,
+    "default_max_tokens_name": "max_tokens",
+    "prepend_label_format": "[Source: {}]\n",
+    "excerpt": {
+      "enabled": true,
+      "min_chunks": 3,
+      "max_chunks": 15,
+      "threshold_ratio": 0.75
+    }
+  },
+  "database": {
+    "sqlite_path": "./db_metadata.db",
+    "index_path": "./db_embeddings.index",
+    "vector_dim": 768,
+    "max_elements": 100000,
+    "distance_metric": "cosine",
+    "_comment": "For distance_metric use either cosine (default) or l2"
+  },
+  "chunking": {
+    "semantic": true,
+    "nof_min_tokens": 50,
+    "nof_max_tokens": 450,
+    "overlap_percentage": 0.2
+  },
+  "source": {
+    "_comment_project_id": "Leave empty to auto-generate from config path, or set a custom stable project_id",
+    "project_id": "",
+    "project_title": "Default Project Title",
+    "project_description": "",
+    "paths": [
+      {
+        "exclude": [],
+        "extensions": [],
+        "path": "./",
+        "recursive": true,
+        "type": "directory"
+      }
+    ],
+    "default_extensions": [
+      ".c",
+      ".cpp",
+      ".h",
+      ".hpp",
+      ".py",
+      ".js",
+      ".ts",
+      ".java",
+      ".rs",
+      ".cs",
+      ".xaml",
+      ".php",
+      ".jsp",
+      ".html",
+      ".css",
+      ".md"
+    ],
+    "global_exclude": [
+      "*/node_modules/*",
+      "*.min.js",
+      "*.log",
+      "*/build/*",
+      "*/.git/*",
+      ".gitignore",
+      "*/CVS/*",
+      "*/debug/*",
+      "*/release/*",
+      "*/lib/*",
+      "*/docker/*",
+      "*/fonts/*",
+      "*/images/*",
+      "*/test/*",
+      "*/tests/*",
+      "*/example/*",
+      "*/examples/*",
+      "*/obj/*",
+      "*/build_dbg/*",
+      "*/build_rel/*",
+      "*/bin/*",
+      "*/dist/*",
+      "*/test/*",
+      "*/3rdparty/*",
+      "*/cmake-build/*",
+      "*/assets/*",
+      "*/.vscode/*",
+      "*/.vs/*",
+      "*/build_check/*"
+    ],
+    "encoding": "utf-8",
+    "max_file_size_mb": 10
+  },
+  "logging": {
+    "log_to_console": true,
+    "log_to_file": true,
+    "logging_file": "embedder.log",
+    "diagnostics_file": "embedder_d.log"
+  }
+})defaults");
+  const auto result = reconcileProject(defaults, providers, {}, ReconcileMode::NewProject);
+  if (!result.needsSelection.empty())
+    throw std::runtime_error("Cannot create project. At least one enabled embedding and generation provider is required");
+  Settings settings(result.jsonData, providers.configJson());
+  settings.providers_ = providers;
+  return settings;
+}
+
 Settings::Settings(const nlohmann::json &prj, const nlohmann::json &prv)
 {
   updateFromConfig(prj);
@@ -329,10 +581,7 @@ void Settings::updateFromPath(const std::string &path)
 void Settings::save()
 {
   if (path_.empty()) throw std::runtime_error("Cannot save settings: path is empty");
-  std::ofstream file(path_);
-  if (file.is_open()) {
-    file << config_.dump(2);
-  }
+  saveToPath(path_);
 }
 
 void Settings::saveToPath(std::string_view path)
@@ -342,6 +591,8 @@ void Settings::saveToPath(std::string_view path)
     throw std::runtime_error("Cannot open settings file for writing: " + std::string(path));
   }
   file << config_.dump(2);
+  file.flush();
+  if (!file) throw std::runtime_error("Cannot write settings file: " + std::string(path));
 }
 
 void Settings::validateProjectJson(nlohmann::json j)

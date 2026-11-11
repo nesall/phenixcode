@@ -29,6 +29,9 @@ rm -f dist/diagnostics.log
 #cp assets/admconfig.json dist/
 cp -R assets/. dist/
 
+# Exclude legacy settings only from the freshly created distribution staging folder.
+rm -f dist/settings.json dist/settings.default.json dist/phenixcode_projects/settings.json
+
 echo "Setting executable permissions..."
 chmod +x dist/phenixcode-admin
 

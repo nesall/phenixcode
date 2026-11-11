@@ -26,4 +26,7 @@ del /f /q dist\diagnostics.log
 rem xcopy assets\admconfig.json dist\
 xcopy assets\* dist\ /E /Y
 
+rem Exclude legacy settings only from the freshly created distribution staging folder.
+del /f /q dist\settings.json dist\settings.default.json dist\phenixcode_projects\settings.json 2>nul
+
 echo Build complete. Package is in dist folder!

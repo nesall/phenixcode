@@ -371,6 +371,9 @@ struct InstanceRegistry::Impl {
     sqlite3_bind_text(stmt.ref(), 13, "healthy", -1, SQLITE_STATIC);
     nlohmann::json jsonParams;
     jsonParams["watch_interval"] = watchInterval;
+    // Keep the effective database location available if settings are edited while this instance runs.
+    const auto databasePath = std::filesystem::absolute(std::filesystem::u8path(settings.databaseSqlitePath())).generic_u8string();
+    jsonParams["database_path"] = std::string(reinterpret_cast<const char *>(databasePath.data()), databasePath.size());
     auto paramsText = jsonParams.dump();
     sqlite3_bind_text(stmt.ref(), 14, paramsText.c_str(), -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt.ref());

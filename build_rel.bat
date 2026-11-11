@@ -14,6 +14,9 @@ del /f /q %DIRNAME%.zip
 mkdir %DIRNAME%
 xcopy build_rel\Release\* %DIRNAME%\ /E /Y
 xcopy build_rel\public %DIRNAME%\public\ /E /I
+
+rem Exclude templates left in build output from older builds.
+del /f /q %DIRNAME%\settings.default.json 2>nul
 del /f /q %DIRNAME%\output.log 2>nul
 del /f /q %DIRNAME%\diagnostics.log 2>nul
 del /f /q %DIRNAME%\sqlite3_lib.lib 2>nul
@@ -21,7 +24,6 @@ xcopy assets\README %DIRNAME%\
 rem xcopy assets\settings.template.json %DIRNAME%\
 copy assets\providers.json %DIRNAME%\providers.json
 copy assets\settings.json %DIRNAME%\settings.json
-copy assets\settings.json %DIRNAME%\settings.default.json
 xcopy assets\bge_tokenizer.json %DIRNAME%\
 xcopy assets\baseline_v2.bin %DIRNAME%\models /I /Y
 rem xcopy scripts\install-service.bat %DIRNAME%\

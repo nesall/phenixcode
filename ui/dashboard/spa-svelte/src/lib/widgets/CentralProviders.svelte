@@ -9,6 +9,7 @@
     helper_saveProjectSettings,
     helper_saveProvidersSettings,
     helper_testProvider,
+    toaster,
     type Renames,
   } from "../utils";
   import type { GenerationApi, ProjectItem, ProvidersSettings, ReasoningParameter } from "../../app";
@@ -200,41 +201,51 @@
   // serialize: async onChange runs must not interleave
   let queue: Promise<void> = Promise.resolve();
   function commit(renames?: Renames) {
-    queue = queue.then(() => persist(renames)).catch((e) => console.error("CentralProviders.commit", e));
+    const providers = $state.snapshot({
+      embedding_providers: stripUi(embeddingProviders),
+      generation_providers: stripUi(generationProviders),
+    }) as ProvidersSettings;
+    queue = queue.then(() => persist(providers, renames)).catch((error) =>
+      toaster.error({ title: "Provider update failed", description: String(error) }),
+    );
   }
 
   // DOM handler for all plain fields: ignores the Event argument
   function onChange() {
     commit();
   }
-  async function persist(renames?: Renames) {
-    const providers = $state.snapshot({
-      embedding_providers: stripUi(embeddingProviders),
-      generation_providers: stripUi(generationProviders),
-    }) as ProvidersSettings;
-
+  async function persist(providers: ProvidersSettings, renames?: Renames) {
     await helper_saveProvidersSettings(providers); // throws => projects untouched
 
     const reindex: string[] = [];
     const droppedByProject: Record<string, string[]> = {};
+    const selections: Record<string, string[]> = {};
     const saves: Promise<unknown>[] = [];
 
     for (const p of projectStore.list) {
-      const r = helper_readjustProject(providers, p, renames); // in-place via $state proxy
-      if (!r.changed) continue;
-      const title = p.jsonData.source.project_title;
-      if (r.needsReindex) reindex.push(title);
-      if (r.dropped.length) droppedByProject[title] = r.dropped;
-      saves.push(
-        helper_saveProjectSettings($state.snapshot(p) as ProjectItem).catch((er) =>
-          console.error("save failed:", title, er),
-        ),
-      );
+      try {
+        const r = await helper_readjustProject(providers, p, renames);
+        const title = p.jsonData.source.project_title;
+        if (r.needsReindex) reindex.push(title);
+        if (r.dropped.length) droppedByProject[title] = r.dropped;
+        if (r.needsSelection.length) {
+          selections[title] = r.needsSelection;
+          continue;
+        }
+        if (!r.changed) continue;
+        saves.push(
+          helper_saveProjectSettings($state.snapshot(p) as ProjectItem).then((result) => {
+            if (result.status !== "success") throw new Error(result.message);
+          }).catch((error) => toaster.error({ title: `Failed to save ${title}`, description: String(error) })),
+        );
+      } catch (error) {
+        toaster.error({ title: `Failed to adjust ${p.jsonData.source.project_title}`, description: String(error) });
+      }
     }
     await Promise.all(saves);
 
-    if (reindex.length || Object.keys(droppedByProject).length) {
-      notifyProjectsAdjusted({ reindex, dropped: droppedByProject });
+    if (reindex.length || Object.keys(droppedByProject).length || Object.keys(selections).length) {
+      notifyProjectsAdjusted({ reindex, dropped: droppedByProject, selections });
     }
   }
 
@@ -266,8 +277,13 @@
     setTimeout(() => (copied = false), 1500);
   }
 
-  function notifyProjectsAdjusted(arg: { reindex: string[]; dropped: Record<string, string[]> }) {
-    // TODO:
+  function notifyProjectsAdjusted(arg: { reindex: string[]; dropped: Record<string, string[]>; selections: Record<string, string[]> }) {
+    const details = [
+      ...arg.reindex.map((title) => `${title} requires reindexing after choosing an embedding provider.`),
+      ...Object.entries(arg.dropped).map(([title, ids]) => `${title} removed unavailable providers (${ids.join(", ")}).`),
+      ...Object.entries(arg.selections).map(([title, fields]) => `${title} requires a selection for ${fields.join(", ")}.`),
+    ];
+    toaster.info({ title: "Project provider settings adjusted", description: details.join("\n") });
   }
 
   async function onTestGenerationApi(api: GenerationApi) {

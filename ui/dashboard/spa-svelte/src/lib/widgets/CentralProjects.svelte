@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext, onMount } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import * as icons from "@lucide/svelte";
   import ProjectPanel from "./ProjectPanel.svelte";
   import {
@@ -19,6 +19,7 @@
     fetchProjects();
   });
 
+  let { active = true }: { active?: boolean } = $props();
   let drawerOpen = $state(false);
 
   async function onItemClick(item: ProjectItem) {
@@ -26,16 +27,43 @@
     projectStore.selected = item;
   }
 
+  let createDialog: HTMLDialogElement;
+  let filenameInput: HTMLInputElement;
+  let filename = $state("");
+  let creating = $state(false);
+  let createError = $state("");
+
   async function onAddProject() {
+    filename = `settings_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+    createError = "";
+    await tick();
+    createDialog.showModal();
+    filenameInput.focus();
+    filenameInput.select();
+  }
+
+  async function createProject(event: SubmitEvent) {
+    event.preventDefault();
+    if (creating) return;
+    const name = filename.trim().replace(/\.json$/i, "");
+    if (!name || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name)) {
+      createError = "Enter a valid filename without a folder path.";
+      return;
+    }
+    creating = true;
+    createError = "";
     try {
-      const res = await helper_createProject();
+      const res = await helper_createProject(`${name}.json`);
       if (res.status === "error") throw { message: res.message };
+      createDialog.close();
       projectStore.selected = res;
       fetchProjects();
       toaster.success({ title: "Project created successfully." });
     } catch (error: any) {
       console.log("onAddProject", error);
-      toaster.error({ title: "Failed to create project. " + error.message });
+      createError = error.message || "Failed to create project.";
+    } finally {
+      creating = false;
     }
   }
 
@@ -178,7 +206,7 @@
 
     <!-- Main content panel -->
     <div class="grow h-full lg:pl-4 overflow-hidden">
-      <ProjectPanel />
+      <ProjectPanel {active} />
     </div>
   </div>
 
@@ -220,3 +248,28 @@
     </aside>
   {/if}
 </div>
+
+
+<dialog
+  bind:this={createDialog}
+  aria-labelledby="create-project-title"
+  class="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-surface-200-800 bg-surface-50-950 text-surface-950-50 p-6 shadow-xl backdrop:bg-black/50"
+  oncancel={(event) => { if (creating) event.preventDefault(); }}
+>
+  <form onsubmit={createProject} class="flex flex-col gap-4">
+    <h2 id="create-project-title" class="text-lg font-semibold">New project</h2>
+    <label class="flex flex-col gap-2">
+      <span>Settings filename</span>
+      <div class="flex items-center gap-2">
+        <input bind:this={filenameInput} bind:value={filename} class="input min-w-0 grow" required maxlength="195" disabled={creating} aria-describedby="create-project-help create-project-error" />
+        <span class="text-surface-500">.json</span>
+      </div>
+    </label>
+    <p id="create-project-help" class="text-sm text-surface-500">Saved in your configured projects folder.</p>
+    <p id="create-project-error" role="alert" class="text-sm text-error-500">{createError}</p>
+    <div class="flex justify-end gap-2">
+      <button type="button" class="btn preset-tonal" disabled={creating} onclick={() => createDialog.close()}>Cancel</button>
+      <button type="submit" class="btn preset-filled-primary-500" disabled={creating}>{creating ? "Creating..." : "Create"}</button>
+    </div>
+  </form>
+</dialog>

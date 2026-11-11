@@ -1,4 +1,5 @@
-import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings, EmbeddingSettings, GenerationSettings, LogTailResult, MonitorSnapshot } from "../app";
+import type { DatabaseRequest, DatabaseResult, DatabasePage, DatabaseChunks, DatabaseFile, DatabaseSource } from "../app";
+import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings, LogTailResult, MonitorSnapshot } from "../app";
 import { createToaster } from '@skeletonlabs/skeleton-svelte';
 
 export const toaster = createToaster();
@@ -272,9 +273,11 @@ async function test_saveProjectSettings(project: ProjectItem): Promise<{ status:
   // return { status: "error", message: "Project not found." };
 }
 
-async function test_createProject(): Promise<ProjectItem> {
+async function test_createProject(filename?: string): Promise<ProjectItem> {
   const newProject = jsonDeepCopy({ settingsFilePath: "", jsonData: testJsonSettings }) as ProjectItem;
-  newProject.settingsFilePath = `C:/Users/Arman/workspace/projects/alpha/settings-new-${Date.now()}.json`;
+  newProject.settingsFilePath = `C:/Users/Arman/workspace/projects/alpha/${filename || `settings-new-${Date.now()}.json`}`;
+  if (mockProjects.some(project => project.settingsFilePath.toLowerCase() === newProject.settingsFilePath.toLowerCase()))
+    throw new Error("A settings file with this name already exists. Choose another name");
   newProject.jsonData.source.project_id = `project${mockProjects.length + 1}`;
   newProject.jsonData.source.project_title = `New Project ${mockProjects.length + 1}`;
   mockProjects = [newProject, ...mockProjects];
@@ -551,7 +554,9 @@ export async function helper_saveProjectSettings(project: ProjectItem): Promise<
 
 export async function helper_saveProvidersSettings(providers: ProvidersSettings): Promise<{ status: string; message: string }> {
   if (window.cppApi) {
-    return await window.cppApi.saveProviders(providers);
+    const result = await window.cppApi.saveProviders(providers);
+    if (result.status !== "success") throw new Error(result.message || "Failed to save providers");
+    return result;
   } else {
     console.log("[mock] saving providers settings", providers);
     return { status: "success", message: "Providers settings saved successfully." };
@@ -563,126 +568,44 @@ export interface Renames {
   generation?: Map<string, string>;
 }
 
-function applyRenames(cfg: SettingsJsonType, r: Renames): boolean {
-  let changed = false;
-  const sub = (o: any, k: string, m?: Map<string, string>) => {
-    const v = o?.[k];
-    if (m && typeof v === "string" && m.has(v)) { o[k] = m.get(v); changed = true; }
-  };
-  const subArr = (o: any, k: string, m?: Map<string, string>) => {
-    if (m && Array.isArray(o?.[k])) {
-      const next = o[k].map((v: string) => m.get(v) ?? v);
-      if (next.some((v: string, i: number) => v !== o[k][i])) { o[k] = next; changed = true; }
-    }
-  };
-
-  sub(cfg.embedding, "current_api", r.embedding);
-
-  const g = cfg.generation, m = r.generation;
-  sub(g, "current_api", m);
-  subArr(g, "enabled_providers", m);
-  const ar = g?.auto_router;
-  if (ar) {
-    sub(ar.fallback, "default_model_id", m);
-    if (ar.classifier?.type === "internal") sub(ar.classifier, "api_id", m);
-    for (const rule of Object.values(ar.routing_rules ?? {})) {
-      sub(rule, "direct_model_id", m);
-      subArr(rule, "draft_model_ids", m);
-      sub(rule, "synthesizer_model_id", m);
-    }
-  }
-  return changed;
-}
-
 export interface ReadjustResult {
   proj: ProjectItem;
   changed: boolean;
   needsReindex: boolean;
   dropped: string[];
+  needsSelection: string[];
 }
 
-export function helper_readjustProject(providers: ProvidersSettings, proj: ProjectItem, renames: Renames = {})
-  : ReadjustResult {
-  const cfg = proj.jsonData;
-  const dropped: string[] = [];
-  let changed = applyRenames(cfg, renames);
-  console.log("auto_router after rename", JSON.stringify(cfg.generation?.auto_router), renames);
-  let needsReindex = false;
-
-  // --- embedding ---
-  const embIds = providers.embedding_providers.map(p => p.id);
-  const emb = (cfg.embedding ??= {} as EmbeddingSettings);
-  if (!embIds.includes(emb.current_api)) {
-    emb.current_api = embIds[0] ?? "";
-    needsReindex = true; // different model => vector space/dim/tokenizer
-    changed = true;
+export async function helper_readjustProject(providers: ProvidersSettings, proj: ProjectItem, renames: Renames = {})
+  : Promise<ReadjustResult> {
+  if (!window.cppApi) {
+    // Browser previews use fixture data. Production reconciliation runs in C++.
+    console.log("[mock] reconciling project", proj);
+    return { proj, changed: false, needsReindex: false, dropped: [], needsSelection: [] };
   }
-
-  // --- generation ---
-  const gen = (cfg.generation ??= {} as GenerationSettings);
-  const validIds = new Set(providers.generation_providers.map(p => p.id));
-  const oldEnabled = gen.enabled_providers ?? [];
-  const enabled = [...new Set(oldEnabled)].filter(id => validIds.has(id));
-  dropped.push(...oldEnabled.filter(id => !validIds.has(id)));
-  if (enabled.length !== oldEnabled.length) changed = true;
-  gen.enabled_providers = enabled;
-
-  if (!enabled.includes(gen.current_api)) {
-    gen.current_api = enabled[0] ?? "";
-    changed = true;
-  }
-
-  // --- auto router ---
-  const ar = gen.auto_router;
-  if (ar) {
-    const fallback = gen.current_api; // valid or ""
-    const fix = (id?: string) => (id && enabled.includes(id) ? id : fallback);
-
-    if (ar.fallback) {
-      const v = fix(ar.fallback.default_model_id);
-      if (v !== ar.fallback.default_model_id) { ar.fallback.default_model_id = v; changed = true; }
-    }
-
-    for (const rule of Object.values(ar.routing_rules ?? {})) {
-      if (rule.direct_model_id !== undefined) {
-        const v = fix(rule.direct_model_id);
-        if (v !== rule.direct_model_id) { rule.direct_model_id = v; changed = true; }
-      }
-      if (rule.draft_model_ids) {
-        const drafts = [...new Set(rule.draft_model_ids)].filter(id => enabled.includes(id));
-        if (drafts.length !== rule.draft_model_ids.length) {
-          rule.draft_model_ids = drafts;
-          changed = true;
-        }
-      }
-      if (rule.strategy === "ensemble" && !(rule.draft_model_ids?.length)) {
-        rule.strategy = "direct";
-        rule.direct_model_id = fallback;
-        changed = true;
-      }
-      if (rule.synthesizer_model_id !== undefined) {
-        const v = fix(rule.synthesizer_model_id);
-        if (v !== rule.synthesizer_model_id) { rule.synthesizer_model_id = v; changed = true; }
-      }
-    }
-
-    // classifier only needs to exist in providers, not be in enabled_providers
-    if (ar.classifier?.type === "internal" && !validIds.has(ar.classifier.api_id)) {
-      ar.classifier.api_id = fallback;
-      changed = true;
-    }
-
-    if (!enabled.length && ar.enabled) { ar.enabled = false; changed = true; }
-  }
-
-  return { proj, changed, needsReindex, dropped };
+  const original = jsonDeepCopy(proj.jsonData);
+  const result = await window.cppApi.reconcileProject({
+    project: jsonDeepCopy(proj),
+    providers: jsonDeepCopy(providers),
+    renames: {
+      embedding: Object.fromEntries(renames.embedding ?? []),
+      generation: Object.fromEntries(renames.generation ?? []),
+    },
+  });
+  if (result.status !== "success" || !result.jsonData)
+    throw new Error(result.message || "Project reconciliation failed");
+  if (JSON.stringify(proj.jsonData) !== JSON.stringify(original))
+    throw new Error("Project settings changed during reconciliation. Retry the provider update.");
+  if (result.changed) proj.jsonData = result.jsonData;
+  return { proj, changed: result.changed, needsReindex: result.needsReindex,
+    dropped: result.dropped, needsSelection: result.needsSelection };
 }
 
-export async function helper_createProject(): Promise<ProjectItem> {
+export async function helper_createProject(filename?: string): Promise<ProjectItem> {
   if (window.cppApi) {
-    return window.cppApi.createProject();
+    return filename ? window.cppApi.createProject({ filename }) : window.cppApi.createProject();
   } else {
-    return test_createProject();
+    return test_createProject(filename);
   }
 }
 
@@ -805,3 +728,40 @@ export async function hardValidateProjectItem(item: ProjectItem): Promise<{ stat
 
   return vec;
 }
+
+
+// Browser previews use bounded fixtures. Native browsing always reads the selected project's SQLite database.
+const databasePreviewSources: DatabaseSource[] = [
+  { source_id: "src/main.cpp", is_url: false, last_modified: 1735689600, file_size: 2080,
+    line_count: 72, indexed_at: "2025-01-01 00:01:00", chunk_count: 3, token_count: 560 },
+  { source_id: "https://example.com/docs", is_url: true, last_modified: null, file_size: null,
+    line_count: null, indexed_at: null, chunk_count: 1, token_count: 80 },
+];
+
+type DatabaseOperation = "listDatabaseSources" | "selectDatabaseWorkingDirectory" | "getDatabaseSourceChunks" |
+  "readDatabaseSourceFile" | "openDatabaseSourceDirectory";
+
+async function databaseRequest<T>(operation: DatabaseOperation, params: DatabaseRequest): Promise<DatabaseResult<T>> {
+  if (window.cppApi) return window.cppApi[operation](params) as Promise<DatabaseResult<T>>;
+  let result: unknown;
+  if (operation === "listDatabaseSources") {
+    const sources = databasePreviewSources.filter(row => row.source_id.toLowerCase().includes((params.search ?? "").toLowerCase()));
+    result = { status: "success", sources, total: sources.length, offset: 0, limit: params.limit ?? 50,
+      database_path: "Preview database", base_directory: "Preview workspace" };
+  } else if (operation === "getDatabaseSourceChunks") {
+    result = { status: "success", offset: 0, has_more: false, chunks: [{ id: 1, content: "// Indexed content preview\nint main() { return 0; }",
+      start: 1, end: 2, unit: "line", type: "code", tokens: 18, truncated: false }] };
+  } else if (operation === "readDatabaseSourceFile") {
+    result = { status: "success", content: "// Current file preview\nint main() { return 0; }", path: params.source_id,
+      truncated: false, may_have_changed: false };
+  } else {
+    result = { status: "error", code: "preview", message: "This action is available in the native dashboard." };
+  }
+  return result as DatabaseResult<T>;
+}
+
+export const helper_listDatabaseSources = (params: DatabaseRequest) => databaseRequest<DatabasePage>("listDatabaseSources", params);
+export const helper_selectDatabaseDirectory = (params: DatabaseRequest) => databaseRequest<DatabasePage>("selectDatabaseWorkingDirectory", params);
+export const helper_databaseChunks = (params: DatabaseRequest) => databaseRequest<DatabaseChunks>("getDatabaseSourceChunks", params);
+export const helper_databaseFile = (params: DatabaseRequest) => databaseRequest<DatabaseFile>("readDatabaseSourceFile", params);
+export const helper_openDatabaseDirectory = (params: DatabaseRequest) => databaseRequest<Record<string, never>>("openDatabaseSourceDirectory", params);

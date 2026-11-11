@@ -5,11 +5,13 @@
   import { mapProjectToInstance } from "../../utils";
   import { instances, projectStore } from "../../store.svelte";
   import { monitorStore, selectMonitorProject } from "../../stores/monitor.svelte";
+  import Database from "./monitor/Database.svelte";
   import Embeddings from "./monitor/Embeddings.svelte";
   import Metrics from "./monitor/Metrics.svelte";
   import Cost from "./monitor/Cost.svelte";
   import Logs from "./monitor/Logs.svelte";
 
+  let { active = true }: { active?: boolean } = $props();
   let value = $state("embeddings");
   const stale = $derived(
     !!monitorStore.snapshot && monitorStore.nowSeconds - monitorStore.snapshot.last_heartbeat > 10,
@@ -40,6 +42,9 @@
       <Tabs.Trigger value="embeddings" class="text-sm {selected(value, 'embeddings')} w-full justify-start">
         <icons.Layers size={16} /><span class="hidden lg:inline">Embeddings</span>
       </Tabs.Trigger>
+      <Tabs.Trigger value="database" class="text-sm {selected(value, 'database')} w-full justify-start">
+        <icons.Database size={16} /><span class="hidden lg:inline">Database</span>
+      </Tabs.Trigger>
       <Tabs.Trigger value="metrics" class="text-sm {selected(value, 'metrics')} w-full justify-start">
         <icons.ChartNoAxesCombined size={16} /><span class="hidden lg:inline">Metrics</span>
       </Tabs.Trigger>
@@ -56,6 +61,7 @@
       </div>
     </Tabs.List>
     <Tabs.Content value="embeddings" class="grow"><Embeddings /></Tabs.Content>
+    <Tabs.Content value="database" class="grow min-h-0"><Database active={active && value === "database"} /></Tabs.Content>
     <Tabs.Content value="metrics" class="grow"><Metrics /></Tabs.Content>
     <Tabs.Content value="cost" class="grow"><Cost /></Tabs.Content>
     <Tabs.Content value="logs" class="grow"><Logs /></Tabs.Content>

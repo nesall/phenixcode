@@ -102,6 +102,7 @@ add_executable(${PROJECT_NAME}
   include/model_router.h
   include/httpserver_internal.h
   include/inference_messages.h
+  include/3rdparty/nlohmann/nlohmann_json.natvis
   src/main.cpp
   src/tokenizer.cpp
   src/settings.cpp

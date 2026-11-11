@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import * as icons from "@lucide/svelte";
-  import { helper_readjustProject, helper_saveProjectSettings } from "../../../utils";
+  import { helper_readjustProject, helper_saveProjectSettings, toaster } from "../../../utils";
   import { embeddingProviders, generationProviders, projectStore } from "../../../store.svelte";
-  import type { ProvidersSettings } from "../../../../app";
+  import type { ProjectItem, ProvidersSettings } from "../../../../app";
 
   interface Props {
     onChanged: any;
@@ -15,13 +15,12 @@
 
   // read-only view of the project's data, no local copy
   const checkedProviders = $derived(jsonData?.generation.enabled_providers ?? []);
+  let reconciling = $state(false);
 
   onMount(() => {
     const g = jsonData?.generation;
     if (!g || !g.enabled_providers.includes("auto")) return;
-    g.enabled_providers = g.enabled_providers.filter((id) => id !== "auto");
-    if (g.current_api === "auto") g.current_api = g.enabled_providers[0] ?? "";
-    onChange();
+    if (projectStore.selected) void reconcileAndSave(projectStore.selected);
   });
 
   function onCurApiChange(event: Event) {
@@ -31,37 +30,52 @@
     onChange();
   }
 
-  function onChange() {
+  async function onChange() {
     if (projectStore.selected) {
-      projectStore.selected = projectStore.selected;
-      helper_saveProjectSettings(projectStore.selected);
-      onChanged(projectStore.selected);
+      const project = projectStore.selected;
+      try {
+        const result = await helper_saveProjectSettings(project);
+        if (result.status !== "success") throw new Error(result.message);
+        onChanged(project);
+      } catch (error) {
+        toaster.error({ title: "Failed to save project settings", description: String(error) });
+      }
     }
   }
 
   function onToggle(api: string) {
-    if (!jsonData) return;
+    if (!jsonData || !projectStore.selected || reconciling) return;
     const g = jsonData.generation;
     const next = g.enabled_providers.includes(api)
       ? g.enabled_providers.filter((id) => id !== api)
       : [...g.enabled_providers, api];
     g.enabled_providers = next;
 
-    // If current_api was unchecked, point to the first available
-    if (!next.includes(g.current_api) && next.length > 0) {
-      g.current_api = next[0];
-    }
-    // at the end of onToggle, before onChange()
-    if (projectStore.selected) {
-      helper_readjustProject(
+    void reconcileAndSave(projectStore.selected);
+  }
+
+  async function reconcileAndSave(project: ProjectItem) {
+    reconciling = true;
+    try {
+      const result = await helper_readjustProject(
         $state.snapshot({
           embedding_providers: embeddingProviders,
           generation_providers: generationProviders,
         }) as ProvidersSettings,
-        projectStore.selected,
+        project,
       );
+      if (result.needsSelection.length) {
+        toaster.error({ title: "Provider selection required", description: result.needsSelection.join(", ") });
+        return;
+      }
+      const saved = await helper_saveProjectSettings(project);
+      if (saved.status !== "success") throw new Error(saved.message);
+      onChanged(project);
+    } catch (error) {
+      toaster.error({ title: "Failed to adjust provider settings", description: String(error) });
+    } finally {
+      reconciling = false;
     }
-    onChange();
   }
 
   // Pure list of enabled concrete models (never contains "auto")
@@ -103,7 +117,7 @@
 {#if projectStore.selected}
   <div class="h-full p-4 overflow-auto">
     <form class="w-full">
-      <fieldset class="space-y-4">
+      <fieldset class="space-y-4" disabled={reconciling}>
         <div class="rounded-md shadow p-4 flex flex-col gap-4">
           <div class="mb-4 flex items-center justify-between">
             <h2 class="text-xl font-bold flex items-center gap-2">

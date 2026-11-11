@@ -8,12 +8,19 @@
 #include "utils.h"
 #include "instregistry.h"
 #include "settings.h"
+#include "database_browser.h"
 #include "3rdparty/portable-file-dialogs.h"
 #include "json_shim.h"
 #include <filesystem>
 #include <string>
 #include <deque>
 #include <cstdint>
+#include <fstream>
+#include <algorithm>
+#include <cctype>
+#include <fcntl.h>
+#include <system_error>
+#include <cerrno>
 #include <thread>
 #include <atomic>
 #include <unordered_map>
@@ -25,10 +32,17 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <commctrl.h>
+#include <shellapi.h>
+#include <io.h>
+#include <share.h>
+#include <sys/stat.h>
 #include "WinDarkTitlebarImpl.h"
 #else
 #include <limits.h>
 #include <unistd.h>
+#include <spawn.h>
+#include <sys/wait.h>
+extern char **environ;
 #endif
 
 
@@ -56,9 +70,6 @@ namespace {
   const fs::path projectsFolderPath(const shared::AppConfig &p) {
     return fs::path(shared::getExecutableDir()) / _projectsFolderName(p);
   }
-  const fs::path defaultSettingsJsonPath() {
-    return (fs::path(shared::getExecutableDir()) / fs::path("settings.default.json"));
-  }
   const fs::path projectRefsPath(const shared::AppConfig &p) {
     return (projectsFolderPath(p) / fs::path(PROJECT_REFS_FNAME));
   }
@@ -74,6 +85,99 @@ namespace {
         throw std::runtime_error("Failed to create projects folder at: " + fs::absolute(projPath).string());
       }
     }
+  }
+
+  void rememberDatabaseDirectory(shared::AppConfig &prefs, const fs::path &settingsPath,
+    const std::string &configured, const fs::path &directory) {
+    const auto key = "DatabaseLocation|" + database_browser::pathText(fs::weakly_canonical(settingsPath));
+    const auto value = json{{"configured", configured}, {"base_directory", database_browser::pathText(directory)}}.dump();
+    {
+      std::lock_guard<std::mutex> lock(prefs.mutex_);
+      const auto previous = prefs.uiPrefs.find(key);
+      if (previous != prefs.uiPrefs.end() && previous->second == value) return;
+      prefs.uiPrefs[key] = value;
+    }
+    shared::savePrefsToFile(prefs, CONFIG_FNAME);
+  }
+
+  struct DatabaseLocation {
+    fs::path database;
+    fs::path baseDirectory;
+  };
+
+  DatabaseLocation databaseLocation(const json &params, shared::AppConfig &prefs, bool chooseDirectory) {
+    const auto settingsName = params.at("settingsFilePath").get<std::string>();
+    if (settingsName.empty()) throw std::runtime_error("settingsFilePath is required");
+    const auto settingsPath = fs::weakly_canonical(fs::u8path(settingsName));
+    std::ifstream input(settingsPath);
+    const auto settings = json::parse(input);
+    const auto configured = settings.at("database").value("sqlite_path", std::string("db.sqlite"));
+    if (configured.empty()) throw std::runtime_error("The project has no database filename configured");
+    DatabaseLocation location{fs::u8path(configured), {}};
+    InstanceRegistry registry;
+    for (const auto &instance : registry.getActiveInstances()) {
+      const auto config = instance.value("config", std::string{});
+      std::error_code pathError;
+      if (!config.empty() && fs::equivalent(fs::u8path(config), settingsPath, pathError)) {
+        location.baseDirectory = fs::u8path(instance.at("cwd").get<std::string>());
+        const auto parameters = instance.value("params", json::object());
+        const auto effectivePath = parameters.value("database_path", std::string{});
+        if (!effectivePath.empty()) location.database = fs::u8path(effectivePath);
+        break;
+      }
+    }
+    if (chooseDirectory) {
+      if (!location.baseDirectory.empty())
+        throw database_browser::Error("running", "The running instance supplies its working directory automatically.");
+      const auto chosen = pfd::select_folder("Choose the working directory used to index this project", settingsPath.parent_path().string()).result();
+      if (chosen.empty()) throw database_browser::Error("cancelled", "Directory selection cancelled.");
+      location.baseDirectory = fs::u8path(chosen);
+    }
+    if (location.baseDirectory.empty()) {
+      std::string cached;
+      {
+        std::lock_guard<std::mutex> lock(prefs.mutex_);
+        const auto found = prefs.uiPrefs.find("DatabaseLocation|" + database_browser::pathText(settingsPath));
+        if (found != prefs.uiPrefs.end()) cached = found->second;
+      }
+      if (!cached.empty()) {
+        const auto saved = json::parse(cached, nullptr, false);
+        if (saved.is_object() && saved.value("configured", std::string{}) == configured)
+          location.baseDirectory = fs::u8path(saved.value("base_directory", std::string{}));
+      }
+    }
+    if (!location.baseDirectory.empty()) {
+      if (!location.baseDirectory.is_absolute()) throw std::runtime_error("The saved working directory must be absolute");
+      rememberDatabaseDirectory(prefs, settingsPath, configured, location.baseDirectory);
+    }
+    if (location.database.is_relative()) {
+      if (location.baseDirectory.empty())
+        throw database_browser::Error("location_required", "Choose the working directory used when this project was indexed.");
+      location.database = location.baseDirectory / location.database;
+    }
+    location.database = location.database.lexically_normal();
+    return location;
+  }
+
+  void openSourceDirectory(const fs::path &source) {
+    const auto directory = source.parent_path();
+    if (!fs::is_directory(directory)) throw std::runtime_error("The source directory no longer exists");
+#ifdef _WIN32
+    const auto result = ShellExecuteW(nullptr, L"open", directory.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(result) <= 32) throw std::runtime_error("Unable to open the source directory");
+#else
+#ifdef __APPLE__
+    const char *command = "open";
+#else
+    const char *command = "xdg-open";
+#endif
+    std::string path = directory.string();
+    char *arguments[] = {const_cast<char *>(command), path.data(), nullptr};
+    pid_t child = 0;
+    const int error = posix_spawnp(&child, command, nullptr, nullptr, arguments, environ);
+    if (error) throw std::system_error(error, std::generic_category(), "Unable to open the source directory");
+    std::thread([child] { int status; while (waitpid(child, &status, 0) < 0 && errno == EINTR) {} }).detach();
+#endif
   }
 
   bool validateProjectItemArg(nlohmann::json j) {
@@ -305,41 +409,83 @@ int main() {
       }
     );
 
-    w.bind("createProject", [&prefs](const std::string &) -> std::string
+    w.bind("reconcileProject", [](const std::string &data) -> std::string
+      {
+        try {
+          const auto args = nlohmann::json::parse(data).at(0);
+          ProvidersSettings providers;
+          providers.updateFromConfig(args.at("providers"));
+          Settings::ProviderRenames renames;
+          const auto mapping = args.value("renames", nlohmann::json::object());
+          renames.embedding = mapping.value("embedding", std::map<std::string, std::string>{});
+          renames.generation = mapping.value("generation", std::map<std::string, std::string>{});
+          const auto result = Settings::reconcileProject(args.at("project").at("jsonData"), providers, renames);
+          return nlohmann::json{
+            {"status", "success"}, {"jsonData", result.jsonData}, {"changed", result.changed},
+            {"needsReindex", result.needsReindex}, {"dropped", result.dropped}, {"needsSelection", result.needsSelection}
+          }.dump();
+        } catch (const std::exception &ex) {
+          return nlohmann::json{{"status", "error"}, {"message", ex.what()}}.dump();
+        }
+      }
+    );
+
+    w.bind("createProject", [&prefs](const std::string &data) -> std::string
       {
         LOG_MSG << "createProject";
         nlohmann::json res;
+        fs::path createdPath;
         try {
           ensureProjectsFolderExist(prefs);
           const auto prv = providersJsonPath(prefs);
           if (!fs::exists(prv)) {
             throw std::runtime_error("Providers file not found at: " + prv.string());
           }
-          const auto src = defaultSettingsJsonPath();
-          if (!fs::exists(src)) {
-            throw std::runtime_error("Default settings file not found at: " + src.string());
-          }
-          std::string fname = "settings_" + shared::generateRandomId(12) + ".json";
-          auto ffname = [&fname, &prefs]() {
-            return projectsFolderPath(prefs) / fs::path(fname);
-            };
-          size_t n = 0;
-          while (fs::exists(ffname())) {
-            fname = "settings_" + shared::generateRandomId(12) + ".json";
-            if (10 < ++n) {
-              throw std::runtime_error("Failed to generate unique project settings filename");
-            }
-          }
-          if (!fs::copy_file(src, ffname())) {
-            throw std::runtime_error("Failed to copy default settings file to project folder");
-          }
-          Settings ss{ ffname().string(), prv.string() };
+          ProvidersSettings catalog{ prv.string() };
+          Settings checked = Settings::createBlank(catalog);
+          const auto args = nlohmann::json::parse(data);
+          const auto requested = args.empty() ? std::string{} : args.at(0).value("filename", std::string{});
+          std::string fname = requested.empty() ? "settings_" + shared::generateRandomId(12) + ".json" : requested;
+          if (fname.find_first_of("<>:\"/\\|?*") != std::string::npos ||
+              std::any_of(fname.begin(), fname.end(), [](unsigned char c) { return c < 32; }) ||
+              fname.front() == ' ' || fname.back() == ' ' || fname.back() == '.' || fname.size() > 200)
+            throw std::runtime_error("Enter a valid settings filename without a folder path (maximum 200 characters)");
+          std::string lower = fname;
+          std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+          const auto stem = lower.substr(0, lower.find('.'));
+          if (stem.empty() || stem == "con" || stem == "prn" || stem == "aux" || stem == "nul" ||
+              (stem.size() == 4 && (stem.substr(0, 3) == "com" || stem.substr(0, 3) == "lpt") && stem[3] >= '0' && stem[3] <= '9'))
+            throw std::runtime_error("This filename is reserved. Choose another name");
+          if (lower.size() < 5 || lower.substr(lower.size() - 5) != ".json") fname += ".json";
+          else fname.replace(fname.size() - 5, 5, ".json");
+          if (fname.size() > 200) throw std::runtime_error("Settings filename must be at most 200 characters including .json");
+          const auto target = projectsFolderPath(prefs) / fs::u8path(fname);
+#ifdef _WIN32
+          int descriptor = -1;
+          const auto createError = _wsopen_s(&descriptor, target.c_str(), _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY,
+            _SH_DENYRW, _S_IREAD | _S_IWRITE);
+          if (createError == EEXIST) throw std::runtime_error("A settings file with this name already exists. Choose another name");
+          if (createError != 0) throw std::system_error(createError, std::generic_category(), "Cannot create settings file");
+          _close(descriptor);
+#else
+          const int descriptor = ::open(target.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+          if (descriptor < 0 && errno == EEXIST) throw std::runtime_error("A settings file with this name already exists. Choose another name");
+          if (descriptor < 0) throw std::system_error(errno, std::generic_category(), "Cannot create settings file");
+          ::close(descriptor);
+#endif
+          createdPath = target;
+          checked.saveToPath(createdPath.string());
+          Settings ss{ createdPath.string(), prv.string() };
           ss.initProjectIdIfMissing(true);
 
           res["status"] = "success";
-          res["settingsFilePath"] = (fs::absolute(ffname())).string();
+          res["settingsFilePath"] = (fs::absolute(createdPath)).string();
           res["jsonData"] = ss.configJson();
         } catch (const std::exception &ex) {
+          if (!createdPath.empty()) {
+            std::error_code cleanupError;
+            fs::remove(createdPath, cleanupError);
+          }
           LOG_MSG_ERROR << ex.what();
           res["status"] = "error";
           res["message"] = ex.what();
@@ -450,7 +596,11 @@ int main() {
           auto ppath = projectsFolderPath(prefs);
           if (fs::exists(ppath) && fs::is_directory(ppath)) {
             for (const auto &entry : fs::directory_iterator(ppath)) {
-              if (entry.is_regular_file() && entry.path().extension() == ".json" && entry.path().filename() != PROJECT_REFS_FNAME) {
+              if (entry.is_regular_file() && entry.path().extension() == ".json" 
+                && entry.path().filename() != PROJECT_REFS_FNAME
+                && entry.path().filename() != "providers.json"
+                )
+              {
                 try {
                   addPath(fs::absolute(entry.path()).string());
                 } catch (const std::exception &ex) {
@@ -630,6 +780,14 @@ int main() {
 
             ProcessManager proc;
             if (proc.startProcess(exePath, args)) {
+              try {
+                std::ifstream projectFile(fs::u8path(configPath));
+                const auto projectJson = json::parse(projectFile);
+                rememberDatabaseDirectory(prefs, fs::u8path(configPath),
+                  projectJson.at("database").value("sqlite_path", std::string("db.sqlite")), fs::current_path());
+              } catch (const std::exception &error) {
+                LOG_MSG_ERROR << "Unable to remember the indexing working directory:" << error.what();
+              }
               res["status"] = "success";
               res["message"] = "Embedder started successfully";
               LOG_MSG << "Started embedder process" << proc.getProcessId() << "for projectId";
@@ -771,6 +929,33 @@ int main() {
         return res.dump();
       }
     );
+
+    for (const auto *operation : {"listDatabaseSources", "getDatabaseSourceChunks", "readDatabaseSourceFile",
+         "openDatabaseSourceDirectory", "selectDatabaseWorkingDirectory"}) {
+      w.bind(operation, [&prefs, operation = std::string(operation)](const std::string &data) -> std::string {
+        try {
+          const auto params = json::parse(data).at(0);
+          const auto location = databaseLocation(params, prefs, operation == "selectDatabaseWorkingDirectory");
+          database_browser::Reader reader(location.database, location.baseDirectory);
+          json response;
+          if (operation == "listDatabaseSources" || operation == "selectDatabaseWorkingDirectory") {
+            response = reader.list(params.value("search", std::string{}), params.value("offset", 0), params.value("limit", 50));
+          } else {
+            const auto source = params.at("source_id").get<std::string>();
+            if (operation == "getDatabaseSourceChunks") response = reader.chunks(source, params.value("offset", 0), params.value("limit", 5));
+            else if (operation == "readDatabaseSourceFile") response = reader.readFile(source);
+            else openSourceDirectory(reader.sourcePath(source));
+          }
+          if (response.is_null()) response = json::object();
+          response["status"] = "success";
+          return response.dump(-1, ' ', false, json::error_handler_t::replace);
+        } catch (const database_browser::Error &error) {
+          return json{{"status", "error"}, {"code", error.code}, {"message", error.what()}}.dump();
+        } catch (const std::exception &error) {
+          return json{{"status", "error"}, {"code", "error"}, {"message", error.what()}}.dump();
+        }
+      });
+    }
 
     w.bind("getMonitorSnapshot", [&w](const std::string &data) -> std::string
       {
@@ -956,6 +1141,7 @@ int main() {
         getEnv,
         setProjectsFolderPath,
         createProject,
+        reconcileProject,
         deleteProject,
         importProject,
         getProjectList,
@@ -967,6 +1153,11 @@ int main() {
         startServe,
         pickSettingsJsonFile,
         checkPathExists,
+        listDatabaseSources,
+        getDatabaseSourceChunks,
+        readDatabaseSourceFile,
+        openDatabaseSourceDirectory,
+        selectDatabaseWorkingDirectory,
         getMonitorSnapshot,
         getLogTail,
         testProvider

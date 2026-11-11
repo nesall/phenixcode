@@ -17,6 +17,9 @@ rm -f dist.zip
 mkdir -p dist 
 cp -R build_rel/out/. dist/
 
+# Exclude templates left in build output from older builds.
+rm -f dist/settings.default.json
+
 find . -name "phenixcode-core" -type f
 
 echo "Final dist contents:";ls -la dist/
@@ -31,7 +34,6 @@ cp assets/README dist/
 #cp assets/settings.template.json dist/
 cp assets/providers.json dist/providers.json
 cp assets/settings.json dist/settings.json
-cp assets/settings.json dist/settings.default.json
 cp assets/bge_tokenizer.json dist/
 mkdir -p dist/models
 cp assets/baseline_v2.bin dist/models/

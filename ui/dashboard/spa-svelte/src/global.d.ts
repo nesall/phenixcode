@@ -1,12 +1,26 @@
 declare const __BUILD_DATE__: string;
 
 declare interface Window {
+  HLJS_CUSTOM?: { hlAuto: (content: string, languages?: string[]) => { value: string } };
   cppApi: {
     setPersistentKey: (key: string, value: string) => Promise<void>;
     getPersistentKey: (key: string) => Promise<string | null>;
     getEnv: (key: string) => Promise<string | null>;
 
-    createProject: () => Promise<ProjectItem>;
+    createProject: (options?: { filename: string }) => Promise<ProjectItem>;
+    reconcileProject: (request: {
+      project: ProjectItem;
+      providers: ProvidersSettings;
+      renames: { embedding: Record<string, string>; generation: Record<string, string> };
+    }) => Promise<{
+      status: string;
+      message?: string;
+      jsonData?: SettingsJsonType;
+      changed: boolean;
+      needsReindex: boolean;
+      dropped: string[];
+      needsSelection: string[];
+    }>;
     deleteProject: (project: ProjectItem) => Promise<{ status: string; message: string }>;
     importProject: (projectId: string, configPath: string) => Promise<{ status: string; message: string }>;
     getProjectList: () => Promise<{ status: string, projects: ProjectItem[], message?: string }>;
@@ -18,6 +32,11 @@ declare interface Window {
     getInstances: () => Promise<{ status: string, instances: InstanceItem[], message?: string }>;
     pickSettingsJsonFile: () => Promise<{ project_id: string, path: string } | null>;
     checkPathExists: (path: string) => Promise<{ status: string; message: string }>;
+    listDatabaseSources: (params: import("./app").DatabaseRequest) => Promise<import("./app").DatabaseResult<import("./app").DatabasePage>>;
+    selectDatabaseWorkingDirectory: (params: import("./app").DatabaseRequest) => Promise<import("./app").DatabaseResult<import("./app").DatabasePage>>;
+    getDatabaseSourceChunks: (params: import("./app").DatabaseRequest) => Promise<import("./app").DatabaseResult<import("./app").DatabaseChunks>>;
+    readDatabaseSourceFile: (params: import("./app").DatabaseRequest) => Promise<import("./app").DatabaseResult<import("./app").DatabaseFile>>;
+    openDatabaseSourceDirectory: (params: import("./app").DatabaseRequest) => Promise<import("./app").DatabaseResult<Record<string, never>>>;
     getMonitorSnapshot(params: { settingsFilePath: string }): Promise<{
       status: "success" | "error";
       message?: string;

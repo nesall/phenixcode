@@ -4,10 +4,12 @@
   import ConfigPanel from "./project-panels/ConfigPanel.svelte";
   import { projectStore } from "../store.svelte";
   import Monitor from "./project-panels/MonitorPanel.svelte";
+  let { active = true }: { active?: boolean } = $props();
+  let tab = $state("config");
 </script>
 
 {#if projectStore.selected}
-  <Tabs defaultValue="config" class="h-full text-sm">
+  <Tabs value={tab} onValueChange={details => tab = details.value} class="h-full text-sm">
     <Tabs.List class="">
       <Tabs.Trigger value="config" class="text-sm bg-primary-100-900 h-8">Configuration</Tabs.Trigger>
       <Tabs.Trigger value="instance" class="text-sm bg-secondary-100-900 h-8">Instance</Tabs.Trigger>
@@ -22,7 +24,7 @@
       <Instance />
     </Tabs.Content>
     <Tabs.Content value="monitor" class="h-0 flex-grow">
-      <Monitor />
+      <Monitor active={active && tab === "monitor"} />
     </Tabs.Content>
   </Tabs>
 {:else}

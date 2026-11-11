@@ -454,6 +454,7 @@ void HnswSqliteVectorDatabase::initializeDatabase()
         )
     )";
     executeSql(chunksTable);
+    executeSql("CREATE INDEX IF NOT EXISTS idx_chunks_source_id ON chunks(source_id)");
 
     const char *filesTable = R"(
         CREATE TABLE IF NOT EXISTS files_metadata (
