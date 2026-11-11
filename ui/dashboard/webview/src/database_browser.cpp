@@ -1,5 +1,6 @@
 #include "database_browser.h"
 #include "sqlite3_helper.h"
+#include "cutils.h"
 #include <chrono>
 #include <3rdparty/utf8.h>
 #include <algorithm>
@@ -77,6 +78,16 @@ namespace database_browser {
     step(count.ref());
     const auto total = count.getInt64(0);
     if (offset >= total) offset = total ? static_cast<int>((total - 1) / limit * limit) : 0;
+    // The lexical extremes give the common prefix without loading every path.
+    // Use the full corpus so labels remain stable during filtering and pagination.
+    utils::SqliteStmt extremes(db_.get());
+    const auto extremesSql = sourcesSql +
+      "SELECT MIN(replace(source_id,char(92),'/')),MAX(replace(source_id,char(92),'/')) "
+      "FROM sources WHERE instr(source_id,'://')=0";
+    check(sqlite3_prepare_v2(db_.get(), extremesSql.c_str(), -1, &extremes.ref(), nullptr));
+    step(extremes.ref());
+    const auto prefix = utils::commonDirPrefix({extremes.getStr(0), extremes.getStr(1)});
+    check(sqlite3_reset(extremes.ref()));
     json rows = json::array();
     utils::SqliteStmt page(db_.get());
     const auto sql = sourcesSql + "SELECT s.source_id,f.last_modified,f.file_size,f.nof_lines," +
@@ -91,7 +102,13 @@ namespace database_browser {
     page.bindInt64(3, offset);
     while (step(page.ref())) {
       const auto source = page.getStr(0);
-      rows.push_back({{"source_id", source}, {"is_url", source.find("://") != std::string::npos},
+      const bool isUrl = source.find("://") != std::string::npos;
+      auto displayPath = source;
+      if (!isUrl) {
+        std::replace(displayPath.begin(), displayPath.end(), '\\', '/');
+        utils::stripPrefix(displayPath, prefix);
+      }
+      rows.push_back({{"source_id", source}, {"display_path", displayPath}, {"is_url", isUrl},
         {"last_modified", sqlite3_column_type(page.ref(), 1) == SQLITE_NULL ? json(nullptr) : json(page.getInt64(1))},
         {"file_size", sqlite3_column_type(page.ref(), 2) == SQLITE_NULL ? json(nullptr) : json(page.getInt64(2))},
         {"line_count", sqlite3_column_type(page.ref(), 3) == SQLITE_NULL ? json(nullptr) : json(page.getInt64(3))},

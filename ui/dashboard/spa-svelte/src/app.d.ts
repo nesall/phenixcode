@@ -352,6 +352,7 @@ export interface DatabaseRequest {
 
 export interface DatabaseSource {
   source_id: string;
+  display_path: string;
   is_url: boolean;
   last_modified: number | null;
   file_size: number | null;

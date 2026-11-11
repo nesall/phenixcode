@@ -17,11 +17,14 @@
 
   function setDarkOrLight(dl: string | null) {
     console.log("setDarkOrLight", dl);
+    const themeLink = document.getElementById("hljs-theme") as HTMLLinkElement;
     const htmlEl = document.documentElement;
     if (dl === "dark") {
       htmlEl.setAttribute("data-mode", "dark");
+      themeLink.setAttribute("href", "/hljs/vs-dark.css");
     } else {
       htmlEl.setAttribute("data-mode", "light");
+      themeLink.setAttribute("href", "/hljs/vs.css");
     }
   }
 

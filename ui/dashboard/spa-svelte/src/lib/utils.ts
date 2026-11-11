@@ -732,9 +732,9 @@ export async function hardValidateProjectItem(item: ProjectItem): Promise<{ stat
 
 // Browser previews use bounded fixtures. Native browsing always reads the selected project's SQLite database.
 const databasePreviewSources: DatabaseSource[] = [
-  { source_id: "src/main.cpp", is_url: false, last_modified: 1735689600, file_size: 2080,
+  { source_id: "src/main.cpp", display_path: "src/main.cpp", is_url: false, last_modified: 1735689600, file_size: 2080,
     line_count: 72, indexed_at: "2025-01-01 00:01:00", chunk_count: 3, token_count: 560 },
-  { source_id: "https://example.com/docs", is_url: true, last_modified: null, file_size: null,
+  { source_id: "https://example.com/docs", display_path: "https://example.com/docs", is_url: true, last_modified: null, file_size: null,
     line_count: null, indexed_at: null, chunk_count: 1, token_count: 80 },
 ];
 

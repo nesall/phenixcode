@@ -23,6 +23,10 @@
     {
       "key": "CoreExecutablePath",
       "value": "D:\\workspace\\projects\\phenixcode\\build_rel\\Release/phenixcode-core.exe"
+    },
+    {
+      "key": "DatabaseLocation|D:/workspace/misc/phenixcode_projects/settings_phenixcode.json",
+      "value": "{\"base_directory\":\"D:/workspace/projects/phenixcode/ui/dashboard/webview/build\",\"configured\":\"D:/workspace/misc/phenixcode_projects/phenixcode/db_metadata.db\"}"
     }
   ],
   "window": {

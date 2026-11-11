@@ -93,6 +93,22 @@ int main() {
     check(reader.list("100%_", 0, 50)["total"] == 1, "search treats wildcard characters literally");
     check(reader.list("O'Brien", 0, 50)["total"] == 1, "search binds apostrophes safely");
     check(reader.list("FILE0.CPP", 0, 50)["total"] == 1, "path search is case insensitive");
+    {
+      Fixture paths;
+      paths.chunk("D:/workspace/project/src/a.cpp");
+      paths.chunk("D:\\workspace\\project\\scripts\\b.cpp");
+      paths.chunk("https://example.com/docs");
+      Reader labels(paths.database, paths.directory);
+      const auto filtered = labels.list("a.cpp", 0, 50)["sources"][0];
+      check(filtered["display_path"] == "src/a.cpp", "common directory is stripped across the full corpus, including mixed separators");
+      check(filtered["source_id"] == "D:/workspace/project/src/a.cpp", "display shortening preserves source identity");
+      check(labels.list("b.cpp", 0, 50)["sources"][0]["display_path"] == "scripts/b.cpp", "short labels are stable when filtering");
+      check(labels.list("example.com", 0, 50)["sources"][0]["display_path"] == "https://example.com/docs", "URL labels are preserved");
+      const auto oneRow = labels.list("", 0, 1)["sources"][0];
+      check(oneRow["display_path"] == "src/a.cpp", "pagination does not change the common prefix");
+      paths.chunk("E:/another/file.cpp");
+      check(labels.list("a.cpp", 0, 50)["sources"][0]["display_path"] == "D:/workspace/project/src/a.cpp", "different roots remain distinguishable");
+    }
     const auto source = reader.list("file0.cpp", 0, 50)["sources"][0];
     check(source["chunk_count"] == 2 && source["token_count"] == 10 && source["file_size"].is_null(), "aggregates are available without file metadata");
     const auto chunks = reader.chunks("src/file0.cpp", 0, 1);
