@@ -6,6 +6,7 @@
   let projectsFolderPathInput = $state("");
   let invalidExecPathMessage = $state("");
   let invalidPrjPathMessage = $state("");
+  let agentEnabled = $state(false);
 
   let projectsFolderEnv: string | null = "";
 
@@ -17,7 +18,7 @@
       setPersistentKey(Consts.CoreExecutablePath, coreExecutablePathInput);
     }
     console.log("coreExecutablePathInput", $state.snapshot(coreExecutablePathInput));
-
+    agentEnabled = (await getPersistentKey(Consts.AgentEnabled)) === "true";
     initProjectPath();
   });
 
@@ -69,12 +70,21 @@
     if (!path) return false;
     return await helper_checkPathExists(path);
   }
+
+  function onAgentEnabledChange(e: Event) {
+    const ev = e as InputEvent;
+    if (ev && ev.target) {
+      const checked = (ev.target as HTMLInputElement).checked;
+      agentEnabled = checked;
+      setPersistentKey(Consts.AgentEnabled, checked ? "true" : "false");
+    }
+  }
 </script>
 
 <div class="flex flex-col gap-4">
   <div class="text-right text-xs">Build date: {__BUILD_DATE__}</div>
   <label class="label">
-    <span class="label-text">PhenixCode Executable Path</span>
+    <span class="label-text">PhenixCode executable path</span>
     <div class="flex items-center space-x-1">
       <input
         type="text"
@@ -89,7 +99,7 @@
     {/if}
   </label>
   <label class="label">
-    <span class="label-text">PhenixCode Projects Path</span>
+    <span class="label-text">PhenixCode projects path</span>
     <div class="flex items-center space-x-1">
       <input
         type="text"
@@ -103,6 +113,16 @@
     {#if !!invalidPrjPathMessage}
       <div class="text-xs italic text-error-700-300">{invalidPrjPathMessage}</div>
     {/if}
+  </label>
+  <label class="label flex items-center space-x-2">
+    <span class="text">Enable agentic tools</span>
+    <input
+      type="checkbox"
+      id="input-agent-enabled"
+      class="checkbox"
+      oninput={onAgentEnabledChange}
+      checked={agentEnabled}
+    />
   </label>
 </div>
 

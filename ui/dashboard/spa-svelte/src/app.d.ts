@@ -26,6 +26,7 @@ export interface GenerationApi {
     parameters?: ReasoningParameter[];
     history_replay?: number; // 0 = Off, -1 = All, positive values = recent assistant turns
   };
+  supports_tools?: "auto" | "off" | "on";
   _hidden?: boolean;
 }
 
