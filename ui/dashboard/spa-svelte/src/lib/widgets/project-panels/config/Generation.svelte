@@ -365,7 +365,7 @@
                   />
                   <span class="label-text">Internal classifier</span>
                 </label>
-                <span class="text-xs text-surface-500 mt-1 flex-grow text-left">
+                <span class="text-xs text-surface-500 mt-1 grow text-left">
                   Use "internal" for built-in, or specify an external API type.
                 </span>
               </div>
@@ -413,8 +413,7 @@
                     class="textarea font-mono text-sm"
                     rows="4"
                     bind:value={projectStore.selected.jsonData.generation.auto_router.classifier.prompt}
-                    onchange={onChange}
-                  ></textarea>
+                    onchange={onChange}></textarea>
                 </label>
               {/if}
 
