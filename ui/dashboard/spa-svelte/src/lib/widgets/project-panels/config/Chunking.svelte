@@ -48,11 +48,10 @@
             />
             <label for="semantic-toggle" class="flex flex-col cursor-pointer">
               <span class="font-medium text-left text-surface-900-50"
-                >Enable Semantic Chunking</span
+                >Use content-aware splitting</span
               >
               <span class="text-xs text-surface-500-400"
-                >Use sentence boundaries and embedding distances to
-                intelligently split documents.</span
+                >Split code by lines and text by words within the token budget.</span
               >
             </label>
           </div>
@@ -75,7 +74,7 @@
                 onchange={onChange}
               />
               <p class="text-sm text-surface-500 mt-1">
-                Minimum required token count for a valid chunk.
+                Preferred minimum. Adjacent small chunks are merged when the budget allows.
               </p>
             </label>
 

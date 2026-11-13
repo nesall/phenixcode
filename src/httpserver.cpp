@@ -290,7 +290,7 @@ bool HttpServer::startServer()
       LOG_MSG << "POST /api/embed";
       json request = json::parse(req.body);
       std::string text = request["text"].get<std::string>();
-      auto chunks = imp->app_.chunker().chunkText(text, "api-request");
+      auto chunks = imp->app_.chunker().chunkText(text, "api-request", imp->app_.settings().chunkingSemantic());
       std::vector<std::string> texts;
       for (const auto &c : chunks) {
         texts.push_back(c.text);
@@ -336,7 +336,7 @@ bool HttpServer::startServer()
       std::string content = request["content"].get<std::string>();
       std::string source_id = request["source_id"].get<std::string>();
 
-      auto chunks = imp->app_.chunker().chunkText(content, source_id);
+      auto chunks = imp->app_.chunker().chunkText(content, source_id, imp->app_.settings().chunkingSemantic());
 
       EmbeddingClient embeddingClient(imp->app_.settings().embeddingCurrentApi(), imp->app_.settings().embeddingTimeoutMs());
       size_t inserted = 0;

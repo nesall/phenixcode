@@ -7,6 +7,7 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -609,6 +610,13 @@ void Settings::validateProjectJson(nlohmann::json j)
 void Settings::validate()
 {
   validateProjectJson(config_);
+  const auto &chunking = config_.at("chunking");
+  const auto minimum = chunking.value("nof_min_tokens", int64_t(50));
+  const auto maximum = chunking.value("nof_max_tokens", int64_t(500));
+  const auto overlap = chunking.value("overlap_percentage", double(0.1));
+  if (minimum <= 0 || maximum < minimum || !std::isfinite(overlap) || overlap < 0 || overlap >= 1)
+    throw std::runtime_error("Chunking requires 0 < min <= max tokens and overlap in [0, 1)");
+
 
   // Validate a provider section: current_api must be listed in enabled_providers
   // and must exist in the providers list loaded from the providers file.

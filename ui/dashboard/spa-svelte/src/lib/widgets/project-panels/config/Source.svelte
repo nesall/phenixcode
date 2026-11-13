@@ -335,8 +335,8 @@
     <div class="rounded-lg shadow p-4">
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-bold">Paths ({projectStore.selected.jsonData.source.paths.length})</h2>
-        <button type="button" class="btn px-3 py-1 preset-filled-primary-500 rounded-md" onclick={addPath}>
-          Add Path
+        <button type="button" class="btn preset-filled-primary-500 rounded-md" onclick={addPath}>
+          <icons.Plus /> Add Path
         </button>
       </div>
 
@@ -469,8 +469,9 @@
               class="btn preset-filled-error-500"
               onclick={() => removePath(i)}
               disabled={projectStore.selected.jsonData.source.paths.length === 1}
+              title="Remove this path from the project"
             >
-              Remove Path
+              <icons.Trash />
             </button>
           </div>
         </div>

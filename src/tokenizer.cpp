@@ -1,212 +1,481 @@
 #include "tokenizer.h"
+#include "json_shim.h"
 #include <utils_log/logger.hpp>
-#include <vector>
-#include <string>
-#include <string_view>
+#include <3rdparty/utf8.h>
+#include <algorithm>
 #include <fstream>
-#include <sstream>
+#include <functional>
+#include <iterator>
+#include <vector>
 
 using json = nlohmann::json;
 
 namespace {
+  struct Range { uint32_t first, last; };
+  struct LowercaseRange { uint32_t first, last, stride; int32_t delta; };
+  struct LatinFold { uint32_t base; std::u32string_view characters; };
+  // Unicode 16.0.0 category/simple-case data. Latin folds use canonical NFD with Mn removed.
+  constexpr Range punctuationRanges[] = {
+    {0x21, 0x23}, {0x25, 0x2a}, {0x2c, 0x2f}, {0x3a, 0x3b},
+    {0x3f, 0x40}, {0x5b, 0x5d}, {0x5f, 0x5f}, {0x7b, 0x7b},
+    {0x7d, 0x7d}, {0xa1, 0xa1}, {0xa7, 0xa7}, {0xab, 0xab},
+    {0xb6, 0xb7}, {0xbb, 0xbb}, {0xbf, 0xbf}, {0x37e, 0x37e},
+    {0x387, 0x387}, {0x55a, 0x55f}, {0x589, 0x58a}, {0x5be, 0x5be},
+    {0x5c0, 0x5c0}, {0x5c3, 0x5c3}, {0x5c6, 0x5c6}, {0x5f3, 0x5f4},
+    {0x609, 0x60a}, {0x60c, 0x60d}, {0x61b, 0x61b}, {0x61d, 0x61f},
+    {0x66a, 0x66d}, {0x6d4, 0x6d4}, {0x700, 0x70d}, {0x7f7, 0x7f9},
+    {0x830, 0x83e}, {0x85e, 0x85e}, {0x964, 0x965}, {0x970, 0x970},
+    {0x9fd, 0x9fd}, {0xa76, 0xa76}, {0xaf0, 0xaf0}, {0xc77, 0xc77},
+    {0xc84, 0xc84}, {0xdf4, 0xdf4}, {0xe4f, 0xe4f}, {0xe5a, 0xe5b},
+    {0xf04, 0xf12}, {0xf14, 0xf14}, {0xf3a, 0xf3d}, {0xf85, 0xf85},
+    {0xfd0, 0xfd4}, {0xfd9, 0xfda}, {0x104a, 0x104f}, {0x10fb, 0x10fb},
+    {0x1360, 0x1368}, {0x1400, 0x1400}, {0x166e, 0x166e}, {0x169b, 0x169c},
+    {0x16eb, 0x16ed}, {0x1735, 0x1736}, {0x17d4, 0x17d6}, {0x17d8, 0x17da},
+    {0x1800, 0x180a}, {0x1944, 0x1945}, {0x1a1e, 0x1a1f}, {0x1aa0, 0x1aa6},
+    {0x1aa8, 0x1aad}, {0x1b4e, 0x1b4f}, {0x1b5a, 0x1b60}, {0x1b7d, 0x1b7f},
+    {0x1bfc, 0x1bff}, {0x1c3b, 0x1c3f}, {0x1c7e, 0x1c7f}, {0x1cc0, 0x1cc7},
+    {0x1cd3, 0x1cd3}, {0x2010, 0x2027}, {0x2030, 0x2043}, {0x2045, 0x2051},
+    {0x2053, 0x205e}, {0x207d, 0x207e}, {0x208d, 0x208e}, {0x2308, 0x230b},
+    {0x2329, 0x232a}, {0x2768, 0x2775}, {0x27c5, 0x27c6}, {0x27e6, 0x27ef},
+    {0x2983, 0x2998}, {0x29d8, 0x29db}, {0x29fc, 0x29fd}, {0x2cf9, 0x2cfc},
+    {0x2cfe, 0x2cff}, {0x2d70, 0x2d70}, {0x2e00, 0x2e2e}, {0x2e30, 0x2e4f},
+    {0x2e52, 0x2e5d}, {0x3001, 0x3003}, {0x3008, 0x3011}, {0x3014, 0x301f},
+    {0x3030, 0x3030}, {0x303d, 0x303d}, {0x30a0, 0x30a0}, {0x30fb, 0x30fb},
+    {0xa4fe, 0xa4ff}, {0xa60d, 0xa60f}, {0xa673, 0xa673}, {0xa67e, 0xa67e},
+    {0xa6f2, 0xa6f7}, {0xa874, 0xa877}, {0xa8ce, 0xa8cf}, {0xa8f8, 0xa8fa},
+    {0xa8fc, 0xa8fc}, {0xa92e, 0xa92f}, {0xa95f, 0xa95f}, {0xa9c1, 0xa9cd},
+    {0xa9de, 0xa9df}, {0xaa5c, 0xaa5f}, {0xaade, 0xaadf}, {0xaaf0, 0xaaf1},
+    {0xabeb, 0xabeb}, {0xfd3e, 0xfd3f}, {0xfe10, 0xfe19}, {0xfe30, 0xfe52},
+    {0xfe54, 0xfe61}, {0xfe63, 0xfe63}, {0xfe68, 0xfe68}, {0xfe6a, 0xfe6b},
+    {0xff01, 0xff03}, {0xff05, 0xff0a}, {0xff0c, 0xff0f}, {0xff1a, 0xff1b},
+    {0xff1f, 0xff20}, {0xff3b, 0xff3d}, {0xff3f, 0xff3f}, {0xff5b, 0xff5b},
+    {0xff5d, 0xff5d}, {0xff5f, 0xff65}, {0x10100, 0x10102}, {0x1039f, 0x1039f},
+    {0x103d0, 0x103d0}, {0x1056f, 0x1056f}, {0x10857, 0x10857}, {0x1091f, 0x1091f},
+    {0x1093f, 0x1093f}, {0x10a50, 0x10a58}, {0x10a7f, 0x10a7f}, {0x10af0, 0x10af6},
+    {0x10b39, 0x10b3f}, {0x10b99, 0x10b9c}, {0x10d6e, 0x10d6e}, {0x10ead, 0x10ead},
+    {0x10f55, 0x10f59}, {0x10f86, 0x10f89}, {0x11047, 0x1104d}, {0x110bb, 0x110bc},
+    {0x110be, 0x110c1}, {0x11140, 0x11143}, {0x11174, 0x11175}, {0x111c5, 0x111c8},
+    {0x111cd, 0x111cd}, {0x111db, 0x111db}, {0x111dd, 0x111df}, {0x11238, 0x1123d},
+    {0x112a9, 0x112a9}, {0x113d4, 0x113d5}, {0x113d7, 0x113d8}, {0x1144b, 0x1144f},
+    {0x1145a, 0x1145b}, {0x1145d, 0x1145d}, {0x114c6, 0x114c6}, {0x115c1, 0x115d7},
+    {0x11641, 0x11643}, {0x11660, 0x1166c}, {0x116b9, 0x116b9}, {0x1173c, 0x1173e},
+    {0x1183b, 0x1183b}, {0x11944, 0x11946}, {0x119e2, 0x119e2}, {0x11a3f, 0x11a46},
+    {0x11a9a, 0x11a9c}, {0x11a9e, 0x11aa2}, {0x11b00, 0x11b09}, {0x11be1, 0x11be1},
+    {0x11c41, 0x11c45}, {0x11c70, 0x11c71}, {0x11ef7, 0x11ef8}, {0x11f43, 0x11f4f},
+    {0x11fff, 0x11fff}, {0x12470, 0x12474}, {0x12ff1, 0x12ff2}, {0x16a6e, 0x16a6f},
+    {0x16af5, 0x16af5}, {0x16b37, 0x16b3b}, {0x16b44, 0x16b44}, {0x16d6d, 0x16d6f},
+    {0x16e97, 0x16e9a}, {0x16fe2, 0x16fe2}, {0x1bc9f, 0x1bc9f}, {0x1da87, 0x1da8b},
+    {0x1e5ff, 0x1e5ff}, {0x1e95e, 0x1e95f},
+  };
+  constexpr Range controlRanges[] = {
+    {0x0, 0x1f}, {0x7f, 0x9f}, {0xad, 0xad}, {0x600, 0x605},
+    {0x61c, 0x61c}, {0x6dd, 0x6dd}, {0x70f, 0x70f}, {0x890, 0x891},
+    {0x8e2, 0x8e2}, {0x180e, 0x180e}, {0x200b, 0x200f}, {0x202a, 0x202e},
+    {0x2060, 0x2064}, {0x2066, 0x206f}, {0xfeff, 0xfeff}, {0xfff9, 0xfffb},
+    {0x110bd, 0x110bd}, {0x110cd, 0x110cd}, {0x13430, 0x1343f}, {0x1bca0, 0x1bca3},
+    {0x1d173, 0x1d17a}, {0xe0001, 0xe0001}, {0xe0020, 0xe007f},
+  };
+  constexpr Range markRanges[] = {
+    {0x300, 0x36f}, {0x483, 0x487}, {0x591, 0x5bd}, {0x5bf, 0x5bf},
+    {0x5c1, 0x5c2}, {0x5c4, 0x5c5}, {0x5c7, 0x5c7}, {0x610, 0x61a},
+    {0x64b, 0x65f}, {0x670, 0x670}, {0x6d6, 0x6dc}, {0x6df, 0x6e4},
+    {0x6e7, 0x6e8}, {0x6ea, 0x6ed}, {0x711, 0x711}, {0x730, 0x74a},
+    {0x7a6, 0x7b0}, {0x7eb, 0x7f3}, {0x7fd, 0x7fd}, {0x816, 0x819},
+    {0x81b, 0x823}, {0x825, 0x827}, {0x829, 0x82d}, {0x859, 0x85b},
+    {0x897, 0x89f}, {0x8ca, 0x8e1}, {0x8e3, 0x902}, {0x93a, 0x93a},
+    {0x93c, 0x93c}, {0x941, 0x948}, {0x94d, 0x94d}, {0x951, 0x957},
+    {0x962, 0x963}, {0x981, 0x981}, {0x9bc, 0x9bc}, {0x9c1, 0x9c4},
+    {0x9cd, 0x9cd}, {0x9e2, 0x9e3}, {0x9fe, 0x9fe}, {0xa01, 0xa02},
+    {0xa3c, 0xa3c}, {0xa41, 0xa42}, {0xa47, 0xa48}, {0xa4b, 0xa4d},
+    {0xa51, 0xa51}, {0xa70, 0xa71}, {0xa75, 0xa75}, {0xa81, 0xa82},
+    {0xabc, 0xabc}, {0xac1, 0xac5}, {0xac7, 0xac8}, {0xacd, 0xacd},
+    {0xae2, 0xae3}, {0xafa, 0xaff}, {0xb01, 0xb01}, {0xb3c, 0xb3c},
+    {0xb3f, 0xb3f}, {0xb41, 0xb44}, {0xb4d, 0xb4d}, {0xb55, 0xb56},
+    {0xb62, 0xb63}, {0xb82, 0xb82}, {0xbc0, 0xbc0}, {0xbcd, 0xbcd},
+    {0xc00, 0xc00}, {0xc04, 0xc04}, {0xc3c, 0xc3c}, {0xc3e, 0xc40},
+    {0xc46, 0xc48}, {0xc4a, 0xc4d}, {0xc55, 0xc56}, {0xc62, 0xc63},
+    {0xc81, 0xc81}, {0xcbc, 0xcbc}, {0xcbf, 0xcbf}, {0xcc6, 0xcc6},
+    {0xccc, 0xccd}, {0xce2, 0xce3}, {0xd00, 0xd01}, {0xd3b, 0xd3c},
+    {0xd41, 0xd44}, {0xd4d, 0xd4d}, {0xd62, 0xd63}, {0xd81, 0xd81},
+    {0xdca, 0xdca}, {0xdd2, 0xdd4}, {0xdd6, 0xdd6}, {0xe31, 0xe31},
+    {0xe34, 0xe3a}, {0xe47, 0xe4e}, {0xeb1, 0xeb1}, {0xeb4, 0xebc},
+    {0xec8, 0xece}, {0xf18, 0xf19}, {0xf35, 0xf35}, {0xf37, 0xf37},
+    {0xf39, 0xf39}, {0xf71, 0xf7e}, {0xf80, 0xf84}, {0xf86, 0xf87},
+    {0xf8d, 0xf97}, {0xf99, 0xfbc}, {0xfc6, 0xfc6}, {0x102d, 0x1030},
+    {0x1032, 0x1037}, {0x1039, 0x103a}, {0x103d, 0x103e}, {0x1058, 0x1059},
+    {0x105e, 0x1060}, {0x1071, 0x1074}, {0x1082, 0x1082}, {0x1085, 0x1086},
+    {0x108d, 0x108d}, {0x109d, 0x109d}, {0x135d, 0x135f}, {0x1712, 0x1714},
+    {0x1732, 0x1733}, {0x1752, 0x1753}, {0x1772, 0x1773}, {0x17b4, 0x17b5},
+    {0x17b7, 0x17bd}, {0x17c6, 0x17c6}, {0x17c9, 0x17d3}, {0x17dd, 0x17dd},
+    {0x180b, 0x180d}, {0x180f, 0x180f}, {0x1885, 0x1886}, {0x18a9, 0x18a9},
+    {0x1920, 0x1922}, {0x1927, 0x1928}, {0x1932, 0x1932}, {0x1939, 0x193b},
+    {0x1a17, 0x1a18}, {0x1a1b, 0x1a1b}, {0x1a56, 0x1a56}, {0x1a58, 0x1a5e},
+    {0x1a60, 0x1a60}, {0x1a62, 0x1a62}, {0x1a65, 0x1a6c}, {0x1a73, 0x1a7c},
+    {0x1a7f, 0x1a7f}, {0x1ab0, 0x1abd}, {0x1abf, 0x1ace}, {0x1b00, 0x1b03},
+    {0x1b34, 0x1b34}, {0x1b36, 0x1b3a}, {0x1b3c, 0x1b3c}, {0x1b42, 0x1b42},
+    {0x1b6b, 0x1b73}, {0x1b80, 0x1b81}, {0x1ba2, 0x1ba5}, {0x1ba8, 0x1ba9},
+    {0x1bab, 0x1bad}, {0x1be6, 0x1be6}, {0x1be8, 0x1be9}, {0x1bed, 0x1bed},
+    {0x1bef, 0x1bf1}, {0x1c2c, 0x1c33}, {0x1c36, 0x1c37}, {0x1cd0, 0x1cd2},
+    {0x1cd4, 0x1ce0}, {0x1ce2, 0x1ce8}, {0x1ced, 0x1ced}, {0x1cf4, 0x1cf4},
+    {0x1cf8, 0x1cf9}, {0x1dc0, 0x1dff}, {0x20d0, 0x20dc}, {0x20e1, 0x20e1},
+    {0x20e5, 0x20f0}, {0x2cef, 0x2cf1}, {0x2d7f, 0x2d7f}, {0x2de0, 0x2dff},
+    {0x302a, 0x302d}, {0x3099, 0x309a}, {0xa66f, 0xa66f}, {0xa674, 0xa67d},
+    {0xa69e, 0xa69f}, {0xa6f0, 0xa6f1}, {0xa802, 0xa802}, {0xa806, 0xa806},
+    {0xa80b, 0xa80b}, {0xa825, 0xa826}, {0xa82c, 0xa82c}, {0xa8c4, 0xa8c5},
+    {0xa8e0, 0xa8f1}, {0xa8ff, 0xa8ff}, {0xa926, 0xa92d}, {0xa947, 0xa951},
+    {0xa980, 0xa982}, {0xa9b3, 0xa9b3}, {0xa9b6, 0xa9b9}, {0xa9bc, 0xa9bd},
+    {0xa9e5, 0xa9e5}, {0xaa29, 0xaa2e}, {0xaa31, 0xaa32}, {0xaa35, 0xaa36},
+    {0xaa43, 0xaa43}, {0xaa4c, 0xaa4c}, {0xaa7c, 0xaa7c}, {0xaab0, 0xaab0},
+    {0xaab2, 0xaab4}, {0xaab7, 0xaab8}, {0xaabe, 0xaabf}, {0xaac1, 0xaac1},
+    {0xaaec, 0xaaed}, {0xaaf6, 0xaaf6}, {0xabe5, 0xabe5}, {0xabe8, 0xabe8},
+    {0xabed, 0xabed}, {0xfb1e, 0xfb1e}, {0xfe00, 0xfe0f}, {0xfe20, 0xfe2f},
+    {0x101fd, 0x101fd}, {0x102e0, 0x102e0}, {0x10376, 0x1037a}, {0x10a01, 0x10a03},
+    {0x10a05, 0x10a06}, {0x10a0c, 0x10a0f}, {0x10a38, 0x10a3a}, {0x10a3f, 0x10a3f},
+    {0x10ae5, 0x10ae6}, {0x10d24, 0x10d27}, {0x10d69, 0x10d6d}, {0x10eab, 0x10eac},
+    {0x10efc, 0x10eff}, {0x10f46, 0x10f50}, {0x10f82, 0x10f85}, {0x11001, 0x11001},
+    {0x11038, 0x11046}, {0x11070, 0x11070}, {0x11073, 0x11074}, {0x1107f, 0x11081},
+    {0x110b3, 0x110b6}, {0x110b9, 0x110ba}, {0x110c2, 0x110c2}, {0x11100, 0x11102},
+    {0x11127, 0x1112b}, {0x1112d, 0x11134}, {0x11173, 0x11173}, {0x11180, 0x11181},
+    {0x111b6, 0x111be}, {0x111c9, 0x111cc}, {0x111cf, 0x111cf}, {0x1122f, 0x11231},
+    {0x11234, 0x11234}, {0x11236, 0x11237}, {0x1123e, 0x1123e}, {0x11241, 0x11241},
+    {0x112df, 0x112df}, {0x112e3, 0x112ea}, {0x11300, 0x11301}, {0x1133b, 0x1133c},
+    {0x11340, 0x11340}, {0x11366, 0x1136c}, {0x11370, 0x11374}, {0x113bb, 0x113c0},
+    {0x113ce, 0x113ce}, {0x113d0, 0x113d0}, {0x113d2, 0x113d2}, {0x113e1, 0x113e2},
+    {0x11438, 0x1143f}, {0x11442, 0x11444}, {0x11446, 0x11446}, {0x1145e, 0x1145e},
+    {0x114b3, 0x114b8}, {0x114ba, 0x114ba}, {0x114bf, 0x114c0}, {0x114c2, 0x114c3},
+    {0x115b2, 0x115b5}, {0x115bc, 0x115bd}, {0x115bf, 0x115c0}, {0x115dc, 0x115dd},
+    {0x11633, 0x1163a}, {0x1163d, 0x1163d}, {0x1163f, 0x11640}, {0x116ab, 0x116ab},
+    {0x116ad, 0x116ad}, {0x116b0, 0x116b5}, {0x116b7, 0x116b7}, {0x1171d, 0x1171d},
+    {0x1171f, 0x1171f}, {0x11722, 0x11725}, {0x11727, 0x1172b}, {0x1182f, 0x11837},
+    {0x11839, 0x1183a}, {0x1193b, 0x1193c}, {0x1193e, 0x1193e}, {0x11943, 0x11943},
+    {0x119d4, 0x119d7}, {0x119da, 0x119db}, {0x119e0, 0x119e0}, {0x11a01, 0x11a0a},
+    {0x11a33, 0x11a38}, {0x11a3b, 0x11a3e}, {0x11a47, 0x11a47}, {0x11a51, 0x11a56},
+    {0x11a59, 0x11a5b}, {0x11a8a, 0x11a96}, {0x11a98, 0x11a99}, {0x11c30, 0x11c36},
+    {0x11c38, 0x11c3d}, {0x11c3f, 0x11c3f}, {0x11c92, 0x11ca7}, {0x11caa, 0x11cb0},
+    {0x11cb2, 0x11cb3}, {0x11cb5, 0x11cb6}, {0x11d31, 0x11d36}, {0x11d3a, 0x11d3a},
+    {0x11d3c, 0x11d3d}, {0x11d3f, 0x11d45}, {0x11d47, 0x11d47}, {0x11d90, 0x11d91},
+    {0x11d95, 0x11d95}, {0x11d97, 0x11d97}, {0x11ef3, 0x11ef4}, {0x11f00, 0x11f01},
+    {0x11f36, 0x11f3a}, {0x11f40, 0x11f40}, {0x11f42, 0x11f42}, {0x11f5a, 0x11f5a},
+    {0x13440, 0x13440}, {0x13447, 0x13455}, {0x1611e, 0x16129}, {0x1612d, 0x1612f},
+    {0x16af0, 0x16af4}, {0x16b30, 0x16b36}, {0x16f4f, 0x16f4f}, {0x16f8f, 0x16f92},
+    {0x16fe4, 0x16fe4}, {0x1bc9d, 0x1bc9e}, {0x1cf00, 0x1cf2d}, {0x1cf30, 0x1cf46},
+    {0x1d167, 0x1d169}, {0x1d17b, 0x1d182}, {0x1d185, 0x1d18b}, {0x1d1aa, 0x1d1ad},
+    {0x1d242, 0x1d244}, {0x1da00, 0x1da36}, {0x1da3b, 0x1da6c}, {0x1da75, 0x1da75},
+    {0x1da84, 0x1da84}, {0x1da9b, 0x1da9f}, {0x1daa1, 0x1daaf}, {0x1e000, 0x1e006},
+    {0x1e008, 0x1e018}, {0x1e01b, 0x1e021}, {0x1e023, 0x1e024}, {0x1e026, 0x1e02a},
+    {0x1e08f, 0x1e08f}, {0x1e130, 0x1e136}, {0x1e2ae, 0x1e2ae}, {0x1e2ec, 0x1e2ef},
+    {0x1e4ec, 0x1e4ef}, {0x1e5ee, 0x1e5ef}, {0x1e8d0, 0x1e8d6}, {0x1e944, 0x1e94a},
+    {0xe0100, 0xe01ef},
+  };
+  constexpr LatinFold latinFolds[] = {
+    {0x41, U"\u00c0\u00c1\u00c2\u00c3\u00c4\u00c5\u0100\u0102\u0104\u01cd\u01de\u01e0\u01fa\u0200\u0202\u0226\u1e00\u1ea0\u1ea2\u1ea4\u1ea6\u1ea8\u1eaa\u1eac\u1eae\u1eb0\u1eb2\u1eb4\u1eb6"},
+    {0x42, U"\u1e02\u1e04\u1e06"},
+    {0x43, U"\u00c7\u0106\u0108\u010a\u010c\u1e08"},
+    {0x44, U"\u010e\u1e0a\u1e0c\u1e0e\u1e10\u1e12"},
+    {0x45, U"\u00c8\u00c9\u00ca\u00cb\u0112\u0114\u0116\u0118\u011a\u0204\u0206\u0228\u1e14\u1e16\u1e18\u1e1a\u1e1c\u1eb8\u1eba\u1ebc\u1ebe\u1ec0\u1ec2\u1ec4\u1ec6"},
+    {0x46, U"\u1e1e"},
+    {0x47, U"\u011c\u011e\u0120\u0122\u01e6\u01f4\u1e20"},
+    {0x48, U"\u0124\u021e\u1e22\u1e24\u1e26\u1e28\u1e2a"},
+    {0x49, U"\u00cc\u00cd\u00ce\u00cf\u0128\u012a\u012c\u012e\u0130\u01cf\u0208\u020a\u1e2c\u1e2e\u1ec8\u1eca"},
+    {0x4a, U"\u0134"},
+    {0x4b, U"\u0136\u01e8\u1e30\u1e32\u1e34"},
+    {0x4c, U"\u0139\u013b\u013d\u1e36\u1e38\u1e3a\u1e3c"},
+    {0x4d, U"\u1e3e\u1e40\u1e42"},
+    {0x4e, U"\u00d1\u0143\u0145\u0147\u01f8\u1e44\u1e46\u1e48\u1e4a"},
+    {0x4f, U"\u00d2\u00d3\u00d4\u00d5\u00d6\u014c\u014e\u0150\u01a0\u01d1\u01ea\u01ec\u020c\u020e\u022a\u022c\u022e\u0230\u1e4c\u1e4e\u1e50\u1e52\u1ecc\u1ece\u1ed0\u1ed2\u1ed4\u1ed6\u1ed8\u1eda\u1edc\u1ede\u1ee0\u1ee2"},
+    {0x50, U"\u1e54\u1e56"},
+    {0x52, U"\u0154\u0156\u0158\u0210\u0212\u1e58\u1e5a\u1e5c\u1e5e"},
+    {0x53, U"\u015a\u015c\u015e\u0160\u0218\u1e60\u1e62\u1e64\u1e66\u1e68"},
+    {0x54, U"\u0162\u0164\u021a\u1e6a\u1e6c\u1e6e\u1e70"},
+    {0x55, U"\u00d9\u00da\u00db\u00dc\u0168\u016a\u016c\u016e\u0170\u0172\u01af\u01d3\u01d5\u01d7\u01d9\u01db\u0214\u0216\u1e72\u1e74\u1e76\u1e78\u1e7a\u1ee4\u1ee6\u1ee8\u1eea\u1eec\u1eee\u1ef0"},
+    {0x56, U"\u1e7c\u1e7e"},
+    {0x57, U"\u0174\u1e80\u1e82\u1e84\u1e86\u1e88"},
+    {0x58, U"\u1e8a\u1e8c"},
+    {0x59, U"\u00dd\u0176\u0178\u0232\u1e8e\u1ef2\u1ef4\u1ef6\u1ef8"},
+    {0x5a, U"\u0179\u017b\u017d\u1e90\u1e92\u1e94"},
+    {0x61, U"\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5\u0101\u0103\u0105\u01ce\u01df\u01e1\u01fb\u0201\u0203\u0227\u1e01\u1ea1\u1ea3\u1ea5\u1ea7\u1ea9\u1eab\u1ead\u1eaf\u1eb1\u1eb3\u1eb5\u1eb7"},
+    {0x62, U"\u1e03\u1e05\u1e07"},
+    {0x63, U"\u00e7\u0107\u0109\u010b\u010d\u1e09"},
+    {0x64, U"\u010f\u1e0b\u1e0d\u1e0f\u1e11\u1e13"},
+    {0x65, U"\u00e8\u00e9\u00ea\u00eb\u0113\u0115\u0117\u0119\u011b\u0205\u0207\u0229\u1e15\u1e17\u1e19\u1e1b\u1e1d\u1eb9\u1ebb\u1ebd\u1ebf\u1ec1\u1ec3\u1ec5\u1ec7"},
+    {0x66, U"\u1e1f"},
+    {0x67, U"\u011d\u011f\u0121\u0123\u01e7\u01f5\u1e21"},
+    {0x68, U"\u0125\u021f\u1e23\u1e25\u1e27\u1e29\u1e2b\u1e96"},
+    {0x69, U"\u00ec\u00ed\u00ee\u00ef\u0129\u012b\u012d\u012f\u01d0\u0209\u020b\u1e2d\u1e2f\u1ec9\u1ecb"},
+    {0x6a, U"\u0135\u01f0"},
+    {0x6b, U"\u0137\u01e9\u1e31\u1e33\u1e35"},
+    {0x6c, U"\u013a\u013c\u013e\u1e37\u1e39\u1e3b\u1e3d"},
+    {0x6d, U"\u1e3f\u1e41\u1e43"},
+    {0x6e, U"\u00f1\u0144\u0146\u0148\u01f9\u1e45\u1e47\u1e49\u1e4b"},
+    {0x6f, U"\u00f2\u00f3\u00f4\u00f5\u00f6\u014d\u014f\u0151\u01a1\u01d2\u01eb\u01ed\u020d\u020f\u022b\u022d\u022f\u0231\u1e4d\u1e4f\u1e51\u1e53\u1ecd\u1ecf\u1ed1\u1ed3\u1ed5\u1ed7\u1ed9\u1edb\u1edd\u1edf\u1ee1\u1ee3"},
+    {0x70, U"\u1e55\u1e57"},
+    {0x72, U"\u0155\u0157\u0159\u0211\u0213\u1e59\u1e5b\u1e5d\u1e5f"},
+    {0x73, U"\u015b\u015d\u015f\u0161\u0219\u1e61\u1e63\u1e65\u1e67\u1e69"},
+    {0x74, U"\u0163\u0165\u021b\u1e6b\u1e6d\u1e6f\u1e71\u1e97"},
+    {0x75, U"\u00f9\u00fa\u00fb\u00fc\u0169\u016b\u016d\u016f\u0171\u0173\u01b0\u01d4\u01d6\u01d8\u01da\u01dc\u0215\u0217\u1e73\u1e75\u1e77\u1e79\u1e7b\u1ee5\u1ee7\u1ee9\u1eeb\u1eed\u1eef\u1ef1"},
+    {0x76, U"\u1e7d\u1e7f"},
+    {0x77, U"\u0175\u1e81\u1e83\u1e85\u1e87\u1e89\u1e98"},
+    {0x78, U"\u1e8b\u1e8d"},
+    {0x79, U"\u00fd\u00ff\u0177\u0233\u1e8f\u1e99\u1ef3\u1ef5\u1ef7\u1ef9"},
+    {0x7a, U"\u017a\u017c\u017e\u1e91\u1e93\u1e95"},
+    {0xc6, U"\u01e2\u01fc"},
+    {0xd8, U"\u01fe"},
+    {0xe6, U"\u01e3\u01fd"},
+    {0xf8, U"\u01ff"},
+    {0x17f, U"\u1e9b"},
+    {0x1b7, U"\u01ee"},
+    {0x292, U"\u01ef"},
+  };
+  constexpr LowercaseRange lowercaseRanges[] = {
+    {0x41, 0x5a, 1, 32}, {0xc0, 0xd6, 1, 32}, {0xd8, 0xde, 1, 32},
+    {0x100, 0x12e, 2, 1}, {0x132, 0x136, 2, 1}, {0x139, 0x147, 2, 1},
+    {0x14a, 0x176, 2, 1}, {0x178, 0x178, 1, -121}, {0x179, 0x17d, 2, 1},
+    {0x181, 0x181, 1, 210}, {0x182, 0x184, 2, 1}, {0x186, 0x186, 1, 206},
+    {0x187, 0x187, 2, 1}, {0x189, 0x18a, 1, 205}, {0x18b, 0x18b, 1, 1},
+    {0x18e, 0x18e, 1, 79}, {0x18f, 0x18f, 1, 202}, {0x190, 0x190, 1, 203},
+    {0x191, 0x191, 2, 1}, {0x193, 0x193, 1, 205}, {0x194, 0x194, 2, 207},
+    {0x196, 0x196, 1, 211}, {0x197, 0x197, 1, 209}, {0x198, 0x198, 1, 1},
+    {0x19c, 0x19c, 1, 211}, {0x19d, 0x19d, 2, 213}, {0x19f, 0x19f, 1, 214},
+    {0x1a0, 0x1a4, 2, 1}, {0x1a6, 0x1a6, 1, 218}, {0x1a7, 0x1a7, 2, 1},
+    {0x1a9, 0x1a9, 1, 218}, {0x1ac, 0x1ac, 2, 1}, {0x1ae, 0x1ae, 1, 218},
+    {0x1af, 0x1af, 2, 1}, {0x1b1, 0x1b2, 1, 217}, {0x1b3, 0x1b5, 2, 1},
+    {0x1b7, 0x1b7, 1, 219}, {0x1b8, 0x1b8, 1, 1}, {0x1bc, 0x1bc, 1, 1},
+    {0x1c4, 0x1c4, 1, 2}, {0x1c5, 0x1c5, 2, 1}, {0x1c7, 0x1c7, 1, 2},
+    {0x1c8, 0x1c8, 2, 1}, {0x1ca, 0x1ca, 1, 2}, {0x1cb, 0x1db, 2, 1},
+    {0x1de, 0x1ee, 2, 1}, {0x1f1, 0x1f1, 1, 2}, {0x1f2, 0x1f4, 2, 1},
+    {0x1f6, 0x1f6, 1, -97}, {0x1f7, 0x1f7, 1, -56}, {0x1f8, 0x21e, 2, 1},
+    {0x220, 0x220, 2, -130}, {0x222, 0x232, 2, 1}, {0x23a, 0x23a, 1, 10795},
+    {0x23b, 0x23b, 2, 1}, {0x23d, 0x23d, 1, -163}, {0x23e, 0x23e, 1, 10792},
+    {0x241, 0x241, 2, 1}, {0x243, 0x243, 1, -195}, {0x244, 0x244, 1, 69},
+    {0x245, 0x245, 1, 71}, {0x246, 0x24e, 2, 1}, {0x370, 0x372, 2, 1},
+    {0x376, 0x376, 1, 1}, {0x37f, 0x37f, 1, 116}, {0x386, 0x386, 2, 38},
+    {0x388, 0x38a, 1, 37}, {0x38c, 0x38c, 2, 64}, {0x38e, 0x38f, 1, 63},
+    {0x391, 0x3a1, 1, 32}, {0x3a3, 0x3ab, 1, 32}, {0x3cf, 0x3cf, 1, 8},
+    {0x3d8, 0x3ee, 2, 1}, {0x3f4, 0x3f4, 1, -60}, {0x3f7, 0x3f7, 2, 1},
+    {0x3f9, 0x3f9, 1, -7}, {0x3fa, 0x3fa, 1, 1}, {0x3fd, 0x3ff, 1, -130},
+    {0x400, 0x40f, 1, 80}, {0x410, 0x42f, 1, 32}, {0x460, 0x480, 2, 1},
+    {0x48a, 0x4be, 2, 1}, {0x4c0, 0x4c0, 1, 15}, {0x4c1, 0x4cd, 2, 1},
+    {0x4d0, 0x52e, 2, 1}, {0x531, 0x556, 1, 48}, {0x10a0, 0x10c5, 1, 7264},
+    {0x10c7, 0x10c7, 1, 7264}, {0x10cd, 0x10cd, 1, 7264}, {0x13a0, 0x13ef, 1, 38864},
+    {0x13f0, 0x13f5, 1, 8}, {0x1c89, 0x1c89, 1, 1}, {0x1c90, 0x1cba, 1, -3008},
+    {0x1cbd, 0x1cbf, 1, -3008}, {0x1e00, 0x1e94, 2, 1}, {0x1e9e, 0x1e9e, 2, -7615},
+    {0x1ea0, 0x1efe, 2, 1}, {0x1f08, 0x1f0f, 1, -8}, {0x1f18, 0x1f1d, 1, -8},
+    {0x1f28, 0x1f2f, 1, -8}, {0x1f38, 0x1f3f, 1, -8}, {0x1f48, 0x1f4d, 1, -8},
+    {0x1f59, 0x1f5f, 2, -8}, {0x1f68, 0x1f6f, 1, -8}, {0x1f88, 0x1f8f, 1, -8},
+    {0x1f98, 0x1f9f, 1, -8}, {0x1fa8, 0x1faf, 1, -8}, {0x1fb8, 0x1fb9, 1, -8},
+    {0x1fba, 0x1fbb, 1, -74}, {0x1fbc, 0x1fbc, 1, -9}, {0x1fc8, 0x1fcb, 1, -86},
+    {0x1fcc, 0x1fcc, 1, -9}, {0x1fd8, 0x1fd9, 1, -8}, {0x1fda, 0x1fdb, 1, -100},
+    {0x1fe8, 0x1fe9, 1, -8}, {0x1fea, 0x1feb, 1, -112}, {0x1fec, 0x1fec, 1, -7},
+    {0x1ff8, 0x1ff9, 1, -128}, {0x1ffa, 0x1ffb, 1, -126}, {0x1ffc, 0x1ffc, 1, -9},
+    {0x2126, 0x2126, 1, -7517}, {0x212a, 0x212a, 1, -8383}, {0x212b, 0x212b, 1, -8262},
+    {0x2132, 0x2132, 1, 28}, {0x2160, 0x216f, 1, 16}, {0x2183, 0x2183, 1, 1},
+    {0x24b6, 0x24cf, 1, 26}, {0x2c00, 0x2c2f, 1, 48}, {0x2c60, 0x2c60, 2, 1},
+    {0x2c62, 0x2c62, 1, -10743}, {0x2c63, 0x2c63, 1, -3814}, {0x2c64, 0x2c64, 1, -10727},
+    {0x2c67, 0x2c6b, 2, 1}, {0x2c6d, 0x2c6d, 1, -10780}, {0x2c6e, 0x2c6e, 1, -10749},
+    {0x2c6f, 0x2c6f, 1, -10783}, {0x2c70, 0x2c70, 2, -10782}, {0x2c72, 0x2c72, 1, 1},
+    {0x2c75, 0x2c75, 1, 1}, {0x2c7e, 0x2c7f, 1, -10815}, {0x2c80, 0x2ce2, 2, 1},
+    {0x2ceb, 0x2ced, 2, 1}, {0x2cf2, 0x2cf2, 1, 1}, {0xa640, 0xa66c, 2, 1},
+    {0xa680, 0xa69a, 2, 1}, {0xa722, 0xa72e, 2, 1}, {0xa732, 0xa76e, 2, 1},
+    {0xa779, 0xa77b, 2, 1}, {0xa77d, 0xa77d, 1, -35332}, {0xa77e, 0xa786, 2, 1},
+    {0xa78b, 0xa78b, 2, 1}, {0xa78d, 0xa78d, 1, -42280}, {0xa790, 0xa792, 2, 1},
+    {0xa796, 0xa7a8, 2, 1}, {0xa7aa, 0xa7aa, 1, -42308}, {0xa7ab, 0xa7ab, 1, -42319},
+    {0xa7ac, 0xa7ac, 1, -42315}, {0xa7ad, 0xa7ad, 1, -42305}, {0xa7ae, 0xa7ae, 2, -42308},
+    {0xa7b0, 0xa7b0, 1, -42258}, {0xa7b1, 0xa7b1, 1, -42282}, {0xa7b2, 0xa7b2, 1, -42261},
+    {0xa7b3, 0xa7b3, 1, 928}, {0xa7b4, 0xa7c2, 2, 1}, {0xa7c4, 0xa7c4, 1, -48},
+    {0xa7c5, 0xa7c5, 1, -42307}, {0xa7c6, 0xa7c6, 1, -35384}, {0xa7c7, 0xa7c9, 2, 1},
+    {0xa7cb, 0xa7cb, 1, -42343}, {0xa7cc, 0xa7cc, 1, 1}, {0xa7d0, 0xa7d0, 1, 1},
+    {0xa7d6, 0xa7da, 2, 1}, {0xa7dc, 0xa7dc, 1, -42561}, {0xa7f5, 0xa7f5, 1, 1},
+    {0xff21, 0xff3a, 1, 32}, {0x10400, 0x10427, 1, 40}, {0x104b0, 0x104d3, 1, 40},
+    {0x10570, 0x1057a, 1, 39}, {0x1057c, 0x1058a, 1, 39}, {0x1058c, 0x10592, 1, 39},
+    {0x10594, 0x10595, 1, 39}, {0x10c80, 0x10cb2, 1, 64}, {0x10d50, 0x10d65, 1, 32},
+    {0x118a0, 0x118bf, 1, 32}, {0x16e40, 0x16e5f, 1, 32}, {0x1e900, 0x1e921, 1, 34},
+  };
 
-  bool isPunctuation(char c) {
-    return (c >= 33 && c <= 47) || (c >= 58 && c <= 64) || (c >= 91 && c <= 96) || (c >= 123 && c <= 126);
+  template <size_t N> bool inRanges(uint32_t c, const Range (&ranges)[N]) {
+    const auto next = std::upper_bound(std::begin(ranges), std::end(ranges), c,
+      [](uint32_t value, const Range &range) { return value < range.first; });
+    return next != std::begin(ranges) && c <= std::prev(next)->last;
+  }
+
+  bool isWhitespace(uint32_t c) {
+    return c == ' ' || (c >= 9 && c <= 13) || c == 0x85 || c == 0xa0 || c == 0x1680 ||
+      (c >= 0x2000 && c <= 0x200a) || c == 0x2028 || c == 0x2029 || c == 0x202f || c == 0x205f || c == 0x3000;
+  }
+
+  bool isPunctuation(uint32_t c) {
+    if (c < 128) return (c >= 33 && c <= 47) || (c >= 58 && c <= 64) || (c >= 91 && c <= 96) || (c >= 123 && c <= 126);
+    return inRanges(c, punctuationRanges);
   }
 
   bool isChineseChar(uint32_t c) {
-    return (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) || (c >= 0xF900 && c <= 0xFAFF);
+    return (c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf) ||
+      (c >= 0x20000 && c <= 0x2a6df) || (c >= 0x2a700 && c <= 0x2b73f) ||
+      (c >= 0x2b740 && c <= 0x2b81f) || (c >= 0x2b820 && c <= 0x2ceaf) ||
+      (c >= 0xf900 && c <= 0xfaff) || (c >= 0x2f800 && c <= 0x2fa1f);
   }
 
-  std::vector<uint32_t> utf8ToUtf32(std::string_view str) {
-    std::vector<uint32_t> result;
-    for (size_t i = 0; i < str.size();) {
-      uint32_t codepoint = 0;
-      unsigned char c = str[i];
-      if (c < 0x80) {
-        codepoint = c;
-        i += 1;
-      } else if ((c >> 5) == 0x06) {
-        codepoint = ((c & 0x1F) << 6) | (str[i + 1] & 0x3F);
-        i += 2;
-      } else if ((c >> 4) == 0x0E) {
-        codepoint = ((c & 0x0F) << 12) |
-          ((str[i + 1] & 0x3F) << 6) |
-          (str[i + 2] & 0x3F);
-        i += 3;
-      } else if ((c >> 3) == 0x1E) {
-        codepoint = ((c & 0x07) << 18) |
-          ((str[i + 1] & 0x3F) << 12) |
-          ((str[i + 2] & 0x3F) << 6) |
-          (str[i + 3] & 0x3F);
-        i += 4;
-      } else {
-        i += 1; // Skip invalid byte
-      }
-      if (codepoint != 0)
-        result.push_back(codepoint);
-    }
-    return result;
+  uint32_t lowercase(uint32_t c) {
+    if (c < 128) return c >= 'A' && c <= 'Z' ? c + 32 : c;
+    const auto next = std::upper_bound(std::begin(lowercaseRanges), std::end(lowercaseRanges), c,
+      [](uint32_t value, const LowercaseRange &range) { return value < range.first; });
+    if (next == std::begin(lowercaseRanges)) return c;
+    const auto &range = *std::prev(next);
+    return c <= range.last && (c - range.first) % range.stride == 0 ?
+      static_cast<uint32_t>(static_cast<int64_t>(c) + range.delta) : c;
   }
 
-  std::string uint32ToUtf8(uint32_t c) {
-    std::string res;
-    if (c < 0x80) {
-      res += static_cast<char>(c);
-    } else if (c < 0x800) {
-      res += static_cast<char>(0xC0 | (c >> 6));
-      res += static_cast<char>(0x80 | (c & 0x3F));
-    } else if (c < 0x10000) {
-      res += static_cast<char>(0xE0 | (c >> 12));
-      res += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
-      res += static_cast<char>(0x80 | (c & 0x3F));
-    } else {
-      res += static_cast<char>(0xF0 | (c >> 18));
-      res += static_cast<char>(0x80 | ((c >> 12) & 0x3F));
-      res += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
-      res += static_cast<char>(0x80 | (c & 0x3F));
-    }
-    return res;
-  }
-
-  std::string padChineseChars(std::string_view text) {
-    auto utf32Chars = utf8ToUtf32(text);
+  std::string normalizeStep(std::string_view text, bool clean, bool chinese, bool lower, bool accents) {
     std::string result;
-    for (auto c : utf32Chars) {
-      if (isChineseChar(c)) {
-        result += " " + uint32ToUtf8(c) + " ";
-      } else {
-        result += uint32ToUtf8(c);
+    result.reserve(text.size());
+    auto cursor = text.begin();
+    while (cursor != text.end()) {
+      const auto begin = cursor;
+      uint32_t c;
+      try { c = utf8::next(cursor, text.end()); }
+      catch (const utf8::exception &) {
+        cursor = begin + 1;
+        while (cursor != text.end() && (static_cast<unsigned char>(*cursor) & 0xc0) == 0x80) ++cursor;
+        c = 0xfffd;
       }
+      if (clean) {
+        if (c == 0 || c == 0xfffd || (c != '\t' && c != '\n' && c != '\r' && inRanges(c, controlRanges))) continue;
+        if (isWhitespace(c)) c = ' ';
+      }
+      // Unicode lowercase expands dotted capital I into two code points.
+      if (lower && c == 0x130) {
+        result += 'i';
+        if (!accents) utf8::append(0x307, std::back_inserter(result));
+        continue;
+      }
+      if (lower) c = lowercase(c);
+      if (accents && c >= 128) {
+        if (inRanges(c, markRanges)) continue;
+        for (const auto &fold : latinFolds) {
+          if (fold.characters.find(c) != std::u32string_view::npos) { c = fold.base; break; }
+        }
+      }
+      const bool ideograph = chinese && isChineseChar(c);
+      if (ideograph) result += ' ';
+      utf8::append(c, std::back_inserter(result));
+      if (ideograph) result += ' ';
     }
     return result;
   }
 
-  std::vector<std::string> splitSimple(const std::string &input) {
-    std::istringstream stream(input);
-    std::vector<std::string> words;
-    words.reserve(input.size() / 3);
-    std::string word;
-    while (stream >> word) {
-      words.push_back(word);
-    }
-    return words;
-  }
-
-  void splitOnPunctSimple(const std::string &text, std::vector<std::string> &result) {
-    result.reserve(text.length() / 3);
-    std::string current;
-    for (char c : text) {
-      if (isPunctuation(c)) {
-        if (!current.empty()) {
-          result.push_back(current);
-          current.clear();
-        }
-        result.emplace_back(1, c);
-      } else {
-        current += c;
+  std::vector<std::string_view> splitTokens(std::string_view text) {
+    std::vector<std::string_view> tokens;
+    size_t start = 0;
+    auto cursor = text.begin();
+    while (cursor != text.end()) {
+      const auto begin = static_cast<size_t>(cursor - text.begin());
+      const auto c = utf8::next(cursor, text.end());
+      if (isWhitespace(c) || isPunctuation(c)) {
+        if (begin > start) tokens.push_back(text.substr(start, begin - start));
+        const auto end = static_cast<size_t>(cursor - text.begin());
+        if (isPunctuation(c)) tokens.push_back(text.substr(begin, end - begin));
+        start = end;
       }
     }
-    if (!current.empty()) {
-      result.emplace_back(current);
-    }
+    if (start < text.size()) tokens.push_back(text.substr(start));
+    return tokens;
   }
 
-} // anonymous namespace
+  bool booleanOption(const json &node, const char *name, bool fallback) {
+    const auto value = node.find(name);
+    return value != node.end() && value->is_boolean() ? value->get<bool>() : fallback;
+  }
+}
 
-
-SimpleTokenizer::SimpleTokenizer(const std::string &configPath)
-{
+SimpleTokenizer::SimpleTokenizer(const std::string &configPath) {
   std::ifstream file(configPath);
-  if (file.is_open()) {
-    json jsonObj;
-    file >> jsonObj;
-    if (jsonObj.contains("model") && jsonObj["model"].contains("vocab")) {
-      vocab_ = jsonObj["model"]["vocab"];
-      LOG_MSG << "Using vocab file" << configPath << "with" << vocab_.size() << "entries.";
-    }
-  } else {
-    LOG_MSG_WARN << "Unable to locate vocab file" << configPath << ". Skipped.";
+  auto config = json::parse(file, nullptr, false);
+  if (!config.is_object() || !config.contains("model") || !config["model"].is_object() ||
+      !config["model"].contains("vocab") || !config["model"]["vocab"].is_object()) {
+    LOG_MSG_WARN << "Unable to load tokenizer vocabulary from" << configPath << "| Using estimated token counts.";
+    normalizers_.push_back({true, true, false, false});
+    return;
   }
+  auto vocabulary = std::move(config["model"]["vocab"]);
+  vocab_.reserve(vocabulary.size());
+  for (const auto &entry : vocabulary.items()) vocab_.insert(entry.key());
+  const auto maximum = config["model"].find("max_input_chars_per_word");
+  if (maximum != config["model"].end() && maximum->is_number_unsigned() && maximum->get<size_t>() > 0)
+    maxInputCharsPerWord_ = maximum->get<size_t>();
+
+  std::function<void(const json &)> readNormalizer = [&](const json &node) {
+    if (!node.is_object()) return;
+    const auto type = node.find("type");
+    if (type == node.end() || !type->is_string()) return;
+    if (*type == "Sequence") {
+      const auto children = node.find("normalizers");
+      if (children != node.end() && children->is_array()) for (const auto &child : *children) readNormalizer(child);
+    } else if (*type == "BertNormalizer") {
+      const bool lower = booleanOption(node, "lowercase", false);
+      normalizers_.push_back({booleanOption(node, "clean_text", true), booleanOption(node, "handle_chinese_chars", true),
+        lower, booleanOption(node, "strip_accents", lower)});
+    } else if (*type == "Lowercase") normalizers_.push_back({false, false, true, false});
+    else if (*type == "StripAccents") normalizers_.push_back({false, false, false, true});
+    else LOG_MSG_WARN << "Unsupported tokenizer normalizer:" << type->get<std::string>();
+  };
+  const auto normalizer = config.find("normalizer");
+  if (normalizer == config.end() || normalizer->is_null()) normalizers_.push_back({true, true, false, false});
+  else readNormalizer(*normalizer);
+  LOG_MSG << "Using vocab file" << configPath << "with" << vocab_.size() << "entries.";
 }
 
-size_t SimpleTokenizer::estimateTokenCount(std::string_view text, bool addSpecialTokens) const
-{
-  if (text.empty() && !addSpecialTokens) return 0;
-  std::string padded = padChineseChars(text);
-  std::vector<std::string> words = splitSimple(padded);
-  size_t totalTokens = addSpecialTokens ? 2 : 0; // [CLS] + [SEP]
-  for (const auto &word : words) {
-    std::vector<std::string> punctSplit;
-    splitOnPunctSimple(word, punctSplit);
-    for (const auto &token : punctSplit) {
-      if (token.empty()) continue;
-      if (token.length() <= 4) {
-        totalTokens += 1;
-      } else if (token.length() <= 8) {
-        totalTokens += 2;
-      } else {
-        totalTokens += (token.length() + 3) / 4;
-      }
-    }
+std::string SimpleTokenizer::normalize(std::string_view text) const {
+  if (normalizers_.empty()) return normalizeStep(text, false, false, false, false);
+  std::string result;
+  bool first = true;
+  for (const auto &step : normalizers_) {
+    result = normalizeStep(first ? text : std::string_view(result), step.clean, step.chinese, step.lower, step.accents);
+    first = false;
   }
-
-  return totalTokens;
+  return result;
 }
 
-size_t SimpleTokenizer::countTokensWithVocab(std::string_view text, bool addSpecialTokens) const
-{
-  if (text.empty() && !addSpecialTokens) return 0;
-  if (vocab_.empty()) {
-    return estimateTokenCount(text, addSpecialTokens);
-  }
-  std::string padded = padChineseChars(text);
-  std::vector<std::string> words = splitSimple(padded);
-  size_t totalTokens = addSpecialTokens ? 2 : 0; // [CLS] + [SEP]
-  for (const auto &word : words) {
-    std::vector<std::string> punctSplit;
-    splitOnPunctSimple(word, punctSplit);
-    for (const auto &token : punctSplit) {
-      if (token.empty()) continue;
-      totalTokens += simulateWordpiece(token, addSpecialTokens);
-    }
-  }
-  return totalTokens;
+size_t SimpleTokenizer::estimateTokenCount(std::string_view text, bool addSpecialTokens) const {
+  const auto normalized = normalize(text);
+  size_t count = addSpecialTokens ? 2 : 0;
+  for (const auto token : splitTokens(normalized)) count += (token.size() + 3) / 4;
+  return count;
 }
 
-size_t SimpleTokenizer::simulateWordpiece(const std::string &word, bool addSpecialTokens) const
-{
-  if (word.length() > maxInputCharsPerWord_) {
-    return addSpecialTokens ? 1 : 0; // [UNK]
-  }
-  
+size_t SimpleTokenizer::countTokensWithVocab(std::string_view text, bool addSpecialTokens) const {
+  if (vocab_.empty()) return estimateTokenCount(text, addSpecialTokens);
+  const auto normalized = normalize(text);
+  size_t count = addSpecialTokens ? 2 : 0;
+  for (const auto token : splitTokens(normalized)) count += simulateWordpiece(token);
+  return count;
+}
+
+size_t SimpleTokenizer::simulateWordpiece(std::string_view word) const {
+  if (static_cast<size_t>(utf8::distance(word.begin(), word.end())) > maxInputCharsPerWord_) return 1;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (auto it = cache_.find(word); it != cache_.end())
-      return it->second;    
+    const auto found = cache_.find(word);
+    if (found != cache_.end()) return found->second;
   }
-  
   size_t tokens = 0;
   size_t start = 0;
-  while (start < word.length()) {
-    size_t bestEnd = start + 1;
-    for (size_t end = word.length(); end > start; --end) {
-      std::string substr = word.substr(start, end - start);
-      if (start > 0) {
-        substr = "##" + substr;
-      }
-      if (vocab_.contains(substr)) {
-        bestEnd = end;
-        break;
-      }
+  std::string candidate;
+  candidate.reserve(word.size() + 2);
+  while (start < word.size()) {
+    size_t bestEnd = start;
+    for (size_t end = word.size(); end > start; --end) {
+      if (end < word.size() && (static_cast<unsigned char>(word[end]) & 0xc0) == 0x80) continue;
+      candidate.assign(start ? "##" : "");
+      candidate.append(word.data() + start, end - start);
+      if (vocab_.contains(candidate)) { bestEnd = end; break; }
     }
-    tokens++;
+    if (bestEnd == start) { tokens = 1; break; }
+    ++tokens;
     start = bestEnd;
   }
-
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    cache_[word] = tokens;
+    if (cache_.size() >= 10000) cache_.clear();
+    cache_.emplace(std::string(word), tokens);
   }
   return tokens;
 }

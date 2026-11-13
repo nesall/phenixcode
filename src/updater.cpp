@@ -195,12 +195,12 @@ size_t IncrementalUpdater::updateDatabase(EmbeddingClient &client, Chunker &chun
       SourceProcessor::readFile(filepath, content);
 
       if (content.empty()) {
-        LOG_MSG_WARN << "  Empty file" << filepath << ".Skipped.";
+        LOG_MSG_WARN << "  Empty file" << filepath << "Skipped.";
         db_->rollback();
         continue;
       }
 
-      auto chunks = chunker.chunkText(content, filepath);
+      auto chunks = chunker.chunkText(content, filepath, app_.settings().chunkingSemantic());
 
       updater::addEmbedChunks(
         chunks,
@@ -242,12 +242,12 @@ size_t IncrementalUpdater::updateDatabase(EmbeddingClient &client, Chunker &chun
       SourceProcessor::readFile(filepath, content);
 
       if (content.empty()) {
-        LOG_MSG_WARN << "  Empty file" << filepath << ".Skipped.";
+        LOG_MSG_WARN << "  Empty file" << filepath << "Skipped.";
         db_->rollback();
         continue;
       }
 
-      auto chunks = chunker.chunkText(content, filepath);
+      auto chunks = chunker.chunkText(content, filepath, app_.settings().chunkingSemantic());
 
       addEmbedChunks(
         chunks,

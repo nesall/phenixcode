@@ -141,6 +141,7 @@ export const Consts = {
   ProjectsFolderPath: "ProjectsFolderPath",
   WatchForChanges: "WatchForChanges",
   WatchInterval: "WatchInterval",
+  AgentEnabled: "AgentEnabled",
   Env: {
     PHENIXCODE_PROJECTS_FOLDER: "PHENIXCODE_PROJECTS_FOLDER",
   }

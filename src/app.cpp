@@ -569,7 +569,7 @@ void App::embed(bool noPrompt)
       const std::string sourceId = sources[i].isUrl ? stripUrlQueryAndAnchor(source) : std::filesystem::path(source).string();
 
       imp->monitor_->updateProgress(MonitorPhase::Chunk, totalFiles, sources.size(), totalChunks, 0);
-      auto chunks = imp->chunker_->chunkText(content, sourceId);
+      auto chunks = imp->chunker_->chunkText(content, sourceId, settings().chunkingSemantic());
 
       LOG_MSG << "  Generated" << chunks.size() << "chunks";
       const size_t batchSize = imp->settings_->embeddingBatchSize();

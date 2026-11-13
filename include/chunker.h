@@ -3,7 +3,8 @@
 
 #include <vector>
 #include <string>
-#include <regex>
+#include <cstddef>
+#include <utility>
 #include <mutex>
 #include <unordered_map>
 #include "tokenizer.h"
@@ -18,7 +19,7 @@ struct Chunk {
     size_t tokenCount;
     size_t start;
     size_t end;
-    std::string unit;
+    std::string unit; // "char": UTF-8 byte offsets; "line": zero-based lines. Both end-exclusive.
     std::string type; // e.g. code or text
   } metadata;
 };
@@ -30,17 +31,6 @@ private:
   size_t maxTokens_;
   size_t minTokens_;
   size_t overlapTokens_;
-
-  std::vector<std::regex> functionPatterns_;
-  std::vector<std::regex> sectionPatterns_;
-
-  struct CodeBlock {
-    size_t startLine;
-    size_t endLine;
-    size_t startPos;
-    size_t endPos;
-    std::string type;
-  };
 
   mutable std::mutex cacheMutex_;
   mutable std::unordered_map<std::string, size_t> tokenCache_;
@@ -55,15 +45,15 @@ public:
 private:
   std::vector<Chunk> postProcessChunks(const std::vector<Chunk> &chunks, ContentType chunkType) const;
   size_t tokenCount(const std::string &text) const;
-  std::vector<Chunk> splitIntoTextChunks(std::string text, const std::string &docId) const;
-  std::vector<Chunk> splitIntoLineChunks(const std::string &text, const std::string &docId) const;
-  std::vector<Chunk> splitIntoSemanticChunks(const std::string &text, const std::string &docId) const;
+  std::vector<Chunk> splitIntoTextChunks(const std::string &text, const std::string &docId,
+    const std::vector<std::pair<size_t, size_t>> &protectedRanges) const;
+  std::vector<Chunk> splitIntoLineChunks(const std::string &text, const std::string &docId,
+    const std::vector<std::pair<size_t, size_t>> &protectedRanges) const;
   std::vector<std::string> splitIntoLines(const std::string &text) const;
 
 public:
   static std::string contentTypeToStr(Chunker::ContentType t);
   static Chunker::ContentType detectContentType(const std::string &text, const std::string &uri);
-  static std::string normalizeWhitespaces(const std::string &str);
   static std::string maskOpaqueBlobs(const std::string &str);
 };
 

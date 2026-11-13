@@ -29,27 +29,12 @@ using json = nlohmann::json;
 namespace context {
 
   std::string truncateToTokens(const SimpleTokenizer &t, const std::string &s, size_t maxTokens) {
-    std::string res{ s };
-
-    auto tokens = t.countTokensWithVocab(res);
-    if (tokens <= maxTokens) return res;
-
-    Chunker chunker(t, 1, 50, 0.f);
-
-    auto chunks = chunker.chunkText(res, {}, false);
-
-    size_t end = res.size();
-    size_t tokensSoFar = 0;
-    for (const auto &chunk : chunks) {
-      if (maxTokens < chunk.metadata.tokenCount + tokensSoFar) {
-        assert(chunk.metadata.unit == "char");
-        end = chunk.metadata.start;
-        break;
-      }
-      tokensSoFar += chunk.metadata.tokenCount;
-    }
-    res = res.substr(0, end);
-    return res;
+    if (!maxTokens) return {};
+    const auto masked = Chunker::maskOpaqueBlobs(s);
+    if (t.countTokensWithVocab(masked) <= maxTokens) return masked;
+    Chunker chunker(t, 1, maxTokens, 0.f);
+    const auto chunks = chunker.chunkText(masked, {}, false);
+    return chunks.empty() ? std::string{} : chunks.front().text;
   }
 
   size_t suffixPrefixMatch(const std::string &a, const std::string &b) {
