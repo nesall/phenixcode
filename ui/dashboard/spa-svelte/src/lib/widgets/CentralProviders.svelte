@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { getContext, onMount } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import UpDownButton from "./misc/UpDownButton.svelte";
   import * as icons from "@lucide/svelte";
   import { slide } from "svelte/transition";
-  import { embeddingProviders, generationProviders, projectStore } from "../store.svelte";
+  import { embeddingProviders, generationProviders, isAgentEnabled, projectStore, setAgentEnabled } from "../store.svelte";
   import {
     helper_readjustProject,
     helper_saveProjectSettings,
@@ -16,7 +16,7 @@
 
   let currentTab = $state(0); // 0=>generation, 1=>embedding, 2=>json
 
-  const fetchProviders: () => void = getContext("FetchProviders");
+  const fetchProviders: () => Promise<void> = getContext("FetchProviders");
 
   onMount(() => {
     fetchProviders();
@@ -26,7 +26,11 @@
 
   const jsonStr = $derived(
     JSON.stringify(
-      { embedding_providers: stripUi(embeddingProviders), generation_providers: stripUi(generationProviders) },
+      {
+        agent_enabled: isAgentEnabled(),
+        embedding_providers: stripUi(embeddingProviders),
+        generation_providers: stripUi(generationProviders),
+      } as ProvidersSettings,
       null,
       2,
     ),
@@ -202,6 +206,7 @@
   let queue: Promise<void> = Promise.resolve();
   function commit(renames?: Renames) {
     const providers = $state.snapshot({
+      agent_enabled: isAgentEnabled(),
       embedding_providers: stripUi(embeddingProviders),
       generation_providers: stripUi(generationProviders),
     }) as ProvidersSettings;
@@ -339,6 +344,15 @@
       alert(`Failed to copy cURL command:\n${err}`);
     }
   }
+
+  function onAgentEnabledChange(e: Event) {
+    const ev = e as InputEvent;
+    if (ev && ev.target) {
+      const checked = (ev.target as HTMLInputElement).checked;
+      setAgentEnabled(checked);
+      onChange();
+    }
+  }
 </script>
 
 <div style="height: 100%" class="flex flex-col gap-4 items-center">
@@ -371,9 +385,22 @@
         <h2 class="text-xl font-bold">
           Generation APIs ({generationProviders.length})
         </h2>
-        <button type="button" class="btn px-3 py-1 preset-filled-primary-500 rounded-md" onclick={addApiGeneration}>
-          Add API
-        </button>
+        <div class="flex items-center gap-4">
+          <label class="label flex items-center space-x-1">
+            <input
+              type="checkbox"
+              id="input-agent-enabled"
+              class="checkbox w-4 h-4"
+              oninput={onAgentEnabledChange}
+              checked={isAgentEnabled()}
+            />
+            <span class="label-text">Enable agentic tools</span>
+          </label>
+          <span class="vr h-6"></span>
+          <button type="button" class="btn preset-filled-primary-500 rounded-md" onclick={addApiGeneration}>
+            Add API
+          </button>
+        </div>
       </div>
       <div>
         <button type="button" class="btn btn-sm" onclick={onCollapseAll}>collapse all</button>
@@ -769,7 +796,7 @@
         <h2 class="text-xl font-bold">
           Embedding APIs ({embeddingProviders.length})
         </h2>
-        <button type="button" class="btn px-3 py-1 preset-filled-primary-500 rounded-md" onclick={addApiEmbedding}>
+        <button type="button" class="btn preset-filled-primary-500 rounded-md" onclick={addApiEmbedding}>
           Add API
         </button>
       </div>

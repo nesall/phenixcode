@@ -3,7 +3,7 @@
   import CentralWidget from "./lib/widgets/CentralWidget.svelte";
   import Statusbar from "./lib/widgets/Statusbar.svelte";
   import { helper_getInstances, helper_getProjectList, helper_getProviders, toaster } from "./lib/utils";
-  import { instances, projectStore, setInstances } from "./lib/store.svelte";
+  import { projectStore, setAgentEnabled, setInstances } from "./lib/store.svelte";
   import { onMount, setContext } from "svelte";
     import { setEmbeddingProviders, setGenerationProviders } from "./lib/store.svelte";
 
@@ -14,6 +14,7 @@
       if (res.status === "success") {
         setGenerationProviders(res.providers.generation_providers || []);
         setEmbeddingProviders(res.providers.embedding_providers || []);
+        setAgentEnabled(!!res.providers.agent_enabled);
       } else {
         toaster.error({ title: "Unable to fetch providers", description: res.message });
       }

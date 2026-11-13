@@ -3,10 +3,12 @@ import type { InstanceItem, ProjectItem } from '../app';
 
 export const generationProviders = $state<GenerationApi[]>([]);
 export const embeddingProviders = $state<EmbeddingApi[]>([]);
+let agentEnabled = $state<boolean>(false);
 
 export function setGenerationProviders(list: GenerationApi[]) { generationProviders.length = 0; generationProviders.push(...list); }
 export function setEmbeddingProviders(list: EmbeddingApi[]) { embeddingProviders.length = 0; embeddingProviders.push(...list); }
-
+export function setAgentEnabled(enabled: boolean) { agentEnabled = enabled; }
+export function isAgentEnabled() { return agentEnabled; }
 
 export const projectStore = $state({
   selected: null as ProjectItem | null,

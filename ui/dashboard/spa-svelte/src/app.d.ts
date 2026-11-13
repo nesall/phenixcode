@@ -206,6 +206,7 @@ export interface SettingsJsonType {
 }
 
 export interface ProvidersSettings {
+  agent_enabled?: boolean;
   embedding_providers: EmbeddingApi[];
   generation_providers: GenerationApi[];
 }
