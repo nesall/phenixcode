@@ -14,7 +14,7 @@
   } from "../utils";
   import type { GenerationApi, ProjectItem, ProvidersSettings, ReasoningParameter } from "../../app";
 
-  let currentTab = $state(0); // 0=>embedding, 1=>generation
+  let currentTab = $state(0); // 0=>generation, 1=>embedding, 2=>json
 
   const fetchProviders: () => void = getContext("FetchProviders");
 
@@ -33,7 +33,7 @@
   );
 
   function moveApiUp(index: number) {
-    let activeProviders = currentTab == 0 ? embeddingProviders : generationProviders;
+    let activeProviders = currentTab == 1 ? embeddingProviders : generationProviders;
     if (!activeProviders) return;
     if (index > 0) {
       const temp = activeProviders[index - 1];
@@ -43,7 +43,7 @@
     }
   }
   function moveApiDown(index: number) {
-    let activeProviders = currentTab == 0 ? embeddingProviders : generationProviders;
+    let activeProviders = currentTab == 1 ? embeddingProviders : generationProviders;
     if (!activeProviders) return;
     if (index < (activeProviders.length || 0) - 1) {
       const temp = activeProviders[index + 1];
@@ -53,7 +53,7 @@
     }
   }
   function removeApi(index: number) {
-    let activeProviders = currentTab == 0 ? embeddingProviders : generationProviders;
+    let activeProviders = currentTab == 1 ? embeddingProviders : generationProviders;
     if (!activeProviders) return;
     if (activeProviders.length > 1) {
       activeProviders.splice(index, 1);
@@ -205,9 +205,9 @@
       embedding_providers: stripUi(embeddingProviders),
       generation_providers: stripUi(generationProviders),
     }) as ProvidersSettings;
-    queue = queue.then(() => persist(providers, renames)).catch((error) =>
-      toaster.error({ title: "Provider update failed", description: String(error) }),
-    );
+    queue = queue
+      .then(() => persist(providers, renames))
+      .catch((error) => toaster.error({ title: "Provider update failed", description: String(error) }));
   }
 
   // DOM handler for all plain fields: ignores the Event argument
@@ -234,9 +234,11 @@
         }
         if (!r.changed) continue;
         saves.push(
-          helper_saveProjectSettings($state.snapshot(p) as ProjectItem).then((result) => {
-            if (result.status !== "success") throw new Error(result.message);
-          }).catch((error) => toaster.error({ title: `Failed to save ${title}`, description: String(error) })),
+          helper_saveProjectSettings($state.snapshot(p) as ProjectItem)
+            .then((result) => {
+              if (result.status !== "success") throw new Error(result.message);
+            })
+            .catch((error) => toaster.error({ title: `Failed to save ${title}`, description: String(error) })),
         );
       } catch (error) {
         toaster.error({ title: `Failed to adjust ${p.jsonData.source.project_title}`, description: String(error) });
@@ -264,10 +266,10 @@
   }
 
   function onCollapseAll() {
-    (currentTab == 0 ? embeddingProviders : generationProviders).forEach((a) => (a._hidden = true));
+    (currentTab == 1 ? embeddingProviders : generationProviders).forEach((a) => (a._hidden = true));
   }
   function onExpandAll() {
-    (currentTab == 0 ? embeddingProviders : generationProviders).forEach((a) => (a._hidden = false));
+    (currentTab == 1 ? embeddingProviders : generationProviders).forEach((a) => (a._hidden = false));
   }
 
   let copied = $state(false);
@@ -277,11 +279,19 @@
     setTimeout(() => (copied = false), 1500);
   }
 
-  function notifyProjectsAdjusted(arg: { reindex: string[]; dropped: Record<string, string[]>; selections: Record<string, string[]> }) {
+  function notifyProjectsAdjusted(arg: {
+    reindex: string[];
+    dropped: Record<string, string[]>;
+    selections: Record<string, string[]>;
+  }) {
     const details = [
       ...arg.reindex.map((title) => `${title} requires reindexing after choosing an embedding provider.`),
-      ...Object.entries(arg.dropped).map(([title, ids]) => `${title} removed unavailable providers (${ids.join(", ")}).`),
-      ...Object.entries(arg.selections).map(([title, fields]) => `${title} requires a selection for ${fields.join(", ")}.`),
+      ...Object.entries(arg.dropped).map(
+        ([title, ids]) => `${title} removed unavailable providers (${ids.join(", ")}).`,
+      ),
+      ...Object.entries(arg.selections).map(
+        ([title, fields]) => `${title} requires a selection for ${fields.join(", ")}.`,
+      ),
     ];
     toaster.info({ title: "Project provider settings adjusted", description: details.join("\n") });
   }
@@ -338,14 +348,14 @@
       class="btn {currentTab == 0 ? 'preset-filled-tertiary-500' : ''}"
       onclick={() => (currentTab = 0)}
     >
-      Embedding
+      Generation
     </button>
     <button
       type="button"
       class="btn {currentTab == 1 ? 'preset-filled-tertiary-500' : ''}"
       onclick={() => (currentTab = 1)}
     >
-      Generation
+      Embedding
     </button>
     <button
       type="button"
@@ -356,7 +366,7 @@
     </button>
   </div>
   <div class="h-full p-4 w-full lg:max-w-6xl overflow-auto">
-    {#if currentTab == 1}
+    {#if currentTab == 0}
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-bold">
           Generation APIs ({generationProviders.length})
@@ -422,14 +432,29 @@
                 </label>
               </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <label class="label">
                   <span class="label-text">Model</span>
-                  <input type="text" class="input" bind:value={api.model} placeholder="gpt-4o" onchange={onChange} />
+                  <input type="text" class="input" bind:value={api.model} onchange={onChange} />
                 </label>
                 <label class="label">
                   <span class="label-text">Context Length</span>
                   <input type="number" class="input" bind:value={api.context_length} onchange={onChange} />
+                </label>
+                <label class="label">
+                  <span class="label-text">Tool Support</span>
+                  <select
+                    class="select"
+                    value={api.supports_tools ?? "auto"}
+                    onchange={(e) => {
+                      api.supports_tools = e.currentTarget.value as any;
+                      onChange();
+                    }}
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="on">On</option>
+                    <option value="off">Off</option>
+                  </select>
                 </label>
               </div>
 
@@ -739,7 +764,7 @@
           {/if}
         </div>
       {/each}
-    {:else if currentTab == 0}
+    {:else if currentTab == 1}
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-xl font-bold">
           Embedding APIs ({embeddingProviders.length})
