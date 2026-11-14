@@ -22,6 +22,6 @@ namespace context {
   std::pair<std::vector<SearchResult>, size_t> processInputResults(
     const App &, const ApiConfig &, size_t, const std::string &,
     std::vector<Attachment>, std::vector<std::string>, float, bool,
-    std::function<void(std::string_view)>, bool freeChat = false);
+    std::function<void(std::string_view)>, bool freeChat = false, size_t inputBudget = size_t(-1));
 
 }

@@ -12,6 +12,7 @@
 #include "monitor.h"
 #include <httplib.h>
 #include <utils_log/logger.hpp>
+#include <iostream>
 #include <chrono>
 #include <exception>
 #include <algorithm>
@@ -481,7 +482,7 @@ bool HttpServer::startServer()
   LOG_MSG << "  POST /api/update    - Trigger manual update of sources";
   LOG_MSG << "  POST /api/providers/test - {\"url\": \"...\", \"key\": \"...\", \"model\":\"...\"}";
   LOG_MSG << "  POST /api/shutdown  - Initiate server shutdown (expects X-App-Key header for the key)";
-  LOG_MSG << "\nPress Ctrl+C to stop";
+  std::cout << "\nPress Ctrl+C to stop";
   return server.listen_after_bind();
 }
 

@@ -133,7 +133,63 @@ int main() {
     ]})");
     check("Anthropic native full", inference_contant::extractFullContent(cfg, anthropic, reasoning), "Answer");
     check("Anthropic native full reasoning", reasoning, "Thinking");
-    std::cout << checks << " extraction checks passed.\n";
+    cfg.apiStyle = ApiConfig::ApiStyle::OpenAI;
+    inference_contant::CompletionInfo usage;
+    usage.observe(cfg, json::parse(R"({"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":30,"completion_tokens_details":{"reasoning_tokens":20}}})"));
+    if (usage.inputTokens != 100 || usage.outputTokens != 30 || usage.reasoningTokens != 20)
+      throw std::runtime_error("OpenAI usage includes reasoning without double counting it");
+    inference_contant::TokenTotals totals;
+    totals.add(usage,999);
+    totals.add(usage,999);
+    if (totals.input != 200 || totals.output != 60 || totals.estimated)
+      throw std::runtime_error("each model round contributes full input and output exactly once, reasoning is already in output usage");
+    inference_contant::CompletionInfo fallbackUsage;
+    fallbackUsage.estimatedOutputTokens = 8;
+    totals.add(fallbackUsage,50);
+    if (totals.input != 250 || totals.output != 68 || !totals.estimated)
+      throw std::runtime_error("missing usage uses per-round estimates and labels mixed totals");
+    usage.observe(cfg, json::parse(R"({"usage":null,"choices":[{"finish_reason":"tool_calls"}]})"));
+    if (usage.outputTokens != 30 || usage.status != inference_contant::CompletionStatus::ToolCalls)
+      throw std::runtime_error("usage survives null events and tool handoffs have an explicit status");
+    usage.observe(cfg, json::parse(R"({"choices":[{"finish_reason":"length"}]})"));
+    if (usage.status != inference_contant::CompletionStatus::Incomplete)
+      throw std::runtime_error("length termination is incomplete");
+    usage.observe(cfg, json::parse(R"({"usage":{"prompt_tokens":-1,"completion_tokens":null}})"));
+    if (usage.inputTokens != 100 || usage.outputTokens != 30)
+      throw std::runtime_error("invalid usage values do not replace valid counts");
+    cfg.apiStyle = ApiConfig::ApiStyle::Anthropic;
+    usage = {};
+    usage.observe(cfg, json::parse(R"({"type":"message_start","message":{"usage":{"input_tokens":10,"cache_read_input_tokens":20,"cache_creation_input_tokens":30,"output_tokens":1}}})"));
+    usage.observe(cfg, json::parse(R"({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":12}})"));
+    if (usage.inputTokens != 60 || usage.outputTokens != 12 || usage.status != inference_contant::CompletionStatus::Complete)
+      throw std::runtime_error("Anthropic cumulative usage replaces output and includes cached input");
+    inference_contant::CompletionInfo fullUsage;
+    fullUsage.observe(cfg, json::parse(R"({"stop_reason":"end_turn","usage":{"input_tokens":8,"output_tokens":9}})"));
+    if (fullUsage.inputTokens != 8 || fullUsage.outputTokens != 9)
+      throw std::runtime_error("nonstreaming Anthropic usage is supported");
+    if (inference_contant::positiveTokenLimit(json{{"max_tokens",4096}},100) != 4096 ||
+        inference_contant::positiveTokenLimit(json{{"max_tokens",4096.0}},100) != 4096 ||
+        inference_contant::positiveTokenLimit(json::object(),100) != 100)
+      throw std::runtime_error("integer request limits override defaults");
+    for (const auto &value : json::array({0,-1,1.5,"100",nullptr})) {
+      bool rejected = false;
+      try { inference_contant::positiveTokenLimit(json{{"max_tokens",value}},100); }
+      catch (const std::invalid_argument &) { rejected = true; }
+      if (!rejected) throw std::runtime_error("invalid token limits are rejected");
+    }
+    if (inference_contant::retrievalTokenBudget(1000,200,100,1.f,100) != 600 ||
+        inference_contant::retrievalTokenBudget(1000,200,100,.5f,100) != 500)
+      throw std::runtime_error("retrieval reserves output, tools and follow-up space even at ctxratio 1");
+    bool rejectedBudget = false;
+    try { inference_contant::inputTokenBudget(100,100); }
+    catch (const std::invalid_argument &) { rejectedBudget = true; }
+    if (!rejectedBudget) throw std::runtime_error("budget cannot underflow");
+    const auto countBytes = [](std::string_view text) { return text.size(); };
+    const json transcript = json::array({{{"role","assistant"},{"content","answer"},{"reasoning_content","thought"},
+      {"tool_calls",json::array({{{"function",{{"arguments","args"}}}}})}}});
+    const auto estimate = inference_contant::estimateRequestTokens(transcript,json::array(),countBytes);
+    if (estimate != 3+4+9+6+7+4) throw std::runtime_error("request estimates count readable reasoning and tool arguments without JSON keys");
+    std::cout << checks << " extraction checks and usage/budget regressions passed.\n";
     return 0;
   } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

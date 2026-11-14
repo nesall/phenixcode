@@ -477,11 +477,17 @@
                       api.supports_tools = e.currentTarget.value as any;
                       onChange();
                     }}
+                    disabled={!isAgentEnabled()}
+                    title={isAgentEnabled() ? "" : "Enable agentic tools to configure tool support."}
                   >
-                    <option value="auto">Auto</option>
+                    <option value="auto" disabled>Auto (not available yet)</option>
                     <option value="on">On</option>
                     <option value="off">Off</option>
                   </select>
+                  <span class="text-xs text-surface-500">
+                    Choose On for tools with an OpenAI-compatible API. Automatic detection and
+                    Anthropic API tool calls are not supported yet.
+                  </span>
                 </label>
               </div>
 

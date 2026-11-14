@@ -302,6 +302,7 @@ int App::run(int argc, char *argv[])
       LOG_MSG_ERROR << ex.what();
       throw;
     }
+    
     SET_LOG_OUTPUT_FILE_PATH(settings->loggingLoggingFile());
     SET_LOG_DIAGNOSTICS_FILE_PATH(settings->loggingDiagnosticsFile());
     SET_LOG_TO_FILE(settings->loggingLogToFile());

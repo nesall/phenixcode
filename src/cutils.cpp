@@ -10,6 +10,7 @@
 #include <cctype>
 #include <initializer_list>
 #include <string>
+#include <3rdparty/utf8.h>
 
 namespace fs = std::filesystem;
 
@@ -550,7 +551,7 @@ std::vector<std::string> utils::extractGrepLiterals(const std::string &text)
   return out;
 }
 
-bool utils::looksCodeLike(const std::string &text)
+bool utils::looksCodeLike(std::string_view text)
 {
   if (text.find("::") != std::string::npos || text.find("->") != std::string::npos ||
     text.find('`') != std::string::npos || text.find('_') != std::string::npos ||
@@ -562,7 +563,7 @@ bool utils::looksCodeLike(const std::string &text)
   return false;
 }
 
-bool utils::isIdentifierLike(const std::string &t)
+bool utils::isIdentifierLike(std::string_view t)
 {
   bool hasLower = false, hasInnerUpper = false, hasDigit = false, hasAlpha = false;
   for (size_t i = 0; i < t.size(); ++i) {
@@ -594,7 +595,7 @@ std::string utils::stemKey(const std::string &path)
   return (p.parent_path() / p.stem()).string();
 }
 
-[[nodiscard]] std::string utils::expandEnvVar(const std::string var)
+[[nodiscard]] std::string utils::expandEnvVar(const std::string &var)
 {
   // Simple ${VAR} substitution
   if (var.starts_with("${") && var.ends_with("}")) {
@@ -606,9 +607,16 @@ std::string utils::stemKey(const std::string &path)
   return var;
 }
 
-utils::QueryIntent utils::queryIntent(const std::string &query)
+std::string utils::sanitizeUtf8(std::string_view input)
 {
-  std::string q = query;
+  std::string out;
+  utf8::replace_invalid(input.begin(), input.end(), std::back_inserter(out), '?');
+  return out;
+}
+
+utils::QueryIntent utils::queryIntent(std::string_view query)
+{
+  std::string q{ query };
   std::transform(q.begin(), q.end(), q.begin(),
     [](unsigned char c) {
       return static_cast<char>(std::tolower(c));

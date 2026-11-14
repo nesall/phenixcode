@@ -202,6 +202,9 @@ for (const width of [390, 320]) {
 test(`edge picker and popover fit a ${width}px screen without overlapping the checkbox or Send`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 844 });
   await start(page);
+  // The context-only checkbox appears only when the message has attachments.
+  await page.locator('#file-input').setInputFiles({ name: "context.txt", mimeType: "text/plain", buffer: Buffer.from("Test context") });
+  await expect(page.locator('label[for="checkbox-attached-files-only"]')).toBeVisible();
   const send = await page.getByRole("button", { name: "Send message", exact: true }).boundingBox();
   const reasoning = await picker(page).boundingBox();
   const checkbox = await page.locator('label[for="checkbox-attached-files-only"]').boundingBox();

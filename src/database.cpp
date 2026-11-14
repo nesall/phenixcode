@@ -685,17 +685,42 @@ void HnswSqliteVectorDatabase::beginTransaction()
   imp->pendingAdds_.clear();
 }
 
+//void HnswSqliteVectorDatabase::commit()
+//{
+//  executeSql("COMMIT");
+//  std::lock_guard<std::mutex> lock(mutex_);
+//  for (auto id : imp->pendingDeletes_)
+//    imp->index_->markDelete(id);
+//  for (auto &p : imp->pendingAdds_)
+//    imp->index_->addPoint(p.second.data(), p.first, true);
+//  imp->pendingDeletes_.clear();
+//  imp->pendingAdds_.clear();
+//  imp->inSqlTransaction_ = false;
+//}
+
 void HnswSqliteVectorDatabase::commit()
 {
-  executeSql("COMMIT");
   std::lock_guard<std::mutex> lock(mutex_);
-  for (auto id : imp->pendingDeletes_)
-    imp->index_->markDelete(id);
-  for (auto &p : imp->pendingAdds_)
-    imp->index_->addPoint(p.second.data(), p.first, true);
+  executeSql("COMMIT");
+  imp->inSqlTransaction_ = false;
+  const char *operation = "markDelete";
+  size_t currentId = 0;
+  try {
+    for (auto id : imp->pendingDeletes_) {
+      currentId = id;
+      imp->index_->markDelete(id);
+    }
+    operation = "addPoint";
+    for (const auto &[id, embedding] : imp->pendingAdds_) {
+      currentId = id;
+      imp->index_->addPoint(embedding.data(), id, true);
+    }
+  } catch (const std::exception &e) {
+    LOG_MSG_ERROR << "HNSW commit failed:" << operation << "label" << currentId << "|" << e.what();
+    throw;
+  }
   imp->pendingDeletes_.clear();
   imp->pendingAdds_.clear();
-  imp->inSqlTransaction_ = false;
 }
 
 void HnswSqliteVectorDatabase::rollback()

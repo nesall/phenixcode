@@ -9,9 +9,7 @@
   }
   let { onChanged }: Props = $props();
 
-  const projectTitle = $derived(
-    projectStore.selected?.jsonData.source.project_title,
-  );
+  const projectTitle = $derived(projectStore.selected?.jsonData.source.project_title);
 
   onMount(() => {});
 
@@ -37,60 +35,57 @@
           </div>
 
           <!-- Logging Toggles -->
-          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2">
-            Destinations
-          </h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div
-              class="flex items-center space-x-3 p-3 bg-surface-50-900 rounded-lg"
-            >
-              <input
-                type="checkbox"
-                class="checkbox checkbox-lg preset-filled-primary-500"
-                bind:checked={projectStore.selected.jsonData.logging.log_to_console}
-                id="log-console-toggle"
-                onchange={onChange}
-              />
-              <label
-                for="log-console-toggle"
-                class="flex flex-col cursor-pointer"
-              >
-                <span class="font-medium text-left text-surface-900-50"
-                  >Log to Console</span
-                >
-                <span class="text-xs text-surface-500-400"
-                  >Display messages in the terminal/browser console.</span
-                >
+          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2">Destinations</h3>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-2">
+            <div class="flex-col space-x-3 p-3 bg-surface-50-900 rounded-lg text-left">
+              <label for="log-console-toggle" class="flex items-center cursor-pointer gap-2">
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-lg preset-filled-primary-500"
+                  bind:checked={projectStore.selected.jsonData.logging.log_to_console}
+                  id="log-console-toggle"
+                  onchange={onChange}
+                />
+                <span class="font-medium text-surface-900-50">Log to Console</span>
               </label>
+              <span class="text-xs text-surface-500-400">Display messages in the terminal/browser console.</span>
             </div>
 
-            <div
-              class="flex items-center space-x-3 p-3 bg-surface-50-900 rounded-lg"
-            >
-              <input
-                type="checkbox"
-                class="checkbox checkbox-lg preset-filled-primary-500"
-                bind:checked={projectStore.selected.jsonData.logging.log_to_file}
-                id="log-file-toggle"
-                onchange={onChange}
-              />
-              <label for="log-file-toggle" class="flex flex-col cursor-pointer">
-                <span class="font-medium text-left text-surface-900-50"
-                  >Log to File</span
-                >
-                <span class="text-xs text-surface-500-400"
-                  >Persist log messages to a local file.</span
-                >
+            <div class="flex-col space-x-3 p-3 bg-surface-50-900 rounded-lg text-left">
+              <label for="log-file-toggle" class="flex items-center cursor-pointer gap-2">
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-lg preset-filled-primary-500"
+                  bind:checked={projectStore.selected.jsonData.logging.log_to_file}
+                  id="log-file-toggle"
+                  onchange={onChange}
+                />
+                <span class="font-medium text-surface-900-50"> Log to File</span>
               </label>
+              <span class="text-xs text-surface-500-400"> Persist log messages to a local file. </span>
+            </div>
+
+            <div class="flex-col space-x-3 p-3 bg-surface-50-900 rounded-lg text-left">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-surface-900-50">Min Log Level</span>
+                <select
+                  class="select select-lg preset-filled-primary-500 max-w-32"
+                  bind:value={projectStore.selected.jsonData.logging.min_log_level}
+                  id="min-log-level-select"
+                  onchange={onChange}
+                >
+                  <option value="debug">Debug</option>
+                  <option value="info">Info</option>
+                  <option value="warn">Warn</option>
+                  <option value="error">Error</option>
+                </select>
+              </div>
+              <span class="text-xs text-surface-500-400">Filter log messages by minimum severity.</span>
             </div>
           </div>
 
           <!-- File Paths -->
-          <h3
-            class="font-semibold text-lg border-b border-surface-500 pb-2 pt-2"
-          >
-            File Paths
-          </h3>
+          <h3 class="font-semibold text-lg border-b border-surface-500 pb-2 pt-2">File Paths</h3>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label class="label">
               <span class="label-text">General Log File Path</span>
@@ -102,9 +97,7 @@
                 disabled={!projectStore.selected?.jsonData.logging.log_to_file}
                 onchange={onChange}
               />
-              <p class="text-sm text-surface-500 mt-1">
-                File for general information and warnings.
-              </p>
+              <p class="text-sm text-surface-500 mt-1">File for general information and warnings.</p>
             </label>
 
             <label class="label">
@@ -117,9 +110,7 @@
                 disabled={!projectStore.selected?.jsonData.logging.log_to_file}
                 onchange={onChange}
               />
-              <p class="text-sm text-surface-500 mt-1">
-                File for detailed debug and error messages.
-              </p>
+              <p class="text-sm text-surface-500 mt-1">File for detailed debug and error messages.</p>
             </label>
           </div>
         </div>

@@ -31,6 +31,7 @@ struct ApiConfig {
   std::string queryFormat;
   std::string documentFormat;
   std::string maxTokensName; // e.g. max_tokens or max_completion_tokens
+  std::string supportsTools; // auto|on|off
   bool temperatureSupport = false;
   bool enabled = true;
   bool stream = true;
@@ -141,6 +142,7 @@ public:
 
   const std::vector<ApiConfig> &embeddingProviders() const { return embeddingProviders_; }
   const std::vector<ApiConfig> &generationProviders() const { return generationProviders_; }
+  bool agentEnabled() const { return config_.value("agent_enabled", false); }
 
   void save();
 
@@ -273,6 +275,9 @@ public:
   }
   bool loggingLogToConsole() const {
     return config_.contains("logging") ? config_["logging"].value("log_to_console", true) : true;
+  }
+  std::string loggingMinDebugLevel() const {
+    return config_.contains("logging") ? config_["logging"].value("min_debug_level", "info") : std::string("info");
   }
 
   void initProjectIdIfMissing(bool hydrateFile);

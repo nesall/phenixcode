@@ -244,7 +244,8 @@ namespace context {
     float contextSizeRatio,
     bool attachedOnly,
     std::function<void(std::string_view)> onInfo,
-    bool freeChat
+    bool freeChat,
+    size_t inputBudget
   ) {
     LOG_START;
     if (!onInfo) onInfo = [](std::string_view) {};
@@ -255,8 +256,10 @@ namespace context {
     std::vector<SearchResult> filteredChunkResults;
     std::vector<SearchResult> orderedResults; // Final ordered results
 
-    const auto maxTokenBudget = static_cast<size_t>(apiConfig.contextLength * std::clamp(contextSizeRatio, 0.1f, 1.0f));
-    assert(0 < maxTokenBudget);
+    const auto maxTokenBudget = (std::min)(inputBudget,
+      static_cast<size_t>(apiConfig.contextLength * std::clamp(contextSizeRatio, 0.1f, 1.0f)));
+    if (maxTokenBudget == 0 || usedTokens > maxTokenBudget)
+      throw std::runtime_error("Conversation history leaves no room in the model context budget; shorten the conversation or reduce max_tokens");
 
     if (!freeChat && attachedOnly && attachments.empty() && sources.empty()) {
       assert(!"Should not happen");

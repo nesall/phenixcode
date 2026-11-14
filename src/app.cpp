@@ -766,7 +766,7 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
           try {
             update();
           } catch (const std::exception &e) {
-            LOG_MSG << "[Watch] Error during update:" << e.what();
+            LOG_MSG_ERROR << "[Watch] Error during update:" << e.what();
           }
           nextUpdate = std::chrono::steady_clock::now() + std::chrono::seconds(interval);
         }
@@ -884,14 +884,14 @@ void App::providers(const std::string &testProvider) const
         //std::cout << chunk << std::flush;
       }
     );
-    LOG_MSG << "Question:" << messages[1]["content"];
-    LOG_MSG << "Answer:" << fullResponse;
+    LOG_MSG_DEBUG << "Question:" << messages[1]["content"];
+    LOG_MSG_DEBUG << "Answer:" << fullResponse;
   }
 }
 
 size_t App::update()
 {
-  LOG_MSG << "Checking for changes...";
+  LOG_MSG_DEBUG << "Checking for changes...";
 
   imp->lastUpdateTime_ = std::chrono::system_clock::now();
 
@@ -906,7 +906,18 @@ size_t App::update()
   try {
     Settings settingsNew{ imp->settings_->configPath(), imp->settings_->providersConfigPath()};
     imp->processor_->setSettings(settingsNew);
-    LOG_MSG_DEBUG << "Read settings from" << settingsNew.configPath();
+    LOG_MSG_DEBUG << "Re-read settings from" << settingsNew.configPath();
+    const std::string &logMinLevel = settingsNew.loggingMinDebugLevel();
+    if (logMinLevel == "debug")
+      SET_LOG_MIN_LEVEL(utils_log::Level::debug);
+    else if (logMinLevel == "info")
+      SET_LOG_MIN_LEVEL(utils_log::Level::info);
+    else if (logMinLevel == "warn")
+      SET_LOG_MIN_LEVEL(utils_log::Level::warn);
+    else if (logMinLevel == "error")
+      SET_LOG_MIN_LEVEL(utils_log::Level::error);
+    else
+      LOG_MSG_WARN << "Unknown logging level" << logMinLevel << "Skipped.";
   } catch (const std::exception &ex) {
     LOG_MSG_WARN << ex.what();
     LOG_MSG_WARN << "Unable to re-read settings. Skipped.";
@@ -934,7 +945,7 @@ size_t App::update()
 
 void App::watch(int intervalSeconds)
 {
-  std::cout << "Starting watch mode (checking every " << intervalSeconds << " seconds)" << std::endl;
+  LOG_MSG << "Starting watch mode (checking every" << intervalSeconds << "seconds)";
   std::cout << "Press Ctrl+C to stop" << std::endl;
   while (true) {
     std::this_thread::sleep_for(std::chrono::seconds(intervalSeconds));
@@ -943,7 +954,7 @@ void App::watch(int intervalSeconds)
         std::cout << "[" << utils::currentTimestamp() << "] updates detected and applied.\n";
       }
     } catch (const std::exception &e) {
-      LOG_MSG << "Error during update: " << e.what();
+      LOG_MSG_ERROR << "Error during update: " << e.what();
     }
   }
 }

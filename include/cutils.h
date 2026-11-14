@@ -29,14 +29,15 @@ namespace utils {
   [[nodiscard]] std::filesystem::path monitorPathFor(std::filesystem::path settingsFilePath);
   [[nodiscard]] std::vector<std::string> extractGrepTerms(const std::string &text);
   [[nodiscard]] std::vector<std::string> extractGrepLiterals(const std::string &text);
-  [[nodiscard]] bool looksCodeLike(const std::string &text);
-  [[nodiscard]] bool isIdentifierLike(const std::string &text);
+  [[nodiscard]] bool looksCodeLike(std::string_view text);
+  [[nodiscard]] bool isIdentifierLike(std::string_view text);
   [[nodiscard]] bool isHeader(const std::string &path);
   [[nodiscard]] std::string stemKey(const std::string &path);
-  [[nodiscard]] std::string expandEnvVar(const std::string var);
+  [[nodiscard]] std::string expandEnvVar(const std::string &var);
+  [[nodiscard]] std::string sanitizeUtf8(std::string_view input);
 
   enum class QueryIntent : uint8_t { Neutral, Declaration, Implementation };
-  [[nodiscard]] QueryIntent queryIntent(const std::string &query);
+  [[nodiscard]] QueryIntent queryIntent(std::string_view query);
 } // namespace utils
 
 #endif // _PHENIXCODE_UTILS_H_

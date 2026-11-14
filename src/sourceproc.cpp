@@ -18,13 +18,7 @@
 #include <utils_log/logger.hpp>
 #include <3rdparty/utf8.h>
 
-
 namespace {
-  std::string sanitizeUtf8(const std::string &input) {
-    std::string out;
-    utf8::replace_invalid(input.begin(), input.end(), std::back_inserter(out), '?');
-    return out;
-  }
 
   std::string toLowerAscii(std::string_view text) {
     std::string out(text.size(), '\0');
@@ -34,15 +28,6 @@ namespace {
     }
     return out;
   }
-
-  //float occWeight(std::string_view line, size_t p, size_t len) {
-  //  const bool call = p + len < line.size() && line[p + len] == '(';
-  //  const bool member = (p >= 1 && line[p - 1] == '.') ||
-  //    (p >= 2 && line[p - 2] == '-' && line[p - 1] == '>');
-  //  const bool col0 = !line.empty() && !std::isspace(static_cast<unsigned char>(line[0]));
-  //  if (call && col0 && line.find(';') == std::string_view::npos) return 3.0f; // `Ret Cls::name(...)`
-  //  return member ? 0.5f : 1.0f;
-  //}
 
   float occWeight(std::string_view line, size_t p, size_t len)
   {
@@ -141,7 +126,7 @@ bool SourceProcessor::readFile(const std::string &uri, std::string &data, bool s
   if (file.is_open()) {
     std::string raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     if (sanitize)
-      data = std::move(sanitizeUtf8(std::move(raw)));
+      data = std::move(utils::sanitizeUtf8(std::move(raw)));
     else 
       data = std::move(raw);
     return true;
@@ -191,6 +176,11 @@ bool SourceProcessor::readFileRaw(const std::string &uri, std::string &data, boo
   return !data.empty();
 }
 
+
+std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &terms, const std::vector<std::string> &filePaths) const
+{
+  return grep(terms, filePaths, GrepOptions{});
+}
 
 std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &termsArg, const std::vector<std::string> &filePaths, const GrepOptions &opts) const
 {
@@ -389,7 +379,7 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
       sr.content =
         utf8::find_invalid(snippet.begin(), snippet.end()) !=
         snippet.end()
-        ? sanitizeUtf8(snippet)
+        ? utils::sanitizeUtf8(snippet)
         : std::move(snippet);
 
       sr.sourceId = path;

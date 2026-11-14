@@ -49,7 +49,8 @@ namespace {
     size_t maxTokens,
     bool stream,
     const std::map<std::string, std::string> &reasoningSelection,
-    bool skipMessagesIfEmpty = false) {
+    bool skipMessagesIfEmpty = false,
+    const nlohmann::json &tools = nlohmann::json::array()) {
     nlohmann::json body;
     body["model"] = cfg.model;
     if (isAnthropic(cfg)) {
@@ -69,7 +70,27 @@ namespace {
       if (cfg.temperatureSupport) body["temperature"] = temperature;
       body[cfg.maxTokensName] = maxTokens;
     }
+    if (!tools.empty()) {
+      if (isAnthropic(cfg)) {
+        nlohmann::json anthropicTools = nlohmann::json::array();
+        for (const auto &tool : tools) {
+          const auto &function = tool.at("function");
+          nlohmann::json anthropicTool = {
+            { "name", function.at("name") },
+            { "input_schema", function.value("parameters", nlohmann::json::object()) }
+          };
+          if (function.contains("description"))
+            anthropicTool["description"] = function["description"];
+          anthropicTools.push_back(std::move(anthropicTool));
+        }
+        body["tools"] = std::move(anthropicTools);
+      } else {
+        body["tools"] = tools;
+      }
+    }
     body["stream"] = stream;
+    if (stream && !isAnthropic(cfg))
+      body["stream_options"] = {{"include_usage", true}};
 
     for (const auto &param : cfg.reasoning) {
       const auto selected = reasoningSelection.find(param.name);
@@ -431,46 +452,10 @@ CompletionClient::CompletionClient(const ApiConfig &cfg, size_t timeout, const A
 {
 }
 
-std::string CompletionClient::generateCompletion(
-  const nlohmann::json &messagesJson,
-  const std::vector<SearchResult> &searchRes,
-  float temperature,
-  size_t maxTokens,
-  std::function<void(const std::string &)> onStream,
-  const std::map<std::string, std::string> &reasoningSelection,
-  nlohmann::json *assistantMessage,
-  std::function<void(const std::string &)> onReasoning,
-  bool freeChat) const
+nlohmann::json CompletionClient::prepareMessages(const nlohmann::json &messagesJson,
+  const std::vector<SearchResult> &searchRes, bool freeChat) const
 {
-  if (assistantMessage) *assistantMessage = nullptr;
-  reasoning_history::AssistantMessageAccumulator accumulator(cfg().apiStyle);
-#ifndef CPPHTTPLIB_OPENSSL_SUPPORT
-  if (schemaHostPort().starts_with("https://")) {
-    throw std::runtime_error("HTTPS not supported in this build");
-  }
-#endif
-  const auto [httpClient, path] = imp->httpClientForUrl(cfg().apiUrl);
-  if (!httpClient) {
-    throw std::runtime_error("Failed to initialize http client");
-  }
-
-  /*
-  * Json Request body format.
-  {
-    "model": "",
-    "messages": [
-      {"role": "system", "content": "Keep it short."},
-      {"role": "user", "content": "What is the capital of France?"}
-    ],
-    "temperature": 0.7
-   }
-  */
-
-  if (onStream) {
-    onStream("[meta]Working on the response");
-  }
-
-  nlohmann::json modifiedMessages = messagesJson;
+  auto modifiedMessages = messagesJson;
   if (!freeChat || !searchRes.empty()) {
     std::string context = buildContext(searchRes, false, {}, false, freeChat);
     std::string question = messagesJson.back()["content"].get<std::string>();
@@ -497,12 +482,78 @@ std::string CompletionClient::generateCompletion(
     modifiedMessages.back()["content"] = prompt;
   }
 
-  //std::cout << "Full context: " << modifiedMessages.dump() << "\n";
-  
-  nlohmann::json requestBody = buildRequestBody(cfg(), modifiedMessages, temperature, maxTokens, cfg().stream, reasoningSelection);
+  return modifiedMessages;
+}
+
+std::string CompletionClient::generateCompletion(
+  const nlohmann::json &messagesJson,
+  const std::vector<SearchResult> &searchRes,
+  float temperature,
+  size_t maxTokens,
+  std::function<void(const std::string &)> onStream,
+  const std::map<std::string, std::string> &reasoningSelection,
+  nlohmann::json *assistantMessage,
+  std::function<void(const std::string &)> onReasoning,
+  bool freeChat,
+  const nlohmann::json &tools,
+  bool applyContext,
+  std::function<bool()> shouldContinue,
+  std::function<void(const std::string &)> onMeta,
+  inference_contant::CompletionInfo *completionInfo
+  ) const
+{
+  if (assistantMessage) *assistantMessage = nullptr;
+  inference_contant::CompletionInfo localInfo;
+  auto &info = completionInfo ? *completionInfo : localInfo;
+  info = {};
+  reasoning_history::AssistantMessageAccumulator accumulator(cfg().apiStyle, !tools.empty());
+#ifndef CPPHTTPLIB_OPENSSL_SUPPORT
+  if (schemaHostPort().starts_with("https://")) {
+    throw std::runtime_error("HTTPS not supported in this build");
+  }
+#endif
+  const auto [httpClient, path] = imp->httpClientForUrl(cfg().apiUrl);
+  if (!httpClient) {
+    throw std::runtime_error("Failed to initialize http client");
+  }
+
+  /*
+  * Json Request body format.
+  {
+    "model": "",
+    "messages": [
+      {"role": "system", "content": "Keep it short."},
+      {"role": "user", "content": "What is the capital of France?"}
+    ],
+    "temperature": 0.7
+   }
+  */
+
+  if (onMeta) {
+    onMeta("Working on the response");
+  }
+  if (shouldContinue && !shouldContinue()) return {};
+
+  const auto modifiedMessages = applyContext ? prepareMessages(messagesJson, searchRes, freeChat) : messagesJson;
+  nlohmann::json requestBody = buildRequestBody(
+    cfg(), modifiedMessages, temperature, maxTokens, cfg().stream, reasoningSelection, false, tools);
+
+//#ifdef _DEBUG
+//  if (!tools.empty() &&
+//    cfg().apiStyle == ApiConfig::ApiStyle::OpenAI &&
+//    !modifiedMessages.empty() &&
+//    modifiedMessages.back().value("role", "") == "user") {
+//    requestBody["tool_choice"] = {
+//      { "type", "function" },
+//      { "function",{ { "name", "grep" } } }
+//    };
+//  }
+//#endif
+
   httplib::Headers headers = buildHeaders(cfg(), cfg().stream);
 
   std::string fullResponse;
+  std::string reasoningBuffer, argumentBuffer, protocolError;
   httplib::Result res;
 
   if (cfg().stream) {
@@ -511,15 +562,15 @@ std::string CompletionClient::generateCompletion(
     std::string buffer;     // holds leftover partial data
     std::string stopReason; // terminal stop/finish reason reported by the API
     std::string lastChunk;  // raw last parsed chunk, for diagnostics
-    std::string reasoningBuffer;
 
     res = httpClient->Post(
       path.c_str(),
       headers,
       std::move(requestStr),
       "application/json",
-      [&fullResponse, &reasoningBuffer, &onStream, &onReasoning, &buffer, &stopReason, &lastChunk, &accumulator, assistantMessage, this]
+      [&fullResponse, &reasoningBuffer, &argumentBuffer, &protocolError, &info, &onStream, &onReasoning, &buffer, &stopReason, &lastChunk, &accumulator, &shouldContinue, this]
       (const char *data, size_t len) {
+        if (shouldContinue && !shouldContinue()) return false;
         // llama-server sends SSE format: "data: {...}\n\n"
         buffer.append(data, len);
         while (true) {
@@ -532,20 +583,26 @@ std::string CompletionClient::generateCompletion(
           std::string jsonStr;
           if (jsonStrFromSSEEvent(event, jsonStr)) {
             if (jsonStr == "[DONE]") {
-              if (assistantMessage) accumulator.finish();
+              accumulator.finish();
               break;
             }
             try {
               nlohmann::json chunkJson = nlohmann::json::parse(jsonStr);
               lastChunk = jsonStr;
-              if (assistantMessage) {
-                try {
-                  accumulator.add(chunkJson);
-                } catch (const std::exception &e) {
-                  accumulator.invalidate();
-                  LOG_MSG_WARN << "Unable to retain provider message:" << e.what();
-                }
+              info.observe(cfg(), chunkJson);
+              if (chunkJson.contains("error") || inference_contant::stringField(chunkJson, "type") == "error") {
+                protocolError = "Provider stream error: " + chunkJson.dump();
+                accumulator.invalidate();
+                continue;
               }
+              try {
+                accumulator.add(chunkJson);
+              } catch (const std::exception &e) {
+                accumulator.invalidate();
+                LOG_MSG_WARN << "Unable to retain provider message:" << e.what();
+              }
+              if (const auto delta = inference_contant::firstChoiceContent(chunkJson, "delta"))
+                argumentBuffer += inference_contant::toolArguments(*delta);
 
               std::string reason = extractStopReason(cfg(), chunkJson);
               if (!reason.empty()) stopReason = reason;
@@ -559,12 +616,13 @@ std::string CompletionClient::generateCompletion(
                 if (onStream) onStream(content);
               }
             } catch (const std::exception &e) {
-              if (assistantMessage) accumulator.invalidate();
+              accumulator.invalidate();
+              protocolError = std::string("Invalid provider stream: ") + e.what();
               LOG_MSG_ERROR << "Error parsing chunk" << e.what() << "in" << jsonStr;
             }
           }
         }
-        return true; // Continue receiving
+        return !shouldContinue || shouldContinue(); // Stop upstream work after client disconnects
       }
     );
 
@@ -575,14 +633,9 @@ std::string CompletionClient::generateCompletion(
       LOG_MSG_DEBUG << "[completion] Empty response from" << cfg().model
         << "| stop_reason:" << (stopReason.empty() ? "<none>" : stopReason)
         << "| last chunk:" << (lastChunk.empty() ? "<none>" : lastChunk);
-      if (!stopReason.empty() && onStream) {
-        onStream(fmt::format("[meta]Model stopped with reason: {}", stopReason));
+      if (!stopReason.empty() && onMeta) {
+        onMeta(fmt::format("Model stopped with reason: {}", stopReason));
       }
-    }
-    size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoningBuffer);
-    LOG_MSG << "[completion] Reasoning tokens" << reasoningTokens;
-    if (onStream) {
-      onStream(fmt::format("[meta]Reasoning token count {}", reasoningTokens));
     }
 
   } else {
@@ -596,25 +649,14 @@ std::string CompletionClient::generateCompletion(
     if (res && res->status == 200) {
       try {
         nlohmann::json jsonRes = nlohmann::json::parse(res->body);
-        std::string reasoning;
-        fullResponse = inference_contant::extractFullContent(cfg(), jsonRes, reasoning);
-        if (onReasoning && !reasoning.empty()) onReasoning(reasoning);
-        if (assistantMessage) {
-          if (isAnthropic(cfg())) {
-            const auto stop = inference_contant::stringField(jsonRes, "stop_reason");
-            if (stop == "end_turn" || stop == "stop_sequence")
-              *assistantMessage = {{"role", "assistant"}, {"content", jsonRes.at("content")}};
-          } else {
-            const auto message = inference_contant::firstChoiceContent(jsonRes, "message");
-            const auto stop = inference_contant::stringField(jsonRes["choices"][0], "finish_reason");
-            if (message && stop == "stop") *assistantMessage = *message;
-          }
-        }
-        size_t reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoning);
-        LOG_MSG << "[completion] Reasoning tokens " << reasoningTokens;
-        if (onStream) {
-          onStream(fmt::format("[meta]Reasoning token count {}", reasoningTokens));
-        }
+        info.observe(cfg(), jsonRes);
+        if (jsonRes.contains("error")) throw std::runtime_error("Provider error: " + jsonRes.at("error").dump());
+        fullResponse = inference_contant::extractFullContent(cfg(), jsonRes, reasoningBuffer);
+        if (const auto message = inference_contant::firstChoiceContent(jsonRes, "message"))
+          argumentBuffer = inference_contant::toolArguments(*message);
+        if (onReasoning && !reasoningBuffer.empty()) onReasoning(reasoningBuffer);
+        if (assistantMessage)
+          *assistantMessage = inference_contant::completedAssistantMessage(cfg(), jsonRes, !tools.empty());
         if (fullResponse.empty()) {
           std::string reason = isAnthropic(cfg())
             ? jsonRes.value("stop_reason", std::string{})
@@ -625,19 +667,30 @@ std::string CompletionClient::generateCompletion(
             << "| body:" << res->body.substr(0, 500);
         }
         if (onStream) onStream(fullResponse);
-      } catch (...) { /* ignore parse errors */ }
+      } catch (const std::exception &e) {
+        protocolError = std::string("Invalid provider response: ") + e.what();
+      }
     }
   }
 
+  const auto reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoningBuffer);
+  info.estimatedOutputTokens = app_.tokenizer().countTokensWithVocab(fullResponse) + reasoningTokens +
+    app_.tokenizer().countTokensWithVocab(argumentBuffer);
+  if (shouldContinue && !shouldContinue()) return fullResponse;
   if (!res) {
     throw std::runtime_error("Failed to connect to completion server");
   }
 
   if (res->status != 200) {
     std::string msg = fmt::format("Server returned error: {} - {}", res->status, res->body);
-    if (onStream) onStream(msg);
     throw std::runtime_error(msg);
   }
+  if (!protocolError.empty()) throw std::runtime_error(protocolError);
+  if (info.status == inference_contant::CompletionStatus::ToolCalls &&
+      (!assistantMessage || !assistantMessage->is_object()))
+    info.status = inference_contant::CompletionStatus::Incomplete;
+  if (onMeta) onMeta(fmt::format("Reasoning token count {}{}",
+    info.reasoningTokens.value_or(reasoningTokens), info.reasoningTokens ? "" : " (estimated)"));
 
   return fullResponse;
 }

@@ -12,6 +12,7 @@
 class App;
 struct SearchResult;
 struct ApiConfig;
+namespace inference_contant { struct CompletionInfo; }
 
 
 class InferenceClient {
@@ -53,7 +54,14 @@ public:
     std::function<void(const std::string &)> onStream,
     const std::map<std::string, std::string> &reasoningSelection = {},
     nlohmann::json *assistantMessage = nullptr,
-    std::function<void(const std::string &)> onReasoning = nullptr, bool freeChat = false) const;
+    std::function<void(const std::string &)> onReasoning = nullptr,
+    bool freeChat = false,
+    const nlohmann::json &tools = nlohmann::json::array(),
+    bool applyContext = true,
+    std::function<bool()> shouldContinue = nullptr,
+    std::function<void(const std::string &)> onMeta = nullptr,
+    inference_contant::CompletionInfo *completionInfo = nullptr
+    ) const;
 
   std::string generateFim(
     const std::string &prefix, 
@@ -66,6 +74,7 @@ public:
   ) const;
 
   static std::string queryTemplate(bool freeChat = false);
+  nlohmann::json prepareMessages(const nlohmann::json &messages, const std::vector<SearchResult> &searchRes, bool freeChat) const;
   static std::string fimTemplate();
 
 private:

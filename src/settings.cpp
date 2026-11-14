@@ -83,7 +83,8 @@ namespace {
         }
       }
     }
-    
+
+    cfg.supportsTools = item.value("supports_tools", "auto");
     cfg.documentFormat = item.value("document_format", "");
     cfg.queryFormat = item.value("query_format", "");
     cfg.temperatureSupport = item.value("temperature_support", false);

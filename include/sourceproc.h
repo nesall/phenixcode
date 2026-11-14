@@ -35,7 +35,9 @@ public:
   std::vector<SearchResult> grep(
     const std::vector<std::string> &terms,
     const std::vector<std::string> &filePaths, // if empty, uses collectSources(false)
-    const GrepOptions &opts = {}) const;
+    const GrepOptions &opts) const;
+  std::vector<SearchResult> grep(const std::vector<std::string> &terms,
+    const std::vector<std::string> &filePaths) const;
 
 private:
   void processDirectory(const Settings::SourceItem &source, std::vector<SourceProcessor::Data> &content, bool readContent) const;

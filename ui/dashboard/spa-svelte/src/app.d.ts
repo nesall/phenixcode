@@ -156,6 +156,7 @@ export interface ChunkingSettings {
 export interface LoggingSettings {
   log_to_console: boolean;
   log_to_file: boolean;
+  min_log_level: 'debug' | 'info' | 'warn' | 'error';
   logging_file: string;
   diagnostics_file: string;
 }

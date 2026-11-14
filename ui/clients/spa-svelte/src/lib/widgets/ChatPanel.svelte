@@ -30,6 +30,7 @@
   export function resetUi() {
     $bLoading = false;
     started = false;
+    activeAssistantIndex = -1;
     metaInfoArray = [];
     reasoningTextRaw = "";
     sourceids = [];
@@ -43,63 +44,6 @@
     clog("ChatPanel $temperature changed:", $state.snapshot($temperature));
   });
 
-  async function insertTestMessages() {
-    $messages = [
-      {
-        role: "user",
-        content: "Hello there!",
-        _html: "",
-      },
-      {
-        role: "assistant",
-        content: 'int main() {\n    printf("Hello, World!");\n    return 0;\n}',
-        _html: normalizeHeaders(
-          await renderMarkdown('```cpp\n\nint main() {\n    printf("Hello, World!");\n    return 0;\n}\n```'),
-        ),
-        _metaInfoArray: ["Searching for relevant content", "Processing attachment(s)", "Working on the response"],
-        _reasoningVisible: false,
-        _reasoningText:
-          "User wants to start a conversation. The assistant is greeting the user and asking how it can help.",
-      },
-      {
-        role: "user",
-        content: "Can you tell me a joke?",
-        _html: "",
-      },
-      {
-        role: "assistant",
-        content: "Sure! Why don't scientists trust atoms? Because they make up everything!",
-        _html: await renderMarkdown(
-          atob(
-            "UGFyc2luZyBpcyBkb25lLiBSZW1haW5pbmcgd29yayBpczogdHJlYXQgYCJhdXRvImAgYXMgYSByZXNlcnZlZCBnZW5lcmF0aW9uIGlkLCBjbGFzc2lmeSAqKmJlZm9yZSoqIFJBRywgdGhlbiBydW4gdGhlIGV4aXN0aW5nIGNoYXQgcGF0aCBvbiBhIHJlYWwgYEFwaUNvbmZpZ2AuCgojIyMgU3RpbGwgdHJ1ZQoKLSBgc2V0dGluZ3MuanNvbmAgb25seTsgbm8gc3R1YiBpbiBgcHJvdmlkZXJzLmpzb25gCi0gYGN1cnJlbnRfYXBpOiAiYXV0byJgIGlzIHRoZSBzd2l0Y2ggKGAiYXV0byJgIGluIGBlbmFibGVkX3Byb3ZpZGVyc2ApCi0gU2tpcCByb3V0ZXIgb24gZXhwbGljaXQgYHRhcmdldGFwaWAgYW5kIG9uIGAvYXBpL2ZpbWAKLSB2MTogYHN0cmF0ZWd5OiAiZGlyZWN0ImAgKyBgZmFsbGJhY2suZGVmYXVsdF9tb2RlbF9pZGAKLSBDbGFzc2lmaWVyIGlzIGEgY2hlYXAsIG5vbi1zdHJlYW1pbmcsIG5vLVJBRyBjYWxsIOKAlCAqKm5vdCoqIGBnZW5lcmF0ZUNvbXBsZXRpb25gCgojIyMgU3RlcHMKCioqMS4gQ29uc3RhbnQgKyBnZXR0ZXIqKiAoYHNldHRpbmdzLmhgIC8gYHNldHRpbmdzLmNwcGApCgotIGBpbmxpbmUgY29uc3RleHByIHN0ZDo6c3RyaW5nX3ZpZXcga0F1dG9BcGlJZCA9ICJhdXRvIjtgCi0gYEF1dG9Sb3V0ZXJDb25maWcgYXV0b1JvdXRlckNvbmZpZygpIGNvbnN0O2Ag4oCUIHRoaW4gd3JhcHBlciBhcm91bmQgYHBhcnNlQXV0b1JvdXRlckNvbmZpZ2A7IG5vIGNhY2hlLgoKKioyLiBWYWxpZGF0ZSBgImF1dG8iYCBvbmx5IGZvciBnZW5lcmF0aW9uKiogKGB2YWxpZGF0ZVByb3ZpZGVyU2VjdGlvbmApCgotIElmIGBjdXJyZW50QXBpID09IGtBdXRvQXBpSWRgOiBnZW5lcmF0aW9uIG9ubHk7IHJlcXVpcmUgYGdlbmVyYXRpb24uYXV0b19yb3V0ZXJgIG9iamVjdDsgKipyZXR1cm4qKiAobm8gY2F0YWxvZyBsb29rdXApLgotIEVtYmVkZGluZzogYCJhdXRvImAgaXMgYW4gZXJyb3IuCgoqKjMuIFZhbGlkYXRlIHRoZSByb3V0ZXIgYmxvY2sqKiAoaW4gYHZhbGlkYXRlKClgLCBhZnRlciBwcm92aWRlciBzZWN0aW9uKQoKV2hlbiBgZ2VuZXJhdGlvbkN1cnJlbnRBcGlgIGlkIGlzIGAiYXV0byJgOgoKLSBgY2xhc3NpZmllci5hcGlJZGAsIGV2ZXJ5IGBkaXJlY3RNb2RlbElkYCwgYW5kIGBmYWxsYmFja01vZGVsSWRgIOKIiCBgZW5hYmxlZF9wcm92aWRlcnNgLCBleGlzdCBpbiBgZ2VuZXJhdGlvbl9wcm92aWRlcnNgLCDiiaAgYGtBdXRvQXBpSWRgCi0gYHN0cmF0ZWd5ID09ICJkaXJlY3QiYCBhbmQgbm9uLWVtcHR5IGBkaXJlY3RNb2RlbElkYCAocmVqZWN0IGAiZW5zZW1ibGUiYCBpbiB2MSkKLSBub24tZW1wdHkgYGNsYXNzaWZpZXIucHJvbXB0YCBhbmQgYGZhbGxiYWNrTW9kZWxJZGAKCioqNC4gRG8gbm90IGNhbGwgYGdlbmVyYXRpb25DdXJyZW50QXBpKClgIC8gYGdldEN1cnJlbnRBcGlDb25maWcoKWAgd2hlbiBjdXJyZW50IGlzIGAiYXV0byJgKioKClRob3NlIG5lZWQgYSByZWFsIGNhdGFsb2cgaWQuIFJlc29sdmUgYSBtb2RlbCBpZCBmaXJzdCwgdGhlbiBgcHJvdmlkZXJzXy5maW5kR2VuZXJhdGlvbihpZClgLgoKKio1LiBDbGFzc2lmaWVyIFJQQyoqIChgaW5mZXJlbmNlLmhgIC8gYGluZmVyZW5jZS5jcHBgKQoKTmV3IHRoaW4gbWV0aG9kIG9uIGBJbmZlcmVuY2VDbGllbnRgIC8gYENvbXBsZXRpb25DbGllbnRgOiBubyBgX3F1ZXJ5VGVtcGxhdGVgLCBubyBSQUcsIGBzdHJlYW06IGZhbHNlYCwgb3duIGB0aW1lb3V0X21zYCAvIGBtYXhfdG9rZW5zYCAvIGB0ZW1wZXJhdHVyZWAuIEZvcmNlIHRlbXBlcmF0dXJlIG9udG8gdGhlIGJvZHkgZXZlbiBpZiBgdGVtcGVyYXR1cmVTdXBwb3J0YCBpcyBmYWxzZSAoY2xhc3NpZmllciBuZWVkcyAwKS4KCioqNi4gUmVzb2x2ZSBoZWxwZXIqKiAoYW5vbiBucyBpbiBgaHR0cHNlcnZlci5jcHBgIG9yIGBzZXR0aW5ncy5jcHBgKQoKLSBgbm9ybWFsaXplVGllclRhZ2A6IGBpc2FsbnVtYCArIGBfYCAoa2VlcCB0aGUgYDFgIGluIGB0aWVyXzFfc2ltcGxlYCkKLSBgcmVzb2x2ZVJ1bGVgIOKGkiBgUnVsZSpgIG9yIG51bGwg4oaSIGNhbGxlciB1c2VzIGBmYWxsYmFja01vZGVsSWRgCgoqKjcuIFdpcmUgYC9hcGkvY2hhdGAqKiAob25seSBwbGFjZSkKCk9yZGVyOgoKMS4gUGFyc2UgcmVxdWVzdCBhcyB0b2RheS4KMi4gSWYgYHJlcXVlc3QudGFyZ2V0YXBpYCBpcyBhIHJlYWwgZW5hYmxlZCBpZCDihpIgdGhhdCBgQXBpQ29uZmlnYCAobm8gcm91dGVyKS4KMy4gRWxzZSBpZiBgZ2VuZXJhdGlvbi5jdXJyZW50X2FwaSA9PSBrQXV0b0FwaUlkYDoKICAgLSBTU0UgbWV0YTogY2xhc3NpZnlpbmcKICAgLSBjbGFzc2lmaWVyIGNhbGwgb24gdGhlIGxhc3QgdXNlciBtZXNzYWdlIChubyBSQUcpCiAgIC0gdGFnIOKGkiBydWxlIOKGkiBgZGlyZWN0TW9kZWxJZGAsIGVsc2UgYGZhbGxiYWNrTW9kZWxJZGAKICAgLSBgQXBpQ29uZmlnYCA9IHRoYXQgcHJvdmlkZXIKNC4gRWxzZSBleGlzdGluZyBgZ2V0VGFyZ2V0QXBpYC4KNS4gKipUaGVuKiogYHByb2Nlc3NJbnB1dFJlc3VsdHMoLi4uLCBhcGlDb25maWcuY29udGV4dExlbmd0aCwgLi4uKWAKNi4gRXhpc3RpbmcgYENvbXBsZXRpb25DbGllbnQ6OmdlbmVyYXRlQ29tcGxldGlvbmAuCgoqKjguIGBHRVQgL2FwaS9zZXR0aW5nc2AqKgoKSWYgYCJhdXRvImAgaXMgaW4gYGVuYWJsZWRfcHJvdmlkZXJzYCwgYXBwZW5kIGB7ICJpZCI6ICJhdXRvIiwgIm5hbWUiOiAiQXV0byIsICJjdXJyZW50IjogLi4uIH1gIOKAlCBubyBmYWtlIGB1cmxgL2Btb2RlbGAuIGBjdXJyZW50QXBpYCBtYXkgYmUgYCJhdXRvImAuCgoqKjkuIExlYXZlIGAvYXBpL2ZpbWAgYWxvbmUqKgoKYGdldFRhcmdldEFwaWAgbXVzdCBub3QgcmV0dXJuIGEgaG9sbG93IGAiYXV0byJgIGNvbmZpZy4gSWYgY3VycmVudCBpcyBgImF1dG8iYCBhbmQgbm8gYHRhcmdldGFwaWAsIHBpY2sgYGZhbGxiYWNrTW9kZWxJZGAgKG9yIHJlamVjdCkuIERvIG5vdCBjbGFzc2lmeSBGSU0uCgoqKjEwLiBEbyBub3QgZG8geWV0KioKCkVuc2VtYmxlIC8gc3ludGhlc2l6ZXIsIGNsYXNzaWZpZXItdGhyb3VnaC1SQUcsIGNhY2hpbmcgYEF1dG9Sb3V0ZXJDb25maWdgLCBhIHByb3ZpZGVyIHN0dWIgbmFtZWQgYCJhdXRvImAuCgpTb3VyY2VzOiAgCipzcmMvaHR0cHNlcnZlci5jcHAqICAKKnVpL1JFQURNRS5tZCogIAoqaW5jbHVkZS9odHRwc2VydmVyLmgqICAKKlJFQURNRS5tZCogIAoqdWkvY2xpZW50cy9zcGEtc3ZlbHRlL1JFQURNRS5tZCogIAoqdWkvY2xpZW50cy93ZWJ2aWV3L1JFQURNRS5tZCogIAoqdWkvZGFzaGJvYXJkL3NwYS1zdmVsdGUvUkVBRE1FLm1kKiAg",
-          ),
-        ),
-      },
-      {
-        role: "user",
-        content: "Can you tell me a joke?",
-        _html: "",
-      },
-      {
-        role: "assistant",
-        content: "Sure! Why don't scientists trust atoms? Because they make up everything!",
-        _html: await renderMarkdown("Sure! Why don't scientists trust atoms? Because they make up everything!"),
-      },
-      {
-        role: "user",
-        content: "Can you tell me a joke?",
-        _html: "",
-      },
-      {
-        role: "assistant",
-        content: 'int main() {\n    printf("Hello, World!");\n    return 0;\n}',
-        _html: await renderMarkdown('```\nint main() {\n    printf("Hello, World!");\n    return 0;\n}\n```'),
-      },
-    ];
-  }
-
-  // let sessionId = $state(newUUID());
-
   interface Attachment {
     filename: string;
     content: string;
@@ -108,6 +52,22 @@
   // let loading = $state(false);
   let messagesEndDiv: HTMLDivElement;
   let started = $state(false);
+  let activeAssistantIndex = $state(-1);
+  let liveReasoningOpen = $state(true);
+  let reasoningUserChanged = false;
+  let liveReasoningDiv = $state<HTMLDivElement>();
+  let followLiveReasoning = true;
+
+  function toggleLiveReasoning() {
+    reasoningUserChanged = true;
+    liveReasoningOpen = !liveReasoningOpen;
+    followLiveReasoning = true;
+  }
+
+  function trackReasoningScroll() {
+    if (liveReasoningDiv)
+      followLiveReasoning = liveReasoningDiv.scrollHeight - liveReasoningDiv.scrollTop - liveReasoningDiv.clientHeight < 24;
+  }
   // let messages = $state<ChatMessage[]>([]);
   let showScrollBtn = $state(false);
 
@@ -131,13 +91,31 @@
   }
 
   onMount(() => {
-    // insertTestMessages();
+    let mounted = true;
+    if (import.meta.env.DEV && new URLSearchParams(location.search).has("testMessages")) {
+      const initialMessages = $messages;
+      const initialChatId = $currentChatId;
+      const initialSession = $sessionId;
+      void (async () => {
+        try {
+          const { loadTestMessages } = await import("../test-messages");
+          const previews = await loadTestMessages();
+          if (mounted && !$bLoading && $messages === initialMessages &&
+              $currentChatId === initialChatId && $sessionId === initialSession)
+            $messages = previews;
+        } catch (error) {
+          clog("Unable to load Markdown test pages:", error);
+          if (mounted) toaster.error({ title: "Could not load test pages." });
+        }
+      })();
+    }
 
     const wrapper = document.querySelector(".chat-panel") as HTMLDivElement | null | undefined;
     if (wrapper) wrapper.addEventListener("scroll", checkMessagesEndVisibility);
     window.addEventListener("resize", checkMessagesEndVisibility);
     tick().then(checkMessagesEndVisibility);
     return () => {
+      mounted = false;
       if (wrapper) wrapper.removeEventListener("scroll", checkMessagesEndVisibility);
       window.removeEventListener("resize", checkMessagesEndVisibility);
     };
@@ -246,7 +224,7 @@
     return content;
   }
 
-  const metaTagBegin = "[meta]";
+  // const metaTagBegin = "[meta]";
   let receivedReplayId = "";
 
   function parseFromSSE(chunk: string): { parsed: string; remainder: string; reasoning?: string; meta?: string[] } {
@@ -291,20 +269,19 @@
               fullResponse += `\n\n<span class="text-surface-500 text-xs">Model: ${chunkJson.model}</span>  \n`;
             }
           }
+        } else if (chunkJson.type === "meta") {
+          if (typeof chunkJson.content === "string" && 0 < chunkJson.content?.length) {
+            meta.push(chunkJson.content);
+          }
         } else if (chunkJson.type === "reasoning_delta") {
-          if (typeof chunkJson.content === "string") {
+          if (typeof chunkJson.content === "string" && 0 < chunkJson.content?.length) {
             fullReasoning += chunkJson.content;
           }
         } else if (chunkJson.error) {
           fullResponse += `\n\nError: ${chunkJson.error}  \n`;
           return { parsed: fullResponse, remainder: buffer, reasoning: fullReasoning, meta };
         } else {
-          const content = chunkJson.content || "";
-          if (content.startsWith(metaTagBegin)) {
-            meta.push(content.substring(metaTagBegin.length));
-          } else {
-            fullResponse += content;
-          }
+          fullResponse += chunkJson.content || "";
         }
       }
     }
@@ -319,10 +296,18 @@
     request = reasoningRequest($settings.currentApi, $settings.completionApis),
   ) {
     if ($bLoading) return;
-    let pendingRenderCounter = 0;
+    let renderTimer: ReturnType<typeof setTimeout> | undefined;
+    let pendingRender = Promise.resolve();
+    let answerDirty = false;
+    let reasoningDirty = false;
+    liveReasoningOpen = true;
+    reasoningUserChanged = false;
+    followLiveReasoning = true;
+    activeAssistantIndex = -1;
     $bLoading = true;
     started = false;
     reasoningTextRaw = "";
+    metaInfoArray = [];
     if (appendQ) {
       if (!input.trim()) {
         toaster.error({
@@ -354,6 +339,37 @@
 
     console.log("ChatPanel.sendMessage");
     let assistantMessage: ChatMessage | undefined;
+    const renderPending = () => {
+      const message = assistantMessage;
+      if (!message) return pendingRender;
+      const answer = answerDirty ? message.content : undefined;
+      const reasoning = reasoningDirty ? reasoningTextRaw : undefined;
+      answerDirty = false;
+      reasoningDirty = false;
+      pendingRender = pendingRender.then(async () => {
+        if (answer !== undefined) message._html = normalizeHeaders(await renderMarkdown(answer));
+        if (reasoning !== undefined) message._reasoningText = normalizeHeaders(await renderMarkdown(reasoning));
+        $messages = $messages;
+        await tick();
+        if (liveReasoningDiv && followLiveReasoning) liveReasoningDiv.scrollTop = liveReasoningDiv.scrollHeight;
+        checkMessagesEndVisibility();
+      });
+      // Timer-triggered work is awaited again by the final flush/error path.
+      void pendingRender.catch(() => {});
+      return pendingRender;
+    };
+    const flushRender = () => {
+      clearTimeout(renderTimer);
+      renderTimer = undefined;
+      return renderPending();
+    };
+    const scheduleRender = () => {
+      if (renderTimer === undefined)
+        renderTimer = setTimeout(() => {
+          renderTimer = undefined;
+          void renderPending();
+        }, 75);
+    };
     try {
       const messagesToSend = $messages.map((m) => ({
         role: m.role,
@@ -409,24 +425,30 @@
 
           if (reasoning) {
             reasoningTextRaw += reasoning;
+            reasoningDirty = true;
           }
           if (meta.length) metaInfoArray = [...metaInfoArray, ...meta];
-          if (!assistantMessage && (chunk || reasoning)) {
+          const firstFrame = !assistantMessage && !!(chunk || reasoning);
+          if (firstFrame) {
             assistantMessage = { role: "assistant", content: "", _html: "" };
+            activeAssistantIndex = $messages.length;
             $messages = [...$messages, assistantMessage];
             started = true;
           }
           if (!assistantMessage) continue;
+          const hadAnswer = !!assistantMessage.content.trim();
           assistantMessage.content += chunk;
+          if (chunk) answerDirty = true;
+          const firstAnswer = !hadAnswer && !!assistantMessage.content.trim();
+          if (firstAnswer && !reasoningUserChanged) liveReasoningOpen = false;
           assistantMessage._metaInfoArray = [...metaInfoArray];
-          if ((chunk || reasoning) && pendingRenderCounter++ % 3 === 0) {
-            assistantMessage._html = normalizeHeaders(await renderMarkdown(assistantMessage.content));
-            assistantMessage._reasoningText = normalizeHeaders(await renderMarkdown(reasoningTextRaw));
-          }
+          if (firstFrame || firstAnswer) await flushRender();
+          else if (chunk || reasoning) scheduleRender();
           $messages = $messages;
           tick().then(checkMessagesEndVisibility);
         }
       }
+      await flushRender();
       if (assistantMessage) {
         assistantMessage.content = stripModelEchoedSources(processResponse(assistantMessage.content));
         assistantMessage._html = normalizeHeaders(await renderMarkdown(assistantMessage.content));
@@ -437,6 +459,8 @@
         $messages = $messages;
       }
     } catch (error) {
+      clearTimeout(renderTimer);
+      await pendingRender.catch(() => {});
       clog("Error sending message:", error);
       if (!assistantMessage) {
         assistantMessage = { role: "assistant", content: "", _html: "" };
@@ -449,6 +473,12 @@
       assistantMessage._reasoningText = normalizeHeaders(await renderMarkdown(reasoningTextRaw));
       $messages = $messages;
     } finally {
+      clearTimeout(renderTimer);
+      if (assistantMessage) {
+        assistantMessage._reasoningVisible = reasoningUserChanged && liveReasoningOpen;
+        if (assistantMessage._reasoningVisible) assistantMessage._metaVisible = true;
+        $messages = $messages;
+      }
       resetUi();
       setTimeout(() => {
         initHljs();
@@ -543,6 +573,7 @@
       <p class="text text-center text-surface-500">No messages yet. Start the conversation!</p>
     {/if}
     {#each $messages as msg, i}
+      {@const isActive = $bLoading && i === activeAssistantIndex}
       {#if msg.role === "user"}
         <div class="flex flex-col items-end overflow-y-hidden box-border message" data-role="user">
           <div
@@ -574,7 +605,7 @@
       {:else}
         <div class="flex flex-col overflow-y-hidden box-border pb-4 space-y-1 message" data-role="assistant">
           <div class="flex items-start justify-end">
-            {#if isGoodArray(msg._metaInfoArray) || msg._reasoningText}
+            {#if isActive || isGoodArray(msg._metaInfoArray) || msg._reasoningText}
               <div class="text-xs flex flex-col space-y-0 self-end text-right min-w-0 max-w-full">
                 <button
                   type="button"
@@ -582,7 +613,7 @@
                   onclick={() => ($messages[i]._metaVisible = !$messages[i]._metaVisible)}
                   aria-expanded={!!msg._metaVisible}
                 >
-                  <span class="text-xs">Ready</span>
+                  <span class="text-xs">{isActive ? "Working…" : "Ready"}</span>
                   {#if msg._metaVisible}
                     <icons.ChevronUp />
                   {:else}
@@ -596,7 +627,7 @@
                     {/each}
                   </div>
                   <div class="text-xs flex flex-col space-y-0 self-end text-right">
-                    {#if msg._reasoningText}
+                    {#if !isActive && msg._reasoningText}
                       <button
                         type="button"
                         class="btn btn-sm text-surface-500 border-surface-500 flex text-right justify-end"
@@ -628,62 +659,95 @@
               </div>
             {/if}
           </div>
-          <div
-            class="text-sm border2 border-surface-100-900 bg-surface-500/5 shadow2 rounded-xl whitespace-normal p-4 pb-1 break-normal text-left message-content"
-          >
-            {#if msg._html}
-              {@html DOMPurify.sanitize(msg._html, {
-                ADD_ATTR: ["onclick"],
-              })}
-            {:else}
-              {msg.content}
+          {#if isActive}
+            <span role="status" class="text-xs text-right text-surface-500">{metaInfo || "Working…"}</span>
+            {#if msg._reasoningText}
+              <div class="flex flex-col min-w-0 max-w-full">
+                <button
+                  type="button"
+                  class="btn btn-sm self-end text-surface-500"
+                  onclick={toggleLiveReasoning}
+                  aria-expanded={liveReasoningOpen}
+                >
+                  <span class="text-xs">{msg.content.trim() ? "Reasoning" : "Reasoning…"}</span>
+                  {#if liveReasoningOpen}<icons.ChevronUp />{:else}<icons.ChevronDown />{/if}
+                </button>
+                {#if liveReasoningOpen}
+                  <div
+                    bind:this={liveReasoningDiv}
+                    onscroll={trackReasoningScroll}
+                    class="max-h-36 overflow-y-auto text-left whitespace-normal wrap-break-word text-surface-500 text-xs"
+                    role="region"
+                    aria-label="Reasoning content"
+                  >
+                    {@html DOMPurify.sanitize(msg._reasoningText)}
+                  </div>
+                {/if}
+              </div>
             {/if}
-          </div>
-          <div class="flex items-center">
-            <button
-              type="button"
-              class="btn btn-sm px-2 preset-filled-surface-50-950 cursor-pointer"
-              onclick={() => onCopyMsg(msg.content)}
-              disabled={$bLoading}
-              title="Copy to clipboard"
+          {/if}
+          {#if msg.content.trim()}
+            <div
+              class="text-sm border2 border-surface-100-900 bg-surface-500/5 shadow2 rounded-xl whitespace-normal p-4 pb-1 break-normal text-left message-content"
             >
-              <icons.Copy />
-            </button>
-            <!-- Feedbacks are temporarily off-->
-            <!-- <button
-              type="button"
-              class="btn btn-sm px-1"
-              onclick={() => onThumbsFeedback(i, "good")}
-              disabled={$bLoading}
-              title="Good answer"
-            >
-              <icons.ThumbsUp />
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm px-1"
-              onclick={() => onThumbsFeedback(i, "bad")}
-              disabled={$bLoading}
-              title="Incorrect or unhelpful answer"
-            >
-              <icons.ThumbsDown />
-            </button> -->
-            <span class="vr mx-1 h-4"></span>
-            <button
-              type="button"
-              class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
-              onclick={() => onRetry(i)}
-              disabled={$bLoading}
-              title="Retry the answer"
-            >
-              <icons.RefreshCw />
-            </button>
-          </div>
+              {#if msg._html}
+                {@html DOMPurify.sanitize(msg._html, {
+                  ADD_ATTR: ["onclick"],
+                })}
+              {:else}
+                {msg.content}
+              {/if}
+            </div>
+          {/if}
+          {#if msg.content.trim() || !isActive}
+            <div class="flex items-center">
+              {#if msg.content.trim()}
+                <button
+                  type="button"
+                  class="btn btn-sm px-2 preset-filled-surface-50-950 cursor-pointer"
+                  onclick={() => onCopyMsg(msg.content)}
+                  disabled={$bLoading}
+                  title="Copy to clipboard"
+                >
+                  <icons.Copy />
+                </button>
+              {/if}
+              <!-- Feedbacks are temporarily off-->
+              <!-- <button
+                type="button"
+                class="btn btn-sm px-1"
+                onclick={() => onThumbsFeedback(i, "good")}
+                disabled={$bLoading}
+                title="Good answer"
+              >
+                <icons.ThumbsUp />
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm px-1"
+                onclick={() => onThumbsFeedback(i, "bad")}
+                disabled={$bLoading}
+                title="Incorrect or unhelpful answer"
+              >
+                <icons.ThumbsDown />
+              </button> -->
+              {#if msg.content.trim()}<span class="vr mx-1 h-4"></span>{/if}
+              <button
+                type="button"
+                class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
+                onclick={() => onRetry(i)}
+                disabled={$bLoading}
+                title="Retry the answer"
+              >
+                <icons.RefreshCw />
+              </button>
+            </div>
+          {/if}
         </div>
       {/if}
     {/each}
     {#if $bLoading && !started}
-      <div class="italic text-right text-surface-500 text-sm">
+      <div role="status" class="italic text-right text-surface-500 text-sm">
         {metaInfo || "Thinking..."}
       </div>
     {/if}

@@ -1,8 +1,110 @@
 #include "inference_messages.h"
 #include <algorithm>
 #include <set>
+#include <cmath>
+#include <limits>
 
 namespace inference_contant {
+
+  namespace {
+    std::optional<size_t> tokenNumber(const nlohmann::json &object, const char *key) {
+      const auto it = object.find(key);
+      if (it == object.end() || !it->is_number_integer() || *it < 0) return {};
+      return it->get<size_t>();
+    }
+  }
+
+  void CompletionInfo::observe(const ApiConfig &cfg, const nlohmann::json &response) {
+    const auto *root = &response;
+    if (cfg.apiStyle == ApiConfig::ApiStyle::Anthropic && stringField(response, "type") == "message_start") {
+      const auto message = response.find("message");
+      if (message == response.end()) return;
+      root = &*message;
+    }
+    const auto usage = root->find("usage");
+    if (usage != root->end() && usage->is_object()) {
+      if (cfg.apiStyle == ApiConfig::ApiStyle::Anthropic) {
+        if (auto n = tokenNumber(*usage, "input_tokens")) uncachedInput_ = n;
+        if (auto n = tokenNumber(*usage, "cache_read_input_tokens")) cacheRead_ = n;
+        if (auto n = tokenNumber(*usage, "cache_creation_input_tokens")) cacheWrite_ = n;
+        if (uncachedInput_) inputTokens = *uncachedInput_ + cacheRead_.value_or(0) + cacheWrite_.value_or(0);
+        if (auto n = tokenNumber(*usage, "output_tokens")) outputTokens = n;
+      } else {
+        if (auto n = tokenNumber(*usage, "prompt_tokens")) inputTokens = n;
+        if (auto n = tokenNumber(*usage, "completion_tokens")) outputTokens = n;
+        const auto details = usage->find("completion_tokens_details");
+        if (details != usage->end() && details->is_object())
+          if (auto n = tokenNumber(*details, "reasoning_tokens")) reasoningTokens = n;
+      }
+    }
+    std::string reason;
+    if (cfg.apiStyle == ApiConfig::ApiStyle::Anthropic) {
+      reason = stringField(response, "stop_reason");
+      const auto delta = response.find("delta");
+      if (delta != response.end()) reason = stringField(*delta, "stop_reason");
+    } else {
+      const auto choices = response.find("choices");
+      if (choices != response.end() && choices->is_array() && !choices->empty())
+        reason = stringField(choices->front(), "finish_reason");
+    }
+    if (!reason.empty()) stopReason = reason;
+    if (stopReason == "stop" || stopReason == "end_turn" || stopReason == "stop_sequence") status = CompletionStatus::Complete;
+    else if (stopReason == "tool_calls") status = CompletionStatus::ToolCalls;
+    else status = CompletionStatus::Incomplete;
+  }
+
+  std::string toolArguments(const nlohmann::json &message) {
+    std::string text;
+    const auto calls = message.find("tool_calls");
+    if (calls != message.end() && calls->is_array())
+      for (const auto &call : *calls) {
+        const auto function = call.find("function");
+        if (function != call.end()) text += stringField(*function, "arguments");
+      }
+    return text;
+  }
+
+  size_t estimateRequestTokens(const nlohmann::json &messages, const nlohmann::json &tools, const TokenCounter &count) {
+    size_t tokens = 3; // Approximate message framing; provider usage is authoritative after generation.
+    for (const auto &message : messages) {
+      std::string reasoning;
+      tokens += 4 + count(stringField(message, "role"));
+      tokens += count(extractMessageContent(message, reasoning)) + count(reasoning);
+      tokens += count(toolArguments(message));
+    }
+    if (!tools.empty()) tokens += count(tools.dump());
+    return tokens;
+  }
+
+  size_t positiveTokenLimit(const nlohmann::json &request, size_t fallback) {
+    const auto value = request.find("max_tokens");
+    if (value == request.end()) return fallback;
+    const auto number = tokenNumber(request, "max_tokens");
+    if (number && *number > 0) return *number;
+    // Preserve compatibility with clients serializing integral limits as 4096.0.
+    if (value->is_number_float()) {
+      const auto floating = value->get<double>();
+      if (std::isfinite(floating) && floating > 0 && std::trunc(floating) == floating &&
+          floating < static_cast<double>((std::numeric_limits<size_t>::max)()))
+        return static_cast<size_t>(floating);
+    }
+    throw std::invalid_argument("max_tokens must be a positive integer");
+  }
+
+  size_t inputTokenBudget(size_t contextLength, size_t outputTokens) {
+    if (!contextLength || outputTokens >= contextLength)
+      throw std::invalid_argument("max_tokens must be smaller than the model context length");
+    return contextLength - outputTokens;
+  }
+
+  size_t retrievalTokenBudget(size_t contextLength, size_t outputTokens, size_t schemaTokens, float ratio, size_t toolReserve) {
+    auto budget = inputTokenBudget(contextLength, outputTokens);
+    if (schemaTokens >= budget || toolReserve >= budget - schemaTokens)
+      throw std::invalid_argument("Tools and output reservation leave no room for conversation context");
+    budget -= schemaTokens + toolReserve;
+    if (!std::isfinite(ratio)) throw std::invalid_argument("ctxratio must be finite");
+    return (std::min)(budget, static_cast<size_t>(contextLength * std::clamp(ratio, 0.1f, 1.0f)));
+  }
 
   std::string stringField(const nlohmann::json &object, const char *name) {
     const auto field = object.find(name);
@@ -99,6 +201,22 @@ namespace inference_contant {
     return message ? extractMessageContent(*message, reasoning) : std::string{};
   }
 
+  nlohmann::json completedAssistantMessage(const ApiConfig &cfg, const nlohmann::json &response, bool allowToolCalls) {
+    if (cfg.apiStyle == ApiConfig::ApiStyle::Anthropic) {
+      const auto stop = stringField(response, "stop_reason");
+      if (stop == "end_turn" || stop == "stop_sequence")
+        return {{"role", "assistant"}, {"content", response.at("content")}};
+      return nullptr;
+    }
+    const auto message = firstChoiceContent(response, "message");
+    if (!message || stringField(*message, "role") != "assistant") return nullptr;
+    const auto stop = stringField(response.at("choices").front(), "finish_reason");
+    const auto calls = message->find("tool_calls");
+    if (calls != message->end() && !calls->empty())
+      return allowToolCalls && stop == "tool_calls" && calls->is_array() ? *message : nlohmann::json(nullptr);
+    return stop == "stop" ? *message : nlohmann::json(nullptr);
+  }
+
 } // namespace inference_contant
 
 namespace reasoning_history {
@@ -179,7 +297,8 @@ namespace reasoning_history {
     }
   }
 
-  AssistantMessageAccumulator::AssistantMessageAccumulator(ApiConfig::ApiStyle style) : style_(style) {}
+  AssistantMessageAccumulator::AssistantMessageAccumulator(ApiConfig::ApiStyle style, bool allowToolCalls)
+    : style_(style), allowToolCalls_(allowToolCalls) {}
 
   void AssistantMessageAccumulator::add(const json &event)
   {
@@ -194,8 +313,9 @@ namespace reasoning_history {
       if (choices != event.end() && choices->is_array() && !choices->empty()) {
         const auto reason = stringField(choices->front(), "finish_reason");
         if (!reason.empty()) {
+          stopReason_ = reason;
           complete_ = true;
-          if (reason != "stop") invalidate();
+          if (reason != "stop" && !(allowToolCalls_ && reason == "tool_calls")) invalidate();
         }
       }
       return;
@@ -253,6 +373,10 @@ namespace reasoning_history {
   {
     if (!complete_ || !valid_) return nullptr;
     auto result = message_;
+    if (result.contains("tool_calls") && !result["tool_calls"].empty()) {
+      if (!allowToolCalls_ || stopReason_ != "tool_calls" || !result["tool_calls"].is_array()) return nullptr;
+      for (auto &call : result["tool_calls"]) call.erase("index");
+    }
     if (style_ == ApiConfig::ApiStyle::Anthropic) {
       result["content"] = json::array();
       for (const auto &[index, block] : blocks_) result["content"].push_back(block);
@@ -312,7 +436,8 @@ namespace reasoning_history {
   bool ReasoningHistory::remember(const Ticket &ticket, const json &message)
   {
     if (ticket.revision == 0 || ticket.responseId.empty() || ticket.provider.historyReplay == 0 ||
-      !message.is_object() || stringField(message, "role") != "assistant") return false;
+      !message.is_object() || stringField(message, "role") != "assistant" ||
+      (message.contains("tool_calls") && !message["tool_calls"].empty())) return false;
     std::lock_guard<std::mutex> lock(mutex_);
     const auto found = sessions_.find(ticket.sessionId);
     if (found == sessions_.end() || found->second.revision != ticket.revision) return false;

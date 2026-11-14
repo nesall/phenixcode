@@ -13,9 +13,6 @@ const svgCheck = `
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check preview-icon">
       <path d="M20 6 9 17l-5-5"/>
     </svg>`;
-// const svgCopy = "Copy";
-// const svgCheck = "Done";
-
 
 // Custom renderer
 const renderer: RendererObject = {
@@ -105,6 +102,7 @@ const renderer: RendererObject = {
   },
 
   table(token: Tokens.Table): string {
+    const tableId = `markdown-table-${Math.random().toString(36).substring(2, 9)}`;
     const header = token.header.map((cell, i) => {
       const align = token.align[i];
       const alignClass = align ? ` text-${align}` : '';
@@ -126,8 +124,21 @@ const renderer: RendererObject = {
     }).join('\n');
 
     return `
-    <div class="my-4 overflow-x-auto rounded-lg border border-surface-200-800">
-      <table class="w-full text-left text-sm text-surface-700-300">
+    <div class="relative my-4 overflow-x-auto rounded-lg border border-surface-200-800">
+      <button
+        type="button"
+        class="copy-table cursor-pointer absolute top-2 right-2 z-10 bg-surface-200-800 hover:bg-surface-300-700 text-xs px-2 py-1 rounded shadow"
+        title="Copy table"
+        aria-label="Copy table"
+        data-copy-label="Copy table"
+        data-table-id="${tableId}">
+        <span class="copy-code-icons" aria-hidden="true">
+          <span class="copy-code-default">${svgCopy}</span>
+          <span class="copy-code-success">${svgCheck}</span>
+          <span class="copy-code-error">✗</span>
+        </span>
+      </button>
+      <table id="${tableId}" class="w-full text-left text-sm text-surface-700-300">
         <thead class="bg-surface-100-900">
           <tr>${header}</tr>
         </thead>
@@ -156,36 +167,54 @@ function showCopyFeedback(button: HTMLButtonElement, state: 'success' | 'error')
   clearTimeout(copyFeedbackTimers.get(button));
   button.dataset.copyState = state;
   const label = state === 'success' ? 'Copied' : 'Copy failed';
+  const copyLabel = button.dataset.copyLabel || 'Copy code';
   button.title = label;
   button.setAttribute('aria-label', label);
   copyFeedbackTimers.set(button, setTimeout(() => {
     delete button.dataset.copyState;
-    button.title = 'Copy code';
-    button.setAttribute('aria-label', 'Copy code');
+    button.title = copyLabel;
+    button.setAttribute('aria-label', copyLabel);
     copyFeedbackTimers.delete(button);
   }, 1500));
 }
 
 document.addEventListener('click', async (event) => {
   const target = event.target as HTMLElement;
-  const button = target.closest<HTMLButtonElement>('.copy-code');
+  const button = target.closest<HTMLButtonElement>('.copy-code, .copy-table');
   if (!button) {
     return;
   }
-  const codeId = button.dataset.codeId;
-  if (!codeId) {
-    return;
-  }
-  const code = document.getElementById(codeId);
-  if (!code) {
-    return;
-  }
+
   try {
+    const tableId = button.dataset.tableId;
+    if (tableId) {
+      const table = document.getElementById(tableId);
+      if (!table) {
+        return;
+      }
+      const tsv = Array.from(table.querySelectorAll('tr'))
+        .map(row => Array.from(row.querySelectorAll('th, td'))
+          .map(cell => (cell as HTMLElement).innerText.replace(/[\t\r\n]+/g, ' '))
+          .join('\t'))
+        .join('\n');
+      await navigator.clipboard.writeText(tsv);
+      showCopyFeedback(button, 'success');
+      return;
+    }
+
+    const codeId = button.dataset.codeId;
+    if (!codeId) {
+      return;
+    }
+    const code = document.getElementById(codeId);
+    if (!code) {
+      return;
+    }
     await navigator.clipboard.writeText(code.innerText);
     console.log("markdown.ts code copied OK");
     showCopyFeedback(button, 'success');
   } catch (error) {
-    console.error('Failed to copy code:', error);
+    console.error('Failed to copy markdown content:', error);
     showCopyFeedback(button, 'error');
   }
 });

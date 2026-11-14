@@ -102,6 +102,7 @@ add_executable(${PROJECT_NAME}
   include/model_router.h
   include/httpserver_internal.h
   include/inference_messages.h
+  include/chat_tools.h
   include/3rdparty/nlohmann/nlohmann_json.natvis
   src/main.cpp
   src/tokenizer.cpp
@@ -109,6 +110,7 @@ add_executable(${PROJECT_NAME}
   src/chunker.cpp
   src/inference.cpp
   src/inference_messages.cpp
+  src/chat_tools.cpp
   src/database.cpp
   src/sourceproc.cpp
   src/context_builder.cpp

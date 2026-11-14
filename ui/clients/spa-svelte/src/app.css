@@ -18,11 +18,6 @@
 
 @custom-variant dark (&:where([data-mode=dark], [data-mode=dark] *));
 
-
-.card {
-  padding: 2em;
-}
-
 #app {
   width: 100%;
   height: 100%;
@@ -86,7 +81,10 @@ html[data-mode="light"] .hljs-type {
 
 .copy-code:not([data-copy-state]) .copy-code-default,
 .copy-code[data-copy-state="success"] .copy-code-success,
-.copy-code[data-copy-state="error"] .copy-code-error {
+.copy-code[data-copy-state="error"] .copy-code-error,
+.copy-table:not([data-copy-state]) .copy-code-default,
+.copy-table[data-copy-state="success"] .copy-code-success,
+.copy-table[data-copy-state="error"] .copy-code-error {
   opacity: 1;
 }
 

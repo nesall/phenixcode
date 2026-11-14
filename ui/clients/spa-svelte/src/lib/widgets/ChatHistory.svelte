@@ -156,17 +156,17 @@
     <Dialog.Positioner class="fixed inset-0 z-50 flex justify-center items-center">
       <Dialog.Content class="card bg-surface-100-900 w-xl max-w-[95vw] p-4 space-y-3 shadow-xl">
         <Dialog.Title>
-          <div class="flex flex-row gap-3 items-center justify-between">
+          <div class="flex flex-row flex-wrap gap-3 items-center justify-between">
             <span class="text-lg font-bold whitespace-nowrap">Chat History</span>
             <input
               type="search"
               aria-label="Search chats"
               placeholder="Search chats…"
-              class="input text-xs min-w-0 max-w-48 order-3 basis-full sm:order-0 sm:basis-auto sm:flex-1"
+              class="input text-xs md:max-w-48 order-3 basis-full sm:order-0 sm:flex-1"
               bind:value={searchText}
               disabled={!!busy}
             />
-            <div class="flex gap-2 justify-end" role="group" aria-label="Chat history view">
+            <div class="flex items-center gap-2 justify-end" role="group" aria-label="Chat history view">
               <button
                 type="button"
                 class="btn {view === 'active' ? 'preset-filled' : 'preset-tonal'}"
