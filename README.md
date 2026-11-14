@@ -5,7 +5,7 @@
 A self-hosted, privacy-first RAG and AI assistance system tailored for codebases. Index your code locally, perform hybrid vector + lexical searches, and get context-aware answers using local models or remote LLM providers.
 
 **Built for developers who want:**
-- **Privacy** – Your code never leaves your infrastructure.
+- **Privacy** – Keep code within your infrastructure using local models or private endpoints. Remote embedding and generation providers receive the source content and context sent to them.
 - **Zero Subscriptions** – Run completely offline using local models.
 - **Hybrid Retrieval** – Combine dense semantic embeddings with exact keyword BM25 retrieval via SQLite FTS5.
 - **Zero-Latency Auto-Routing** – Automatically classify queries into model tiers using an embedded sub-millisecond C++ classifier without LLM classification overhead.
@@ -17,7 +17,7 @@ A self-hosted, privacy-first RAG and AI assistance system tailored for codebases
 
 ![PhenixCode Admin Dashboard](media/dashboard0.png)
 
-**Key Features:** Hybrid Search (HNSW + SQLite FTS5 BM25) • Local Sub-Millisecond Task Auto-Router • Persistent Chat History • Anthropic & OpenAI API Support • Retrieval Evaluation Suite (Recall@k, MRR, NDCG) • JWT Auth • HTTP API • Decoupled Provider & Project Settings
+**Key Features:** Hybrid Search (HNSW + SQLite FTS5 BM25) • Read-Only Agent Tools • Local Sub-Millisecond Task Auto-Router • Live Reasoning • Searchable Chat History & Trash • Database Browser • Anthropic & OpenAI API Support • Retrieval Evaluation Suite (Recall@k, MRR, NDCG) • JWT Auth • HTTP API • Decoupled Provider & Project Settings
 
 **[Download release](https://github.com/nesall/phenixcode/releases/latest)** | **[Quick start](#quick-start)**
 
@@ -37,7 +37,7 @@ A self-hosted, privacy-first RAG and AI assistance system tailored for codebases
 #### Core & Retrieval Engine
 * **Hybrid Search (Vector + BM25):** Combines HNSW dense vector similarity with SQLite FTS5 full-text indexing using Reciprocal Rank Fusion (RRF).
 * **Embedded Auto-Router:** Zero-latency query classifier (`assets/baseline_v2.bin`) that automatically routes queries to simple, medium, or complex model tiers without API roundtrips.
-* **Code-Aware Chunking & Tokenization:** Smart AST/line-level slicing preserving functions, classes, and language constructs with configurable token overlap.
+* **Code-Aware Chunking & Tokenization:** Token-budgeted, line-aware code chunking and text splitting with configurable overlap. Token counts depend on the configured tokenizer and can differ from the embedding model's counts.
 * **Incremental Synchronization:** File hash and modification tracking detects new, modified, or deleted files to update vector and FTS indexes incrementally.
 * **Retrieval Evaluation Suite (`eval`):** Built-in CLI commands to measure Recall@k, MRR, and NDCG against ground-truth code reference datasets.
 
@@ -46,11 +46,14 @@ A self-hosted, privacy-first RAG and AI assistance system tailored for codebases
 * **Broad Protocol Support:** Native support for both OpenAI-compatible and Anthropic-style chat completions.
 * **Local & Cloud Models:** First-class support for `llama-server`, Ollama, vLLM, OpenAI, Anthropic, Mistral, Grok, and custom endpoints.
 * **Fill-In-The-Middle (FIM):** Dedicated code completion API endpoint.
+* **Read-Only Agent Tools:** Supported models can request additional source searches and file excerpts after receiving the initial retrieved context. See [Agent Tools](#agent-tools) for setup and compatibility.
+* **Reasoning Controls & Replay:** Provider-defined reasoning parameters are selectable per request. Optional history replay retains assistant reasoning in backend memory for subsequent turns during the current backend session.
 
 #### User Interfaces & Services
-* **Chat SPA & Native WebView:** Desktop GUI with Markdown table rendering, syntax highlighting, code-block copying, reasoning token inspection, and session history management.
-* **Persistent Chat Sessions:** Local SQLite-backed conversation persistence.
-* **Admin Dashboard:** Central web interface to monitor multi-project indexing progress, vector/token counts, and provider configurations.
+* **Chat SPA & Native WebView:** Desktop GUI with Markdown tables, syntax highlighting, code-block copying, and expandable live reasoning when supplied by the model. Progress, token counts, and approximate costs remain available in the response metadata.
+* **Persistent Chat Sessions:** Local SQLite-backed history with live list filtering, inline previews, and recoverable deletion through Undo and Trash/Restore.
+* **Free Chat:** Converse without retrieved codebase context while still including user-attached files.
+* **Admin Dashboard:** Manage projects and providers, monitor indexing and usage, and browse indexed files under **Monitor → Database**. Inspect stored chunks, preview current file contents, or open a file's parent directory.
 * **Background Monitoring & Daemonizing:** Built-in `--watch` filesystem monitoring, systemd / LaunchAgent / NSSM service scripts.
 
 ---
@@ -66,7 +69,9 @@ PhenixCode separates global LLM connections from project indexing:
 - `providers.json`: Configures available embedding and generation models (local endpoints or cloud API keys).
 - `settings.json`: Configures project-specific source directories, chunking limits, and vector storage paths.
 
-By default, `providers.json` is configured to look for local `llama-server` instances.
+Open the admin dashboard and choose **Add new project**. Enter a project filename (or accept the generated name); the dashboard creates a blank configuration from built-in defaults and reconciles its model selections with your provider catalog. Set the source directories and database location before indexing.
+
+For manual setup, use the [configuration examples](#configuration-files) below. Select provider IDs that exist in your catalog and point their URLs at your running model servers. Project files can have any filename; pass `--config /path/to/project.json` to core commands when using a name other than `settings.json`.
 
 #### 3. Start Local LLMs (Optional)
 If running fully offline, start your embedding and generation models (e.g., using `llama-server`):
@@ -117,13 +122,13 @@ Stores API keys, base URLs, protocol styles, and model definitions:
 
 ```json
 {
+  "agent_enabled": false,
   "embedding_providers": [
     {
       "id": "local_embed",
       "model": "coderankembed",
-      "api_url": "[http://127.0.0.1:8584/v1/embeddings](http://127.0.0.1:8584/v1/embeddings)",
+      "api_url": "http://127.0.0.1:8584/v1/embeddings",
       "api_key": "",
-      "vector_dim": 768,
       "enabled": true
     }
   ],
@@ -131,15 +136,16 @@ Stores API keys, base URLs, protocol styles, and model definitions:
     {
       "id": "local_qwen",
       "model": "qwen2.5-coder-1.5b-instruct",
-      "api_url": "[http://127.0.0.1:8585/v1/chat/completions](http://127.0.0.1:8585/v1/chat/completions)",
+      "api_url": "http://127.0.0.1:8585/v1/chat/completions",
       "api_style": "openai",
+      "supports_tools": "off",
       "api_key": "",
       "enabled": true
     },
     {
       "id": "claude_sonnet",
       "model": "claude-3-7-sonnet-20250219",
-      "api_url": "[https://api.anthropic.com/v1/messages](https://api.anthropic.com/v1/messages)",
+      "api_url": "https://api.anthropic.com/v1/messages",
       "api_style": "anthropic",
       "api_key": "${ANTHROPIC_API_KEY}",
       "enabled": true
@@ -155,35 +161,70 @@ Specifies indexing paths, chunking parameters, and runtime settings:
 
 ```json
 {
-  "project_title": "My Application",
+  "tokenizer": {
+    "config_path": "./bge_tokenizer.json"
+  },
   "source": {
+    "project_title": "My Application",
     "paths": [
       {
         "type": "directory",
         "path": "./src",
-        "recursive": true
+        "recursive": true,
+        "extensions": [".cpp", ".h", ".hpp", ".c", ".py", ".ts", ".js"]
       }
-    ],
-    "include_extensions": [".cpp", ".h", ".hpp", ".c", ".py", ".ts", ".js"]
+    ]
   },
   "embedding": {
-    "current_api_id": "local_embed",
-    "batch_size": 32
+    "current_api": "local_embed",
+    "batch_size": 4
   },
   "generation": {
-    "is_auto": true,
-    "current_api_id": "local_qwen"
+    "current_api": "local_qwen",
+    "enabled_providers": ["local_qwen"],
+    "auto_router": { "enabled": false }
+  },
+  "database": {
+    "sqlite_path": "./db_metadata.db",
+    "index_path": "./db_embeddings.index",
+    "vector_dim": 768,
+    "max_elements": 100000,
+    "distance_metric": "cosine"
   },
   "chunking": {
-    "min_tokens": 100,
-    "max_tokens": 512,
-    "overlap": 0.15
+    "semantic": true,
+    "nof_min_tokens": 100,
+    "nof_max_tokens": 450,
+    "overlap_percentage": 0.15
   }
 }
 
 ```
 
 ---
+
+The example selects one generation provider directly. Configure auto-routing in the dashboard when using multiple model tiers. Set `database.vector_dim` to your embedding model's output dimension (768 in this example), and choose chunk limits appropriate for that model and tokenizer.
+
+### Agent Tools
+
+Agent tools let the model investigate beyond the initial retrieved context. They are read-only and scoped to the project's configured local source files, with bounded result sizes and tool rounds.
+
+| Tool | Purpose |
+| --- | --- |
+| `grep` | Search source text for a literal pattern and return matching snippets. |
+| `read_file` | Read selected line ranges from an allowed source file. |
+| `list_files` | Discover source paths, optionally filtered by path or extension. |
+| `search_context` | Retrieve relevant indexed excerpts using natural-language hybrid search, with text fallback when query embeddings are unavailable. |
+
+To enable tools, set the top-level `agent_enabled` to `true` in `providers.json`, and set `supports_tools` to `"on"` on a generation provider whose model and endpoint support OpenAI-style function calling. Restart the running backend after changing provider settings. Tool progress appears in the Chat UI's response metadata.
+
+Tool execution currently applies to `/api/chat` with OpenAI-compatible providers. `supports_tools: "auto"` does not perform detection yet; Anthropic tool execution is not supported. Tools are disabled for free-chat and attached-files-only requests. The interactive CLI `chat` command does not execute these tools.
+
+### Reasoning Settings
+
+Configure a provider's `reasoning.parameters` in the dashboard to expose its supported choices in the Chat UI's **Reasoning** picker. Parameters remain independent; PhenixCode does not infer that one option enables or disables another. Object-valued parameters use `value_field` to serialize the selected value into the provider's expected object.
+
+The dashboard's **History replay** selector controls `reasoning.history_replay`: `0` disables replay, `3` or `5` retains that many recent assistant turns for replay, and `-1` selects All (capped at 255 turns). Replay can be enabled without configurable reasoning parameters. Retained responses live in backend memory only; they do not survive backend restarts. This setting controls what is sent back to the model, independently of displaying reasoning in the UI.
 
 ### CLI Reference
 
@@ -308,6 +349,8 @@ All requests accept and return `application/json` unless otherwise specified.
 
 #### Example: Chat Completion Request
 
+Set `free_chat: true` to skip codebase retrieval while still processing `attachments`. Optional `reasoning` selections are an object mapping configured parameter names to selected strings, for example `"reasoning": {"reasoning_effort": "low"}` when that parameter exists on the selected provider.
+
 ```bash
 curl -X POST http://localhost:8590/api/chat \
   -H "Content-Type: application/json" \
@@ -405,7 +448,8 @@ curl -X POST http://localhost:8590/api/chat \
     "max_tokens": 800,
     "targetapi": "xai",
     "ctxratio": 0.5,
-    "attachedonly": false
+    "attachedonly": false,
+    "free_chat": false
   }'
   
 # Fill-in-the-middle endpoint. Suffix is optional.
@@ -428,4 +472,4 @@ curl -X POST http://localhost:8590/api/shutdown \
 # Authenticate  
 curl -X POST http://localhost:8590/api/authenticate \
   -H "Authorization: Basic $(echo -n "username:password" | base64)" 
-````
+```
