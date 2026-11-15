@@ -145,7 +145,7 @@ test("reasoning-only completion preserves the question and retry replaces the re
   const reply = assistants(page).first();
   await expect(reply.getByRole("button", { name: "Ready", exact: true })).toBeVisible();
   await showCompletedReasoning(reply);
-  await expect(reply.getByRole("region")).toHaveText("Reasoning without an answer.");
+  await expect(reply.getByRole("region", { name: "Reasoning content", exact: true })).toHaveText("Reasoning without an answer.");
   await expect(page.locator('[data-role="user"] .message-content')).toHaveText("Original question");
   await reply.getByTitle("Retry the answer", { exact: true }).click();
   const requests = await page.evaluate(() => (window as any).reasoningRequests);
@@ -157,29 +157,73 @@ test("reasoning-only completion preserves the question and retry replaces the re
   await expect(assistants(page)).toHaveCount(1);
   await expect(reply.locator(".message-content")).toContainText("Provider failed");
   await showCompletedReasoning(reply);
-  await expect(reply.getByRole("region")).toHaveText("Replacement reasoning.");
+  await expect(reply.getByRole("region", { name: "Reasoning content", exact: true })).toHaveText("Replacement reasoning.");
 });
 
-test("long reasoning scrolls within a narrow viewport and sanitized Markdown renders", async ({ page }) => {
+test("live and completed reasoning wrap long prose, code, and tables without horizontal scrolling", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await send(page, "Question");
   await emit(page, [{ type: "reasoning_delta", content:
-    '**Thought** <img src="x" onerror="window.reasoningInjected = true">\n\n' + "A long paragraph of reasoning.\n\n".repeat(80) },
-    { content: "Answer" }], true);
+    '**Thought** <img src="x" onerror="window.reasoningInjected = true">\n\n' + "A long paragraph of reasoning.\n\n".repeat(80) +
+    "https://example.test/" + "long_path_".repeat(100) + "\n\n```cpp\n" + 'const auto text = "' + "unbroken".repeat(100) + '";\n```\n\n' +
+    "| Key | Value |\n| --- | --- |\n| Path | " + "identifier".repeat(100) + " |" }]);
   const reply = assistants(page).first();
+  const verifyWrapping = async (region: Locator) => {
+    await expect(region.locator("strong")).toHaveText("Thought");
+    await expect(region.locator("table")).toBeVisible();
+    await expect(region.locator("[onerror]")).toHaveCount(0);
+    await expect(region).toHaveCSS("overflow-y", "auto");
+    const bounds = await region.evaluate(element => ({
+      height: element.clientHeight, scroll: element.scrollHeight, right: element.getBoundingClientRect().right,
+      maxHeight: Number.parseFloat(getComputedStyle(element).maxHeight),
+      overflowing: [element, ...element.querySelectorAll("*")].filter(node => node.scrollWidth > node.clientWidth + 1).map(node => node.tagName),
+    }));
+    expect(bounds.scroll).toBeGreaterThan(bounds.height);
+    expect(bounds.maxHeight).toBeGreaterThan(0);
+    expect(bounds.height).toBeLessThanOrEqual(bounds.maxHeight);
+    expect(bounds.right).toBeLessThanOrEqual(390);
+    expect(bounds.overflowing).toEqual([]);
+  };
+  await verifyWrapping(reply.getByRole("region", { name: "Reasoning content", exact: true }));
+  await emit(page, [{ content: "Answer" }], true);
   const region = await showCompletedReasoning(reply);
-  await expect(region.locator("strong")).toHaveText("Thought");
-  await expect(region.locator("[onerror]")).toHaveCount(0);
-  await expect(region).toHaveCSS("overflow-y", "auto");
-  const bounds = await region.evaluate(element => ({
-    height: element.clientHeight, scroll: element.scrollHeight, right: element.getBoundingClientRect().right,
-    maxHeight: Number.parseFloat(getComputedStyle(element).maxHeight),
-  }));
-  expect(bounds.scroll).toBeGreaterThan(bounds.height);
-  expect(bounds.maxHeight).toBeGreaterThan(0);
-  expect(bounds.height).toBeLessThanOrEqual(bounds.maxHeight);
-  expect(bounds.right).toBeLessThanOrEqual(390);
+  await verifyWrapping(region);
+  await page.screenshot({ path: testInfo.outputPath("wrapped-reasoning.png") });
   expect(await page.evaluate(() => (window as any).reasoningInjected)).toBeUndefined();
+});
+
+test("activity is height bounded and keeps the reader's position when new entries arrive", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 600 });
+  await send(page, "Inspect many files");
+  await emit(page, [{ type: "reasoning_delta", content: "Investigating." }, { type: "meta", content: "Starting" }]);
+  const reply = assistants(page).first();
+  await reply.getByRole("button", { name: "Working…", exact: true }).click();
+  const activity = reply.getByRole("region", { name: "Response activity", exact: true });
+  await expect.poll(() => activity.evaluate(node => node.scrollHeight <= node.clientHeight)).toBe(true);
+  const entry = (index: number) => ({ type: "meta", event_id: `entry:${index}`, status: "success", content: `Read src/component_${index}.cpp:100-200 — evidence gathered` });
+  await emit(page, Array.from({ length: 45 }, (_, index) => entry(index)));
+  await expect(activity.locator("[data-meta-id]")).toHaveCount(45);
+  await expect.poll(() => activity.evaluate(node => node.clientHeight)).toBe(240);
+  await activity.focus();
+  await page.keyboard.press("End");
+  await expect.poll(() => activity.evaluate(node => Math.abs(node.scrollTop + node.clientHeight - node.scrollHeight))).toBeLessThan(1);
+  const anchor = await activity.evaluate(node => {
+    node.scrollTop = node.scrollHeight / 2;
+    const top = node.getBoundingClientRect().top;
+    const row = [...node.querySelectorAll<HTMLElement>("[data-meta-id]")].find(row => row.getBoundingClientRect().top > top)!;
+    return { id: row.dataset.metaId!, offset: row.getBoundingClientRect().top - top };
+  });
+  await emit(page, [entry(45), entry(46)]);
+  await expect(activity.locator("[data-meta-id]")).toHaveCount(47);
+  await expect.poll(() => activity.locator(`[data-meta-id="${anchor.id}"]`).evaluate(node =>
+    node.getBoundingClientRect().top - node.parentElement!.getBoundingClientRect().top)).toBeCloseTo(anchor.offset, 0);
+  expect(await activity.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await emit(page, [{ content: "Answer" }], true);
+  await expect(reply.getByRole("button", { name: "Ready", exact: true })).toBeVisible();
+  await expect(reply.getByRole("button", { name: "Reasoning", exact: true })).toBeVisible();
+  expect(await activity.evaluate(node => node.contains(node.parentElement!.querySelector("button")))).toBe(false);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect.poll(() => activity.evaluate(node => node.clientHeight)).toBe(288);
 });
 
 

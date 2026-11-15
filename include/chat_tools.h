@@ -12,7 +12,7 @@ struct ApiConfig;
 class Settings;
 
 namespace chat_tools {
-  inline constexpr size_t kMaxAgentSteps = 10;
+  inline constexpr size_t kMaxAgentSteps = 15;
   inline constexpr size_t kMaxCallsPerStep = 8;
   inline constexpr size_t kMaxResultBytes = 8192;
   inline constexpr size_t kMaxPathFilterBytes = 1024;

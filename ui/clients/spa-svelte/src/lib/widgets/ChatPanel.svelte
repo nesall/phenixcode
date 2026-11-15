@@ -657,8 +657,9 @@
                   {/if}
                 </button>
                 {#if msg._metaVisible}
-                  <div class="flex flex-col" transition:slide>
-                    {#each [...(msg._metaInfoArray ?? [])].reverse() as value}
+                  <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to focus this region to scroll it.) -->
+                  <div class="meta-list flex flex-col min-w-0 max-w-full overflow-y-auto overscroll-y-contain" role="region" aria-label="Response activity" tabindex="0" transition:slide>
+                    {#each [...(msg._metaInfoArray ?? []).entries()].reverse() as [index, value] (index)}
                       {@const info = normalizeMeta(value)}
                       <span class="flex items-start justify-end gap-1 wrap-break-word" data-meta-status={info.status} data-meta-id={info.event_id} title={info.content + (info.call_id ? `\nCall ID: ${info.call_id}` : "")}>
                         <span class="min-w-0">{info.summary ?? info.content}</span>
@@ -674,7 +675,7 @@
                       </span>
                     {/each}
                   </div>
-                  <div class="text-xs flex flex-col space-y-0 self-end text-right">
+                  <div class="text-xs flex flex-col space-y-0 self-end text-right min-w-0 max-w-full">
                     {#if !isActive && msg._reasoningText}
                       <button
                         type="button"
@@ -691,7 +692,7 @@
                       </button>
                       {#if msg._reasoningVisible}
                         <div
-                          class="max-h-36 overflow-y-auto text-left whitespace-normal wrap-break-word text-surface-500"
+                          class="reasoning-content min-w-0 max-w-full max-h-36 overflow-y-auto overscroll-y-contain text-left whitespace-normal text-surface-500"
                           role="region"
                           aria-label="Reasoning content"
                           transition:slide
@@ -726,7 +727,7 @@
                   <div
                     bind:this={liveReasoningDiv}
                     onscroll={trackReasoningScroll}
-                    class="max-h-36 overflow-y-auto text-left whitespace-normal wrap-break-word text-surface-500 text-xs"
+                    class="reasoning-content min-w-0 max-w-full max-h-36 overflow-y-auto overscroll-y-contain text-left whitespace-normal text-surface-500 text-xs"
                     role="region"
                     aria-label="Reasoning content"
                   >
@@ -859,3 +860,31 @@
     {/if}
   </div>
 </div>
+
+<style>
+  .meta-list {
+    max-height: min(18rem, 40vh);
+    scrollbar-gutter: stable;
+    overflow-wrap: anywhere;
+  }
+
+  .reasoning-content {
+    overflow-wrap: anywhere;
+    overflow-x: hidden;
+  }
+
+  .reasoning-content :global(pre),
+  .reasoning-content :global(code) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .reasoning-content :global(.overflow-x-auto) {
+    overflow-x: hidden;
+  }
+
+  .reasoning-content :global(table) {
+    table-layout: fixed;
+    width: 100%;
+  }
+</style>

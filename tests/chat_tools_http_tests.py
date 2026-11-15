@@ -241,8 +241,9 @@ def main():
                     check(not requests["/" + mode][-1].get("tools"), "final synthesis offers no more tools")
                     check(sum(m["role"] == "system" for m in requests["/" + mode][-1]["messages"]) == 1,
                           "finalization extends the existing system message")
-                check(len(requests["/steps"]) == 10, "last allowed round is reserved for final answer")
-                check(1 < len(requests["/budget"]) < 10, "small context fits all tool schemas but finalizes before the step limit")
+                check(len(requests["/steps"]) == 15, "fifteenth round is reserved for final answer after fourteen tool rounds")
+                check(all(request.get("tools") for request in requests["/steps"][:-1]), "tools remain available through round fourteen")
+                check(1 < len(requests["/budget"]) < 15, "small context fits all tool schemas but finalizes before the step limit")
                 events = chat("listing")
                 check(len(requests["/listing"]) == 3, "list_files/read_file require three model rounds")
                 listed = json.loads(requests["/listing"][1]["messages"][-1]["content"])
