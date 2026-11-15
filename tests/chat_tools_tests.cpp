@@ -69,6 +69,97 @@ int main() {
     providers.updateFromConfig({{"embedding_providers", json::array({{{"id", "e"}}})},
       {"generation_providers", json::array({{{"id", "g"}}})}});
     auto settings = Settings::createBlank(providers);
+
+    // Configuration summaries expose loaded state through explicit field allowlists.
+    auto projectJson = settings.configJson();
+    projectJson["source"]["project_title"] = "Fixture project";
+    projectJson["source"]["paths"] = json::array({{{"type", "directory"}, {"path", "src"},
+      {"extensions", json::array({".cpp"})}}, {{"type", "url"}, {"url", "https://user:URL_SECRET@example.test?token=QUERY_SECRET"},
+      {"headers", {{"Authorization", "HEADER_SECRET"}}}}});
+    projectJson["generation"]["system_prompt"] = "PROMPT_SECRET";
+    auto catalog = providers.configJson();
+    catalog["agent_enabled"] = true;
+    catalog["generation_providers"][0]["api_key"] = "KEY_SECRET";
+    catalog["generation_providers"][0]["api_url"] = "https://user:ENDPOINT_SECRET@example.test";
+    catalog["generation_providers"][0]["custom_secret"] = "UNKNOWN_SECRET";
+    projectJson["database"]["sqlite_path"] = "D:/private/database/metadata.db";
+    projectJson["database"]["index_path"] = "D:/private/database/embeddings.index";
+    Settings summarySettings(projectJson, catalog);
+    auto selected = summarySettings.generationCurrentApi();
+    selected.id = "request_override";
+    selected.historyReplay = 3;
+    selected.reasoning.push_back({"thinking", "object", "type", {"enabled", "disabled"}, {{"private", "CONSTANT_SECRET"}}, "enabled"});
+    const std::vector<std::string> summaryFiles = {"src/a.CPP", "src/b.cpp", "Makefile"};
+    std::vector<std::string> summaryUsed;
+    const chat_tools::ToolContext summaryContext{summaryFiles, summaryUsed};
+    auto infoResult = chat_tools::executeProjectInfo(call("info", json::object(), "project_info"), summarySettings, summaryContext, 42, {"project_info", "project_settings"});
+    check(infoResult["project"]["title"] == "Fixture project" && infoResult["local_source_count"] == 3 &&
+      infoResult["index"]["chunk_count"] == 42 && infoResult["index"]["freshness"] == "unknown", "project info reports live counts without asserting index freshness");
+    check(infoResult["source_extensions"] == json::array({".cpp"}) && infoResult["extensionless_file_count"] == 1 && summaryUsed.empty(), "project info reports extensions without citing unread files");
+    check(infoResult["capabilities"]["available_tools"] == json::array({"project_info", "project_settings"}), "project info reports only the supplied request tool names");
+    auto emptyTools = chat_tools::executeProjectInfo(call("info", json::object(), "project_info"), summarySettings, summaryContext, 0, {});
+    check(emptyTools["capabilities"]["available_tools"].empty(), "empty request tool list is not replaced with hardcoded tools");
+    auto settingsCall = call("settings", json::object(), "project_settings");
+    auto settingsResult = chat_tools::executeProjectSettings(settingsCall, summarySettings, selected);
+    check(settingsResult["models"]["selected_generation"]["id"] == "request_override" &&
+      settingsResult["models"]["configured_generation_id"] == "g", "settings distinguish selected request model from configured default");
+    check(settingsResult["reasoning"]["history_replay"] == 3 && settingsResult["reasoning"]["parameters"][0]["value_field"] == "type",
+      "settings expose reasoning serialization and replay settings");
+    check(settingsResult["retrieval"]["chunking"]["max_tokens"] == summarySettings.chunkingMaxTokens(), "retrieval summary uses loaded effective settings");
+    check(settingsResult["retrieval"]["database"]["sqlite_filename"] == "metadata.db" &&
+      settingsResult["retrieval"]["database"]["index_filename"] == "embeddings.index" &&
+      settingsResult.dump().find("D:/private/database") == std::string::npos, "database locations expose filenames only");
+    check(settingsResult["reasoning"]["parameter_values"] == "configured_defaults_not_request_selections", "reasoning defaults cannot be mistaken for current request selections");
+    check(settingsResult["truncated_fields"].empty(), "complete result has no truncated fields");
+    check(settingsResult["models"]["embedding"]["id"] == "e" && settingsResult["models"]["embedding"]["model"] == "",
+      "configured provider with an empty model string is still represented");
+    auto partialSettings = summarySettings;
+    partialSettings.updateFromConfig({{"embedding", {{"current_api", ""}}}});
+    const auto partialSummary = chat_tools::executeProjectSettings(call("models", {{"section", "models"}}, "project_settings"), partialSettings, selected);
+    check(partialSummary["models"].contains("embedding") && partialSummary["models"]["embedding"].is_null(),
+      "absent embedding selection is represented as null instead of a blank provider");
+    for (const auto *secret : {"URL_SECRET", "QUERY_SECRET", "HEADER_SECRET", "KEY_SECRET", "ENDPOINT_SECRET", "UNKNOWN_SECRET", "PROMPT_SECRET", "CONSTANT_SECRET"})
+      check((infoResult.dump() + settingsResult.dump()).find(secret) == std::string::npos, "configuration tools omit secrets, URLs, prompts and unknown fields");
+    for (const auto *section : {"project", "models", "retrieval", "reasoning"}) {
+      auto result = chat_tools::executeProjectSettings(call("section", {{"section", section}}, "project_settings"), summarySettings, selected);
+      check(result.contains(section) && result.size() == 5, "section selection returns only requested data and metadata");
+    }
+    for (const auto &args : {json{{"section", "unknown"}}, json{{"section", nullptr}}, json{{"path", "secret.json"}}, json::array()})
+      check(chat_tools::executeProjectSettings(call("bad", args, "project_settings"), summarySettings, selected).contains("error"), "invalid settings arguments cannot read arbitrary files");
+    check(chat_tools::executeProjectSettings(call(), summarySettings, selected).contains("error"), "settings rejects wrong tool identity");
+    check(chat_tools::executeProjectInfo(call("bad", {{"extra", true}}, "project_info"), summarySettings, summaryContext, 0, {}).contains("error"), "project info rejects unknown arguments");
+    check(chat_tools::executeProjectSettings(call("bad", {{"section", 1}}, "project_settings"), summarySettings, selected)["error"] == "section must be a string", "wrong section type has an actionable error");
+    check(chat_tools::executeProjectSettings(call("bad", {{"unexpected", true}}, "project_settings"), summarySettings, selected)["error"] == "Unknown argument: unexpected", "unknown argument error names the key");
+    auto malformedSettings = settingsCall;
+    malformedSettings["function"]["arguments"] = "{ invalid secret_input";
+    check(chat_tools::executeProjectSettings(malformedSettings, summarySettings, selected)["error"] == "Malformed JSON in tool arguments", "malformed JSON gets a safe specific error");
+    auto brokenProject = projectJson;
+    brokenProject["source"]["paths"][0]["recursive"] = "INTERNAL_SECRET";
+    Settings brokenSettings(brokenProject, catalog);
+    auto brokenResult = chat_tools::executeProjectSettings(settingsCall, brokenSettings, selected);
+    check(brokenResult["error"] == "Unable to summarize loaded settings; see backend logs" &&
+      brokenResult.dump().find("INTERNAL_SECRET") == std::string::npos, "internal configuration exceptions are distinguished without exposing their contents");
+    auto oversizedCall = settingsCall;
+    oversizedCall["function"]["arguments"] = std::string(4097, ' ');
+    check(chat_tools::executeProjectSettings(oversizedCall, summarySettings, selected).contains("error"), "settings rejects oversized arguments");
+    projectJson["source"]["paths"] = json::array();
+    for (int i = 0; i < 100; ++i) projectJson["source"]["paths"].push_back({{"type", "file"}, {"path", std::string(300, '\n') + std::to_string(i)}});
+    Settings largeSettings(projectJson, catalog);
+    auto largeSummary = chat_tools::executeProjectSettings(settingsCall, largeSettings, selected);
+    check(std::find(largeSummary["truncated_fields"].begin(), largeSummary["truncated_fields"].end(), "project.sources") != largeSummary["truncated_fields"].end(),
+      "array truncation identifies the shortened field");
+    check(largeSummary["truncated"] == true && largeSummary.dump().size() <= chat_tools::kMaxResultBytes,
+      "configuration summaries respect serialized byte budget including escaping");
+    projectJson["source"]["paths"] = json::array();
+    projectJson["source"]["project_title"] = std::string(10000, 'x') + "\xce\xb1";
+    Settings longTitleSettings(projectJson, catalog);
+    auto shortSummary = chat_tools::executeProjectSettings(call("section", {{"section", "project"}}, "project_settings"), longTitleSettings, selected);
+    check(shortSummary["truncated_fields"] == json::array({"project.title"}), "scalar truncation identifies the shortened field");
+    check(shortSummary["truncated"] == true && shortSummary.dump().size() <= chat_tools::kMaxResultBytes,
+      "oversized scalar fields terminate truncation and preserve valid JSON");
+    check(chat_tools::projectInfoDefinition()["function"]["name"] == "project_info" &&
+      chat_tools::projectSettingsDefinition()["function"]["parameters"]["additionalProperties"] == false, "project tool schemas advertise strict arguments");
+
     SourceProcessor processor(settings);
     std::vector<std::string> usedSources;
     int searches = 0;
@@ -248,9 +339,60 @@ int main() {
     check(listed["count"] == 2, "path and extension filters combine and extension matching ignores case");
     check(list({{"path_filter", "include"}, {"extension", ".cpp"}})["files"].empty(), "unmatched filters return a valid empty result");
     check(listingUsed.empty(), "listing names does not mark sources as read");
+    const auto longestExtension = std::string(15, 'a');
+    const std::vector<std::string> extensionFiles{"src/file." + longestExtension};
+    const chat_tools::ToolContext extensionContext{extensionFiles, listingUsed};
+    for (const auto &extension : {longestExtension, "." + longestExtension}) {
+      const auto result = chat_tools::executeListFiles(call("extension", {{"extension", extension}}, "list_files"), extensionContext);
+      check(result["files"] == extensionFiles, "dotted and undotted extensions accept exactly 16 normalized bytes");
+    }
+    for (const auto &extension : {std::string(16, 'a'), "." + std::string(16, 'a')})
+      check(list({{"extension", extension}}).contains("error"), "dotted and undotted extensions reject 17 normalized bytes");
     for (const auto &args : json::array({json::array(), nullptr, {{"unexpected", true}}, {{"path_filter", 42}},
-        {{"path_filter", "../src"}}, {{"path_filter", std::string(257,'x')}}, {{"extension", 42}}, {{"extension", "../cpp"}}}))
+        {{"path_filter", "../src"}}, {{"path_filter", std::string(chat_tools::kMaxPathFilterBytes + 1,'x')}}, {{"extension", 42}}, {{"extension", "../cpp"}}}))
       check(list(args).contains("error"), "invalid list_files arguments return structured errors");
+    const auto longKeyError = list({{std::string(127, 'x') + "\xce\xb1" + std::string(2800, 'y'), true}})["error"].get<std::string>();
+    check(longKeyError.size() <= std::string("unknown argument: ").size() + 128 &&
+      utf8::is_valid(longKeyError.begin(), longKeyError.end()), "unknown list_files argument names are bounded without splitting UTF-8");
+
+    // The same filter must select the same source scope for both discovery tools.
+    std::vector<std::string> filterFiles;
+    std::vector<std::string> filterUsed;
+    const chat_tools::ToolContext filterContext{filterFiles, filterUsed};
+    size_t filterSearches = 0;
+    const auto filteredGrep = [&](const std::string &filter) {
+      return chat_tools::executeGrep(call("filter", {{"pattern", "needle"}, {"path_filter", filter}}), filterContext,
+        [&](const auto &, const auto &paths) {
+          ++filterSearches;
+          check(paths == filterFiles, "grep receives the same filtered scope as list_files");
+          return std::vector<SearchResult>{};
+        });
+    };
+    const auto filteredList = [&](const std::string &filter) {
+      return chat_tools::executeListFiles(call("filter", {{"path_filter", filter}}, "list_files"), filterContext);
+    };
+    for (const size_t length : {size_t(256), size_t(257), chat_tools::kMaxPathFilterBytes}) {
+      const auto filter = std::string("src/") + std::string(length - 5, 'a') + "/";
+      filterFiles = {filter + "file.cpp"};
+      check(filteredList(filter)["count"] == 1 && !filteredGrep(filter).contains("error"),
+        "both tools accept filters up to the shared byte limit");
+    }
+    filterFiles = {"src/name..part/file.cpp"};
+    for (const auto &filter : {std::string(""), std::string("."), std::string("./src/name..part/"), std::string("src\\name..part\\"), std::string("src/./name..part/")})
+      check(filteredList(filter)["count"] == 1 && !filteredGrep(filter).contains("error"),
+        "both tools normalize paths and allow embedded dots without treating them as traversal");
+    filterFiles = {"./src/x.cpp", "src/./x.cpp", "src/sub/../x.cpp"};
+    check(filteredList("src/x.cpp")["files"] == filterFiles && !filteredGrep("src/x.cpp").contains("error"),
+      "normalized source paths match in both tools while preserving original source spelling");
+    const auto beforeInvalidFilters = filterSearches;
+    for (const auto &filter : {std::string(chat_tools::kMaxPathFilterBytes + 1, 'x'), std::string("../src"),
+        std::string("src/../name"), std::string("src\\..\\name"), std::string("src\nname"), std::string("src\rname"), std::string("src\0name", 8)}) {
+      const auto listError = filteredList(filter);
+      const auto grepError = filteredGrep(filter);
+      check(listError.contains("error") && grepError.contains("error") && listError["error"] == grepError["error"],
+        "both tools report identical errors for oversized, traversal and invalid-character filters");
+    }
+    check(filterSearches == beforeInvalidFilters, "invalid filters never invoke grep search");
     auto badList = call("list_1", json::object(), "list_files");
     for (const auto &raw : {std::string("{broken"), std::string(4097,'x')}) {
       badList["function"]["arguments"] = raw;

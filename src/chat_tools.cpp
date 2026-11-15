@@ -24,6 +24,21 @@ namespace chat_tools {
       std::replace(text.begin(), text.end(), '\r', ' ');
       return text;
     }
+
+    std::string pathFilter(const json &args) {
+      if (!args.contains("path_filter")) return {};
+      if (!args["path_filter"].is_string()) throw std::invalid_argument("path_filter must be a string");
+      auto filter = args["path_filter"].get<std::string>();
+      if (filter.size() > kMaxPathFilterBytes)
+        throw std::invalid_argument("path_filter must be at most " + std::to_string(kMaxPathFilterBytes) + " bytes");
+      if (filter.find('\0') != std::string::npos || filter.find_first_of("\r\n") != std::string::npos)
+        throw std::invalid_argument("path_filter contains invalid characters");
+      std::replace(filter.begin(), filter.end(), '\\', '/');
+      for (const auto &part : std::filesystem::path(filter))
+        if (part == "..") throw std::invalid_argument("path_filter must not contain parent traversal");
+      filter = std::filesystem::path(filter).lexically_normal().generic_string();
+      return filter == "." ? std::string{} : filter;
+    }
   }
 
   bool enabled(bool agentEnabled, const ApiConfig &api, bool freeChat, bool attachedOnly)
@@ -38,7 +53,7 @@ namespace chat_tools {
       {"description", "Search configured project source files for literal text (case insensitive). Returns snippets with line numbers."},
       {"parameters", {{"type", "object"}, {"properties", {
         {"pattern", {{"type", "string"}, {"description", "Literal text, 2 to 64 bytes; not a regular expression"}}},
-        {"path_filter", {{"type", "string"}, {"description", "Optional path prefix, e.g. src/; only configured project files are searched"}}}
+        {"path_filter", {{"type", "string"}, {"description", "Optional path prefix, up to " + std::to_string(kMaxPathFilterBytes) + " UTF-8 bytes, e.g. src/; empty means no filter. Only configured project files are searched"}}}
       }}, {"required", json::array({"pattern"})}, {"additionalProperties", false}}}
     }}};
   }
@@ -70,11 +85,11 @@ namespace chat_tools {
           { "properties",{
             { "path_filter",{
               { "type", "string" },
-              { "description", "Optional path prefix to narrow scope, e.g. 'src'. Must be inside project sources." }
+              { "description", "Optional path prefix, up to " + std::to_string(kMaxPathFilterBytes) + " UTF-8 bytes, e.g. 'src'; empty means no filter. Must be inside project sources." }
             } },
             { "extension",{
               { "type", "string" },
-              { "description", "Optional file extension filter including dot, e.g. '.cpp'." }
+              { "description", "Optional file extension filter, e.g. '.cpp'; up to 16 bytes including the dot." }
             } }
           } },
           { "required", json::array() },
@@ -95,6 +110,189 @@ namespace chat_tools {
         {"query", {{"type", "string"}, {"description", "Focused search question, 1 to 512 UTF-8 bytes"}, {"minLength", 1}, {"maxLength", 512}}}
       }}, {"required", json::array({"query"})}, {"additionalProperties", false}}}
     }}};
+  }
+  namespace {
+    const json &projectSections() {
+      static const json sections = json::array({"project", "models", "retrieval", "reasoning", "all"});
+      return sections;
+    }
+
+    json projectArguments(const json &call, const char *name, bool sections) {
+      if (!call.contains("function") || !call["function"].is_object())
+        throw std::invalid_argument("Tool call requires a function object");
+      const auto &function = call["function"];
+      if (!function.contains("name") || function["name"] != name) throw std::invalid_argument("Unknown tool");
+      if (!function.contains("arguments") || !function["arguments"].is_string())
+        throw std::invalid_argument("Tool arguments must be a JSON string");
+      const auto &raw = function["arguments"].get_ref<const std::string &>();
+      if (raw.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
+      const auto args = json::parse(raw, nullptr, false);
+      if (args.is_discarded()) throw std::invalid_argument("Malformed JSON in tool arguments");
+      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
+      for (const auto &[key, value] : args.items())
+        if (!sections || key != "section") throw std::invalid_argument("Unknown argument: " + preview(key, 128));
+      if (sections && args.contains("section")) {
+        if (!args["section"].is_string()) throw std::invalid_argument("section must be a string");
+        if (std::find(projectSections().begin(), projectSections().end(), args["section"]) == projectSections().end())
+          throw std::invalid_argument("Unknown section; use project, models, retrieval, reasoning or all");
+      }
+      return args;
+    }
+
+    // Bound serialized output, including escaping, without returning partial JSON.
+    json boundedProjectResult(json result) {
+      result["truncated"] = false;
+      result["truncated_fields"] = json::array();
+      while (result.dump().size() > kMaxResultBytes) {
+        json *largest = nullptr;
+        size_t largestSize = 0;
+        std::string largestPath;
+        const auto visit = [&](const auto &self, json &value, const std::string &path) -> void {
+          if (value.is_array() && !value.empty()) {
+            const auto size = value.dump().size();
+            if (size > largestSize) { largest = &value; largestSize = size; largestPath = path; }
+          } else if (value.is_string() && value.get_ref<const std::string &>().size() > 128) {
+            const auto size = value.dump().size();
+            if (size > largestSize) { largest = &value; largestSize = size; largestPath = path; }
+          } else if (value.is_object()) {
+            for (auto &[key, child] : value.items()) self(self, child, preview(path.empty() ? key : path + "." + key, 128));
+          }
+        };
+        for (auto &[key, value] : result.items())
+          if (key != "truncated" && key != "truncated_fields") visit(visit, value, key);
+        if (!largest) return {{"error", "Project summary exceeds the result limit"}};
+        if (largest->is_array()) largest->erase(largest->end() - 1);
+        else *largest = preview(utils::sanitizeUtf8(largest->get<std::string>()), 128);
+        result["truncated"] = true;
+        auto &fields = result["truncated_fields"];
+        if (std::find(fields.begin(), fields.end(), largestPath) == fields.end()) {
+          if (fields.size() < 15) fields.push_back(largestPath);
+          else if (fields.size() == 15) fields.push_back("*"); // Additional shortened fields.
+        }
+      }
+      return result;
+    }
+
+    json projectSummary(const Settings &settings) {
+      json paths = json::array();
+      for (const auto &source : settings.sources()) {
+        // URLs and headers may contain credentials. Do not expose either.
+        json item = {{"type", source.type}};
+        if (source.type == "directory" || source.type == "file") item["path"] = source.path;
+        if (source.type == "directory") {
+          item["recursive"] = source.recursive;
+          item["extensions"] = source.extensions;
+          item["exclude"] = source.exclude;
+        }
+        paths.push_back(std::move(item));
+      }
+      return {{"id", settings.getProjectId()}, {"title", settings.getProjectTitle()}, {"sources", paths},
+        {"encoding", settings.filesEncoding()}, {"max_file_size_mb", settings.filesMaxFileSizeMb()}};
+    }
+
+    json providerSummary(const ApiConfig &api) {
+      // Explicit allowlist: never serialize ApiConfig or catalog objects wholesale.
+      return {{"id", api.id}, {"model", api.model},
+        {"api_style", api.apiStyle == ApiConfig::ApiStyle::OpenAI ? "openai" : "anthropic"},
+        {"context_length", api.contextLength}, {"max_tokens", api.maxTokens}, {"supports_tools", api.supportsTools},
+        {"stream", api.stream}};
+    }
+  }
+
+  json projectInfoDefinition() {
+    return {{"type", "function"}, {"function", {
+      {"name", "project_info"},
+      {"description", "Summarize the active project's identity, configured source roots, current local source count, language extensions, indexed chunk count and tool capabilities. Extensions are lowercase with leading dots; extensionless files are counted separately. Index freshness is unknown. Arrays or strings may be shortened; truncated_fields identifies affected fields (* means additional fields)."},
+      {"parameters", {{"type", "object"}, {"properties", json::object()}, {"additionalProperties", false}}}
+    }}};
+  }
+
+  json projectSettingsDefinition() {
+    return {{"type", "function"}, {"function", {
+      {"name", "project_settings"},
+      {"description", "Inspect a filtered view of loaded project/provider settings, not files on disk. Credentials, URLs and prompts are omitted. Includes the actual generation provider selected for this request. Database locations are filenames only. Reasoning choices are configured defaults, not request selections. Arrays or strings may be shortened; truncated_fields identifies affected fields (* means additional fields)."},
+      {"parameters", {{"type", "object"}, {"properties", {
+        {"section", {{"type", "string"}, {"enum", projectSections()}, {"description", "Section to inspect; defaults to all"}}}
+      }}, {"additionalProperties", false}}}
+    }}};
+  }
+
+  json executeProjectInfo(const json &call, const Settings &settings, const ToolContext &ctx, size_t indexedChunks, const std::vector<std::string> &availableTools) {
+    try { projectArguments(call, "project_info", false); }
+    catch (const std::invalid_argument &e) { return {{"error", preview(e.what(), 512)}}; }
+    try {
+      std::set<std::string> extensions;
+      size_t extensionless = 0;
+      for (const auto &file : ctx.allowedFiles) {
+        auto extension = std::filesystem::path(file).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (extension.empty()) ++extensionless;
+        else extensions.insert(std::move(extension));
+      }
+      return boundedProjectResult({{"configuration", "loaded"}, {"project", projectSummary(settings)},
+        {"local_source_count", ctx.allowedFiles.size()}, {"source_extensions", extensions}, {"extensionless_file_count", extensionless},
+        {"index", {{"chunk_count", indexedChunks}, {"freshness", "unknown"}}},
+        {"capabilities", {{"agent_enabled", settings.providers().agentEnabled()},
+          {"available_tools", availableTools}}}});
+    } catch (const std::exception &e) {
+      // Validation errors above are actionable; internal failures may contain
+      // sensitive configuration values, so keep their details in backend logs.
+      LOG_MSG_WARN << "project_info summary failed: " << e.what();
+      return {{"error", "Unable to summarize loaded project; see backend logs"}};
+    }
+  }
+
+  json executeProjectSettings(const json &call, const Settings &settings, const ApiConfig &selectedApi) {
+    json args;
+    try { args = projectArguments(call, "project_settings", true); }
+    catch (const std::invalid_argument &e) { return {{"error", preview(e.what(), 512)}}; }
+    try {
+      const auto section = args.value("section", std::string("all"));
+      json result = {{"configuration", "loaded"}, {"section", section}};
+      if (section == "all" || section == "project") result["project"] = projectSummary(settings);
+      if (section == "all" || section == "models") {
+        json providers = json::array();
+        // Only generation providers enabled for this project belong in this summary.
+        const auto enabled = settings.enabledGenerationProviders();
+        for (const auto &api : settings.providers().generationProviders())
+          if (std::find(enabled.begin(), enabled.end(), api.id) != enabled.end())
+            providers.push_back(providerSummary(api));
+        const auto router = settings.autoRouterConfig();
+        json rules = json::object();
+        for (const auto &[tier, rule] : router.rules)
+          rules[tier] = {{"strategy", rule.strategy}, {"direct_model_id", rule.directModelId},
+            {"draft_model_ids", rule.draftModelIds}, {"synthesizer_model_id", rule.synthesizerModelId}};
+        const auto embedding = settings.embeddingCurrentApi();
+        result["models"] = {{"configured_generation_id", settings.generationCurrentApiId()},
+          {"selected_generation", providerSummary(selectedApi)}, {"embedding", embedding.id.empty() ? json(nullptr) : providerSummary(embedding)},
+          {"enabled_generation", providers}, {"agent_enabled", settings.providers().agentEnabled()},
+          {"default_max_tokens", settings.generationDefaultMaxTokens()},
+          {"default_temperature", settings.generationDefaultTemperature()},
+          {"auto_router", {{"enabled", router.enabled}, {"classifier_type", router.classifier.type},
+            {"fallback_model_id", router.fallbackModelId}, {"rules", rules}}}};
+      }
+      if (section == "all" || section == "retrieval") result["retrieval"] = {
+        {"chunking", {{"min_tokens", settings.chunkingMinTokens()}, {"max_tokens", settings.chunkingMaxTokens()},
+          {"overlap", settings.chunkingOverlap()}, {"semantic", settings.chunkingSemantic()}}},
+        {"embedding_top_k", settings.embeddingTopK()}, {"embedding_batch_size", settings.embeddingBatchSize()},
+        {"max_chunks", settings.generationMaxChunks()}, {"max_full_sources", settings.generationMaxFullSources()},
+        {"max_related_per_source", settings.generationMaxRelatedPerSource()},
+        {"database", {{"sqlite_filename", std::filesystem::path(settings.databaseSqlitePath()).filename().string()}, {"index_filename", std::filesystem::path(settings.databaseIndexPath()).filename().string()},
+          {"vector_dim", settings.databaseVectorDim()}, {"distance_metric", settings.databaseDistanceMetric()}}}};
+      if (section == "all" || section == "reasoning") {
+        json parameters = json::array();
+        for (const auto &param : selectedApi.reasoning) parameters.push_back({{"name", param.name},
+          {"value_type", param.valueType}, {"value_field", param.valueField}, {"values", param.values}, {"default", param.defaultValue}});
+        result["reasoning"] = {{"provider_id", selectedApi.id}, {"parameters", parameters},
+          {"history_replay", selectedApi.historyReplay}, {"replay_storage", "backend_session_memory"},
+          {"parameter_values", "configured_defaults_not_request_selections"}};
+      }
+      return boundedProjectResult(std::move(result));
+    } catch (const std::exception &e) {
+      // Do not forward internal configuration exception text to the provider.
+      LOG_MSG_WARN << "project_settings summary failed: " << e.what();
+      return {{"error", "Unable to summarize loaded settings; see backend logs"}};
+    }
   }
 
   json executeSearchContext(const json &call, const ToolContext &ctx, const ContextSearch &search)
@@ -273,41 +471,26 @@ namespace chat_tools {
       if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
       const auto args = json::parse(arguments);
       if (!args.is_object())
-        return { { "error", "arguments must be an object" } };
+        throw std::invalid_argument("arguments must be an object");
 
       for (auto it = args.begin(); it != args.end(); ++it) {
         if (it.key() != "path_filter" && it.key() != "extension")
-          return { { "error", "unknown argument: " + it.key() } };
+          throw std::invalid_argument("unknown argument: " + preview(it.key(), 128));
       }
 
-      // validate path_filter (same rules as grep/read_file)
-      std::string filter;
-      if (args.contains("path_filter")) {
-        if (!args["path_filter"].is_string())
-          return { { "error", "path_filter must be a string" } };
-        filter = args["path_filter"].get<std::string>();
-        if (filter.empty() || filter.size() > kMaxArgLength)
-          return { { "error", "path_filter must be 1.." + std::to_string(kMaxArgLength) + " bytes" } };
-        if (filter.find('\0') != std::string::npos || filter.find('\n') != std::string::npos || filter.find('\r') != std::string::npos)
-          return { { "error", "path_filter contains invalid characters" } };
-        std::replace(filter.begin(), filter.end(), '\\', '/');
-        if (filter.find("..") != std::string::npos)
-          return { { "error", "path_filter must not contain '..'" } };
-        // normalize leading './'
-        while (filter.rfind("./", 0) == 0) filter = filter.substr(2);
-        if (filter == ".") filter.clear();
-      }
+      const auto filter = pathFilter(args);
 
       // validate extension
       std::string ext;
       if (args.contains("extension")) {
         if (!args["extension"].is_string())
-          return { { "error", "extension must be a string" } };
+          throw std::invalid_argument("extension must be a string");
         ext = args["extension"].get<std::string>();
-        if (ext.size() > 16 || ext.find('/') != std::string::npos || ext.find('\\') != std::string::npos)
-          return { { "error", "extension is invalid" } };
+        if (ext.find('/') != std::string::npos || ext.find('\\') != std::string::npos)
+          throw std::invalid_argument("extension is invalid");
         if (!ext.empty() && ext[0] != '.')
           ext = "." + ext; // be forgiving: 'cpp' -> '.cpp'
+        if (ext.size() > 16) throw std::invalid_argument("extension is invalid");
         std::transform(ext.begin(), ext.end(), ext.begin(),
           [](unsigned char c) { return std::tolower(c); });
       }
@@ -319,10 +502,11 @@ namespace chat_tools {
         std::string rel = path;
         std::replace(rel.begin(), rel.end(), '\\', '/');
         if (!filter.empty()) {
+          const auto normalized = std::filesystem::path(rel).lexically_normal().generic_string();
           // same heuristic as grep: match '/filter' anywhere or exact prefix
-          if (rel != filter &&
-            rel.rfind(filter, 0) != 0 &&
-            rel.find("/" + filter) == std::string::npos)
+          if (normalized != filter &&
+            normalized.rfind(filter, 0) != 0 &&
+            normalized.find("/" + filter) == std::string::npos)
             continue;
         }
         if (!ext.empty()) {
@@ -369,13 +553,7 @@ namespace chat_tools {
       if (pattern.size() < 2 || pattern.size() > 64 || pattern.find_first_not_of(" \t\r\n") == std::string::npos ||
           pattern.find('\0') != std::string::npos || pattern.find_first_of("\r\n") != std::string::npos)
         throw std::invalid_argument("pattern must be single-line literal text, 2 to 64 bytes");
-      auto filter = args.value("path_filter", std::string{});
-      if (filter.size() > 1024 || filter.find('\0') != std::string::npos) throw std::invalid_argument("Invalid path_filter");
-      std::replace(filter.begin(), filter.end(), '\\', '/');
-      for (const auto &part : std::filesystem::path(filter))
-        if (part == "..") throw std::invalid_argument("path_filter must not contain parent traversal");
-      filter = std::filesystem::path(filter).lexically_normal().generic_string();
-      if (filter == ".") filter.clear();
+      const auto filter = pathFilter(args);
       std::vector<std::string> paths;
       for (const auto &file : ctx.allowedFiles) {
         const auto path = std::filesystem::path(file).lexically_normal().generic_string();
@@ -463,7 +641,7 @@ namespace chat_tools {
           try {
             const auto &raw = call.at("function").at("arguments").get_ref<const std::string &>();
             const auto args = raw.size() <= 4096 ? json::parse(raw) : json::object();
-            const auto key = name == "grep" ? "pattern" : name == "list_files" ? "path_filter" : name == "search_context" ? "query" : "path";
+            const auto key = name == "grep" ? "pattern" : name == "list_files" ? "path_filter" : name == "search_context" ? "query" : name == "project_settings" ? "section" : "path";
             if (args.contains(key) && args[key].is_string()) description += "(" + preview(args[key].get<std::string>(), 256) + ")";
             if (name == "list_files" && args.contains("extension") && args["extension"].is_string())
               description += " extension=" + preview(args["extension"].get<std::string>(), 16);
@@ -482,6 +660,8 @@ namespace chat_tools {
             (output.value("truncated", false) ? " (truncated)" : ""));
           else if (name == "search_context") onStatus("search_context: " + std::to_string(output.at("matches").size()) +
             " excerpts returned (" + output.at("mode").get<std::string>() + ")" + (output.value("truncated", false) ? " (truncated)" : ""));
+          else if (name == "project_info" || name == "project_settings") onStatus(name + ": loaded summary returned" +
+            (output.value("truncated", false) ? " (truncated)" : ""));
           else if (name == "read_file") onStatus("read_file: returned lines " + std::to_string(output.at("start_line").get<size_t>()) +
             "-" + std::to_string(output.at("end_line").get<size_t>()) + (output.value("truncated", false) ? " (truncated)" : ""));
         }

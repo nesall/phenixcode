@@ -70,6 +70,9 @@ def main():
                 if self.path == "/stream" and step < 2:
                     name, args = ("grep", {"pattern": "Needle"}) if step == 0 else ("read_file", {"path": str(source)})
                     calls = [{"id": f"call_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
+                if self.path == "/project" and step < 2:
+                    name, args = ("project_info", {}) if step == 0 else ("project_settings", {"section": "all"})
+                    calls = [{"id": f"project_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
                 if self.path == "/listing" and step < 2:
                     name, args = ("list_files", {"path_filter": "source.cpp", "extension": "cpp"}) if step == 0 else ("read_file", {"path": str(source)})
                     calls = [{"id": f"list_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
@@ -107,7 +110,7 @@ def main():
         threading.Thread(target=provider.serve_forever, daemon=True).start()
         provider_url = f"http://127.0.0.1:{provider.server_port}"
         modes = ["stream", "plain", "error", "bad-json", "truncated", "no-usage", "budget", "steps", "listing",
-                 "context-text", "context-hybrid", "context-fallback"]
+                 "context-text", "context-hybrid", "context-fallback", "project"]
         catalog = {"agent_enabled": True, "embedding_providers": [{"id": "embed", "api_url": provider_url + "/embedding", "model": "mock",
                     "query_format": "query: {}", "document_format": "document: {}"}],
                    "generation_providers": [{"id": mode, "model": mode, "api_url": provider_url + "/" + mode,
@@ -190,6 +193,23 @@ def main():
                 check(any("list_files:" in e.get("content", "") and "1 files returned" in e["content"] for e in events),
                       "list_files result summary reaches typed meta SSE")
                 check(any(e.get("content") == "Final answer" for e in events), "file discovery leads to a final answer")
+                events = chat("project")
+                check(len(requests["/project"]) == 3, "project inspection completes a full tool workflow")
+                offered = {tool["function"]["name"] for tool in requests["/project"][0]["tools"]}
+                check({"project_info", "project_settings"} <= offered, "both project tools are offered to the model")
+                project_info = json.loads(requests["/project"][1]["messages"][-1]["content"])
+                project_settings = json.loads(requests["/project"][2]["messages"][-1]["content"])
+                check(set(project_info["capabilities"]["available_tools"]) == offered, "project info tool list matches request definitions")
+                check(project_settings["retrieval"]["database"]["sqlite_filename"] == "metadata.db" and
+                      str(root) not in json.dumps(project_settings["retrieval"]["database"]), "database directories are omitted")
+                check(project_info["project"]["id"] == "tools-http-test" and project_info["local_source_count"] == 2,
+                      "project info uses current project and allowed local files")
+                check(project_settings["models"]["selected_generation"]["id"] == "project" and
+                      project_settings["models"]["configured_generation_id"] == "stream", "settings reflect request provider override")
+                check(provider_url not in json.dumps(project_settings), "settings omit provider endpoints")
+                check(any("project_info: loaded summary" in event.get("content", "") for event in events) and
+                      any("project_settings: loaded summary" in event.get("content", "") for event in events), "project tool progress reaches SSE")
+                check(any(e.get("content") == "Final answer" for e in events), "inspection evidence produces final answer")
                 events = chat("context-text")
                 text_result = json.loads(requests["/context-text"][1]["messages"][-1]["content"])
                 check(text_result["mode"] == "text" and any("Needle" in hit["content"] for hit in text_result["matches"]),
@@ -218,7 +238,7 @@ def main():
                 hybrid = json.loads(requests["/context-hybrid"][1]["messages"][-1]["content"])
                 check(any("SEMANTIC_ONLY_SENTINEL" in hit["content"] for hit in hybrid["matches"]), "semantic search finds evidence without literal query matches")
                 check(any("query: recovery coordination" in req["content"] for req in requests["/embedding"]), "tool queries use the embedding provider query format")
-                print("HTTP tool/context/usage/error/budget integration checks passed (12 scenarios).")
+                print("HTTP tool/context/usage/error/budget integration checks passed (13 scenarios).")
             finally:
                 process.terminate()
                 process.wait(timeout=10)

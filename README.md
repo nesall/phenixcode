@@ -215,6 +215,10 @@ Agent tools let the model investigate beyond the initial retrieved context. They
 | `read_file` | Read selected line ranges from an allowed source file. |
 | `list_files` | Discover source paths, optionally filtered by path or extension. |
 | `search_context` | Retrieve relevant indexed excerpts using natural-language hybrid search, with text fallback when query embeddings are unavailable. |
+| `project_info` | Inspect project identity, configured sources, current local source count, indexed chunk count, and available tools. Index freshness is reported as unknown. |
+| `project_settings` | Inspect loaded project, model, retrieval, or reasoning settings, including the generation provider selected for the request. Credentials, URLs, and prompts are omitted; database locations are filenames only. Reasoning choices describe configured defaults. |
+
+Project summaries flag shortened arrays or strings with `truncated: true` and list affected fields in `truncated_fields` (`*` indicates additional fields).
 
 To enable tools, set the top-level `agent_enabled` to `true` in `providers.json`, and set `supports_tools` to `"on"` on a generation provider whose model and endpoint support OpenAI-style function calling. Restart the running backend after changing provider settings. Tool progress appears in the Chat UI's response metadata.
 

@@ -149,7 +149,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
       const bool agentEnabled = imp->app_.settings().providers().agentEnabled();
       const json tools = chat_tools::enabled(agentEnabled, apiConfig, freeChat, request.value("attachedonly", false))
-        ? json::array({chat_tools::grepDefinition(), chat_tools::readFileDefinition(), chat_tools::listFilesDefinition(), chat_tools::searchContextDefinition()}) : json::array();
+        ? json::array({chat_tools::grepDefinition(), chat_tools::readFileDefinition(), chat_tools::listFilesDefinition(), chat_tools::searchContextDefinition(), chat_tools::projectInfoDefinition(), chat_tools::projectSettingsDefinition()}) : json::array();
       if (agentEnabled && !freeChat && !request.value("attachedonly", false)) {
         if (apiConfig.supportsTools == "on" && apiConfig.apiStyle == ApiConfig::ApiStyle::Anthropic)
           pendingInfoVec.push_back("Tools are unavailable for Anthropic API style; continuing without tools");
@@ -320,12 +320,19 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
               return turn;
               };
             auto execute = [&](const json &call) {
+              const auto funcName = call.value("function", json::object()).value("name", "");
+              if (funcName == "project_settings")
+                return chat_tools::executeProjectSettings(call, imp->app_.settings(), apiConfig);
               if (!filesCollected) {
                 for (const auto &source : imp->app_.sourceProcessor().collectSources(false))
                   if (!source.isUrl) allowedFiles.push_back(source.source);
                 filesCollected = true;
               }
-              const auto &funcName = call.value("function", json::object()).value("name", "");
+              if (funcName == "project_info") {
+                std::vector<std::string> availableTools;
+                for (const auto &tool : tools) availableTools.push_back(tool.at("function").at("name").get<std::string>());
+                return chat_tools::executeProjectInfo(call, imp->app_.settings(), {allowedFiles, toolSources}, imp->app_.db().chunkCount(), availableTools);
+              }
               if (funcName == "read_file")
                 return chat_tools::executeReadFile(call, { allowedFiles, toolSources });
               if (funcName == "grep")

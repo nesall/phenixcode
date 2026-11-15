@@ -7,12 +7,13 @@
 #include <string_view>
 
 struct ApiConfig;
+class Settings;
 
 namespace chat_tools {
   inline constexpr size_t kMaxAgentSteps = 10;
   inline constexpr size_t kMaxCallsPerStep = 8;
   inline constexpr size_t kMaxResultBytes = 8192;
-  inline constexpr size_t kMaxArgLength = 256;
+  inline constexpr size_t kMaxPathFilterBytes = 1024;
 
   struct ToolContext {
     const std::vector<std::string> &allowedFiles;
@@ -24,6 +25,11 @@ namespace chat_tools {
   nlohmann::json readFileDefinition();
   nlohmann::json listFilesDefinition();
   nlohmann::json searchContextDefinition();
+  nlohmann::json projectInfoDefinition();
+  nlohmann::json projectSettingsDefinition();
+  nlohmann::json executeProjectInfo(const nlohmann::json &call, const Settings &settings,
+    const ToolContext &ctx, size_t indexedChunks, const std::vector<std::string> &availableTools);
+  nlohmann::json executeProjectSettings(const nlohmann::json &call, const Settings &settings, const ApiConfig &selectedApi);
   using Search = std::function<std::vector<SearchResult>(const std::string &, const std::vector<std::string> &)>;
   struct ContextSearchResult {
     std::vector<SearchResult> matches;
