@@ -15,6 +15,7 @@ namespace inference_contant {
   enum class CompletionStatus { Incomplete, Complete, ToolCalls };
   struct CompletionInfo {
     std::optional<size_t> inputTokens, outputTokens, reasoningTokens;
+    std::optional<size_t> estimatedReasoningTokens;
     size_t estimatedOutputTokens = 0;
     std::string stopReason;
     CompletionStatus status = CompletionStatus::Incomplete;
@@ -25,11 +26,16 @@ namespace inference_contant {
   };
   struct TokenTotals {
     size_t input = 0, output = 0;
+    size_t reasoning = 0, reasoningKnownRounds = 0, reasoningUnavailableRounds = 0;
+    bool reasoningEstimated = false;
     bool estimated = false;
     void add(const CompletionInfo &info, size_t estimatedInput) {
       input += info.inputTokens.value_or(estimatedInput);
       output += info.outputTokens.value_or(info.estimatedOutputTokens);
       estimated = estimated || !info.inputTokens || !info.outputTokens;
+      if (info.reasoningTokens) { reasoning += *info.reasoningTokens; ++reasoningKnownRounds; }
+      else if (info.estimatedReasoningTokens) { reasoning += *info.estimatedReasoningTokens; ++reasoningKnownRounds; reasoningEstimated = true; }
+      else ++reasoningUnavailableRounds;
     }
   };
   using TokenCounter = std::function<size_t(std::string_view)>;

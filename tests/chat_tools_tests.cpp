@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <set>
 #include <3rdparty/utf8.h>
 
 using nlohmann::json;
@@ -166,7 +167,9 @@ int main() {
     const auto search = [&](const std::string &pattern, const std::vector<std::string> &paths) {
       ++searches;
       check(paths == std::vector<std::string>{source}, "executor passes only allowed files");
-      return processor.grep({pattern}, paths);
+      SourceProcessor::GrepStats stats;
+      auto hits = processor.grep({pattern}, paths, {}, &stats);
+      return chat_tools::GrepSearchResult{std::move(hits), stats.searchedFiles, stats.failedFiles, stats.limitReached};
     };
     const auto execute = [&](const json &request) {
       return chat_tools::executeGrep(request, {{source}, usedSources}, search);
@@ -191,9 +194,35 @@ int main() {
     auto bounded = chat_tools::executeGrep(call(), {{source}, usedSources}, [&](const auto &, const auto &) {
       std::vector<SearchResult> hits(20);
       for (auto &hit : hits) { hit.sourceId = source; hit.content = std::string(9000, '\n'); }
-      return hits;
+      return chat_tools::GrepSearchResult{std::move(hits), 1, 0, true};
     });
     check(bounded.dump().size() <= chat_tools::kMaxResultBytes && bounded["truncated"] == true, "escaped JSON output is bounded");
+    for (size_t length = 1800; length <= 2048; ++length) {
+      const auto packed = chat_tools::executeGrep(call(), {{source}, usedSources}, [&](const auto &, const auto &) {
+        std::vector<SearchResult> hits(4);
+        for (auto &hit : hits) { hit.sourceId = source; hit.content.assign(length, 'a'); }
+        return chat_tools::GrepSearchResult{std::move(hits), 1, 0, false};
+      });
+      check(packed.dump().size() <= chat_tools::kMaxResultBytes, "grep output limit includes final diagnostic fields at packing boundaries");
+    }
+
+    check(matches["matched_files"] == 1 && matches["searched_files"] == 1 && matches["unreadable_files"] == 0,
+      "grep counts the effective searched scope");
+    auto noScope = execute(call("none", {{"pattern", "sanitizeUtf8"}, {"path_filter", "missing/"}}));
+    check(noScope["outcome"] == "no_files_matched_filter" && noScope["matched_files"] == 0, "empty scope has a distinct outcome");
+    auto noHits = execute(call("none", {{"pattern", "no_such_symbol"}}));
+    check(noHits["outcome"] == "no_matches" && noHits["searched_files"] == 1, "no hits in readable files is not a scope failure");
+    const auto emptyFile = (fixture.directory / "empty.cpp").generic_string();
+    { std::ofstream empty(emptyFile); }
+    const std::vector<std::string> diagnosticFiles{source, emptyFile, (fixture.directory / "vanished.cpp").generic_string()};
+    auto diagnostic = chat_tools::executeGrep(call("partial", {{"pattern", "missing_symbol"}}), {diagnosticFiles, usedSources},
+      [&](const auto &pattern, const auto &paths) {
+        SourceProcessor::GrepStats stats;
+        auto hits = processor.grep({pattern}, paths, {}, &stats);
+        return chat_tools::GrepSearchResult{std::move(hits), stats.searchedFiles, stats.failedFiles, stats.limitReached};
+      });
+    check(diagnostic["matched_files"] == 3 && diagnostic["searched_files"] == 2 && diagnostic["unreadable_files"] == 1 &&
+      diagnostic["outcome"] == "incomplete_search", "empty files count as searched and failed reads are visible as incomplete search");
 
     const auto assistant = streamedToolMessage();
     auto response = json{{"choices", json::array({{{"message", assistant}, {"finish_reason", "tool_calls"}}})}};
@@ -270,8 +299,8 @@ int main() {
       if (++rounds == 1) return {"Ignore this preamble", failedCall};
       check(json::parse(transcript.back()["content"].get<std::string>()).contains("error"), "model receives the tool error for recovery");
       return {"I could not complete that search", {{"role", "assistant"}, {"content", "I could not complete that search"}}};
-    }, execute, [] { return true; }, 3, [&](std::string_view message) { status.emplace_back(message); });
-    check(status.size() == 2 && status[0].find("Step 1/3: grep") != std::string::npos && status[1].find("grep failed:") == 0,
+    }, execute, [] { return true; }, 3, [&](const json &event) { status.push_back(event.at("content").get<std::string>()); });
+    check(status.size() == 2 && status[0].find("Round 1/3") != std::string::npos && status[1].find("failed:") != std::string::npos,
       "tool start and failure are exposed as progress independently of final prose");
     check(recovered.text == "I could not complete that search", "model can recover after a tool failure");
 
@@ -319,10 +348,10 @@ int main() {
       return {"Final answer", {{"role", "assistant"}, {"content", "Final answer"}}};
     }, [&](const json &request) {
       return request["function"]["name"] == "read_file" ? chat_tools::executeReadFile(request, {{source}, usedSources}) : execute(request);
-    }, [] { return true; }, 5, [&](std::string_view message) { status.emplace_back(message); });
+    }, [] { return true; }, 5, [&](const json &event) { status.push_back(event.at("content").get<std::string>()); });
     check(readOutcome.text == "Final answer" && status.size() == 4, "grep and read_file expose four progress events but only one final answer");
-    check(status[0].find("sanitizeUtf8") != std::string::npos && status[1].find("snippets returned") != std::string::npos &&
-      status[3].find("read_file: returned lines 2-2") == 0, "progress includes arguments and result summaries");
+    check(status[0].find("sanitizeUtf8") != std::string::npos && status[1].find("snippets;") != std::string::npos &&
+      status[3].find("returned lines 2-2") != std::string::npos, "progress includes arguments and result summaries");
     std::vector<std::string> listingSources{"D:/project/src/a.cpp", "D:/project/include/b.h", "D:/project/src/c.CPP"};
     std::vector<std::string> listingUsed;
     const chat_tools::ToolContext listingContext{listingSources, listingUsed};
@@ -364,8 +393,11 @@ int main() {
       return chat_tools::executeGrep(call("filter", {{"pattern", "needle"}, {"path_filter", filter}}), filterContext,
         [&](const auto &, const auto &paths) {
           ++filterSearches;
-          check(paths == filterFiles, "grep receives the same filtered scope as list_files");
-          return std::vector<SearchResult>{};
+          std::set<std::string> expected, actual;
+          for (const auto &file : filterFiles) expected.insert(fs::path(file).lexically_normal().generic_string());
+          for (const auto &file : paths) actual.insert(fs::path(file).lexically_normal().generic_string());
+          check(actual == expected && paths.size() == expected.size(), "grep searches the same scope once per normalized file");
+          return chat_tools::GrepSearchResult{{}, paths.size(), 0, false};
         });
     };
     const auto filteredList = [&](const std::string &filter) {
@@ -427,9 +459,9 @@ int main() {
         "list_files result is forwarded to the model with its call identity");
       return {"Found the file", {{"role", "assistant"}, {"content", "Found the file"}}};
     }, [&](const json &request) { return chat_tools::executeListFiles(request, listingContext); }, [] { return true; }, 3,
-      [&](std::string_view message) { status.emplace_back(message); });
+      [&](const json &event) { status.push_back(event.at("content").get<std::string>()); });
     check(status.size() == 2 && status[0].find("src/") != std::string::npos && status[0].find(".cpp") != std::string::npos &&
-      status[1] == "list_files: 1 files returned", "list_files progress includes filters and result count");
+      status[1].find("1 files returned") != std::string::npos, "list_files progress includes filters and result count");
     check(chat_tools::searchContextDefinition()["function"]["parameters"]["required"] == json::array({"query"}),
       "search_context advertises a required natural-language query");
     std::vector<std::string> contextFiles{"D:/project/src/a.cpp", "D:/project/src/b.cpp"}, contextUsed;
@@ -508,9 +540,53 @@ int main() {
         "context result is available to the next model round with its matching call ID");
       return {"Answer from evidence", {{"role", "assistant"}, {"content", "Answer from evidence"}}};
     }, [&](const json &request) { return chat_tools::executeSearchContext(request, context, fallbackContext); }, [] { return true; }, 3,
-      [&](std::string_view message) { status.emplace_back(message); });
+      [&](const json &event) { status.push_back(event.at("content").get<std::string>()); });
     check(status.size() == 2 && status[0].find("rollback coordination") != std::string::npos &&
-      status[1] == "search_context: 1 excerpts returned (text)", "context search progress exposes query, count and fallback mode");
+      status[1].find("1 excerpts returned (text)") != std::string::npos, "context search progress exposes query, count and fallback mode");
+    std::vector<json> events;
+    rounds = 0;
+    const auto batch = json{{"role", "assistant"}, {"tool_calls", json::array({
+      call("first", {{"pattern", "onInfo"}, {"path_filter", "missing/"}}),
+      call("second", {{"pattern", "onInfo("}, {"path_filter", "src/"}})})}};
+    chat_tools::run(messages, [&](const json &) -> chat_tools::Turn {
+      if (++rounds == 1) return {"", batch};
+      return {"Done", {{"role", "assistant"}, {"content", "Done"}}};
+    }, [&](const json &request) {
+      if (request["id"] == "first") return json{{"matches", json::array()}, {"outcome", "no_files_matched_filter"}};
+      return json{{"error", "test failure"}};
+    }, [] { return true; }, 10, [&](const json &event) { events.push_back(event); });
+    check(events.size() == 4 && events[0]["round"] == 1 && events[2]["round"] == 1 && events[0]["call_index"] == 1 && events[2]["call_index"] == 2,
+      "one round can contain two individually numbered tool calls");
+    check(events[0]["event_id"] == events[1]["event_id"] && events[2]["event_id"] == events[3]["event_id"] && events[0]["event_id"] != events[2]["event_id"],
+      "start and result share call identity without colliding across calls");
+    check(events[0]["status"] == "running" && events[1]["status"] == "info" && events[3]["status"] == "error", "tool states distinguish running, neutral and failed outcomes");
+    check(events[0]["content"].get<std::string>().find("path_filter=\"missing/\"") != std::string::npos &&
+      events[2]["content"].get<std::string>().find("pattern=\"onInfo(\"") != std::string::npos,
+      "metadata quotes literal patterns and includes scope arguments");
+
+    check(events[0]["summary"].get<std::string>().find("Search \"onInfo\" in missing/") != std::string::npos &&
+      events[0]["summary"].get<std::string>().find("pattern=") == std::string::npos &&
+      events[0]["summary"].get<std::string>().find("path_filter=") == std::string::npos,
+      "compact summaries retain explicit scope without argument syntax");
+    rounds = 0; events.clear();
+    const auto inspection = json{{"role", "assistant"}, {"tool_calls", json::array({
+      call("search", {{"pattern", "onInfo"}}), call("read", {{"path", source}, {"start_line", 640}, {"end_line", 712}}, "read_file")})}};
+    chat_tools::run(messages, [&](const json &) -> chat_tools::Turn {
+      if (++rounds == 1) return {"", inspection};
+      return {"Done", {{"role", "assistant"}, {"content", "Done"}}};
+    }, [&](const json &request) {
+      if (request["id"] == "search") return json{{"matches", json::array({json::object()})}, {"searched_files", 3}, {"matched_files", 5}, {"unreadable_files", 2}, {"truncated", true}};
+      return json{{"start_line", 640}, {"end_line", 675}, {"truncated", true}};
+    }, [] { return true; }, 10, [&](const json &event) { events.push_back(event); }, fixture.directory.generic_string());
+    const auto compactSearch = events[1]["summary"].get<std::string>();
+    check(compactSearch.find("all configured") == std::string::npos && compactSearch.find("3/5 files") != std::string::npos &&
+      compactSearch.find("2 unreadable") != std::string::npos && compactSearch.find("truncated") != std::string::npos,
+      "compact search summaries omit default scope but keep partial counts and warnings");
+    const auto compactRead = events[3]["summary"].get<std::string>();
+    check(compactRead.find("Read source.cpp:640-675") != std::string::npos && compactRead.find(fixture.directory.generic_string()) == std::string::npos &&
+      events[3]["content"].get<std::string>().find(source) != std::string::npos,
+      "compact reads show source-relative paths and actual ranges while details preserve original arguments");
+
     std::cout << checks << " tool checks passed.\n";
   } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

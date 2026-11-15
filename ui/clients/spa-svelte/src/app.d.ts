@@ -29,12 +29,24 @@ interface ReasoningParameter {
   constant_fields?: Record<string, string>;
 }
 
+interface ChatMetaInfo {
+  content: string;
+  summary?: string;
+  status: "info" | "running" | "success" | "warning" | "error";
+  event_id?: string;
+  round?: number;
+  call_id?: string;
+  tool?: string;
+  call_index?: number;
+  call_count?: number;
+}
+
 interface ChatMessage {
   replay?: { id: string; session: string; content: string };
   role: "user" | "assistant" | "system";
   content: string;
   _html: string;
-  _metaInfoArray?: string[];
+  _metaInfoArray?: (string | ChatMetaInfo)[];
   _metaVisible?: boolean;
   _reasoningText?: string;
   _reasoningVisible?: boolean;
@@ -67,7 +79,7 @@ interface SavedChatMessage {
   replay?: { id: string; session: string };
   role: "user" | "assistant" | "system";
   content: string;
-  _metaInfoArray?: string[];
+  _metaInfoArray?: (string | ChatMetaInfo)[];
 }
 
 interface PersistedChat {

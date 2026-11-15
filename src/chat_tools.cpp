@@ -25,6 +25,64 @@ namespace chat_tools {
       return text;
     }
 
+    const std::string middle = " \xc2\xb7 ";
+    const std::string dash = " \xe2\x80\x94 ";
+
+    std::string shortPath(std::string value, const std::string &root) {
+      std::replace(value.begin(), value.end(), '\\', '/');
+      auto path = std::filesystem::path(std::u8string(value.begin(), value.end())).lexically_normal();
+      if (path.is_absolute()) {
+        const auto base = std::filesystem::path(std::u8string(root.begin(), root.end()));
+        const auto relative = root.empty() ? std::filesystem::path{} : path.lexically_relative(base);
+        if (!relative.empty() && *relative.begin() != "..") path = relative;
+        else {
+          // Multiple unrelated roots have no single project-relative spelling.
+          path = path.parent_path().filename() / path.filename();
+        }
+      }
+      const auto bytes = path.generic_u8string();
+      value.assign(bytes.begin(), bytes.end());
+      if (value.size() > 96) {
+        size_t start = value.size() - 93;
+        while (start < value.size() && (static_cast<unsigned char>(value[start]) & 0xc0) == 0x80) ++start;
+        value = "..." + value.substr(start);
+      }
+      return preview(value, 96);
+    }
+
+    std::string compactAction(const std::string &name, const json &args, const std::string &root, const json *output = nullptr) {
+      if (!args.is_object()) return preview(name, 64);
+      const auto text = [&](const char *key) {
+        const auto it = args.find(key);
+        return it != args.end() && it->is_string() ? it->get<std::string>() : std::string{};
+      };
+      const auto quoted = [&](const char *key) { return json(preview(text(key), 64)).dump(); };
+      const auto scoped = [&](std::string label) {
+        const auto filter = text("path_filter");
+        const auto display = shortPath(filter, root);
+        return filter.empty() || display == "." ? label : label + " in " + display;
+      };
+      if (name == "grep") return scoped("Search " + quoted("pattern"));
+      if (name == "search_context") return "Search context " + quoted("query");
+      if (name == "list_files") return scoped("List " + (text("extension").empty() ? std::string{} : preview(text("extension"), 16) + " ") + "files");
+      if (name == "read_file") {
+        auto label = "Read " + shortPath(text("path"), root);
+        if (output && !output->contains("error")) label += ":" + std::to_string(output->value("start_line", size_t(0))) + "-" + std::to_string(output->value("end_line", size_t(0)));
+        return label;
+      }
+      if (name == "project_info") return "Project info";
+      if (name == "project_settings") return "Project settings" + (text("section").empty() || text("section") == "all" ? std::string{} : middle + preview(text("section"), 32));
+      std::string label = preview(name, 64);
+      if (name == "git_diff") {
+        label = "Git diff" + (text("base").empty() ? std::string{} : " vs " + preview(text("base"), 32));
+        if (args.contains("staged") && args["staged"].is_boolean() && args["staged"].get<bool>()) label += " (staged)";
+      }
+      else if (name == "git_log") label = "Git history";
+      else if (name == "git_show") label = "Git show " + preview(text("revision"), 32);
+      if (!text("path").empty()) label += middle + shortPath(text("path"), root);
+      return label;
+    }
+
     std::string pathFilter(const json &args) {
       if (!args.contains("path_filter")) return {};
       if (!args["path_filter"].is_string()) throw std::invalid_argument("path_filter must be a string");
@@ -555,20 +613,28 @@ namespace chat_tools {
         throw std::invalid_argument("pattern must be single-line literal text, 2 to 64 bytes");
       const auto filter = pathFilter(args);
       std::vector<std::string> paths;
+      std::set<std::string> selected;
       for (const auto &file : ctx.allowedFiles) {
         const auto path = std::filesystem::path(file).lexically_normal().generic_string();
-        // Relative prefixes may start at any directory boundary in configured absolute paths.
         const bool relative = !std::filesystem::path(filter).is_absolute();
-        if (filter.empty() || path.starts_with(filter) || (relative && path.find("/" + filter) != std::string::npos))
+        if ((filter.empty() || path.starts_with(filter) || (relative && path.find("/" + filter) != std::string::npos)) && selected.insert(path).second)
           paths.push_back(file);
       }
-      json result = {{"matches", json::array()}, {"truncated", false}};
-      // SourceProcessor interprets an empty list as "all sources". Never pass it through.
-      if (paths.empty()) return result;
-      for (const auto &hit : search(pattern, paths)) {
+      // Reserve the final outcome field before enforcing the serialized byte limit.
+      json result = {{"matches", json::array()}, {"truncated", false}, {"path_filter", filter}, {"outcome", "incomplete_search"},
+        {"matched_files", paths.size()}, {"searched_files", 0}, {"unreadable_files", 0}, {"search_limited", false}};
+      // SourceProcessor interprets an empty list as all sources; never pass it through.
+      if (paths.empty()) { result["outcome"] = "no_files_matched_filter"; return result; }
+      const auto found = search(pattern, paths);
+      result["searched_files"] = found.searchedFiles;
+      result["unreadable_files"] = found.failedFiles;
+      result["search_limited"] = found.limitReached;
+      result["truncated"] = found.limitReached;
+      for (const auto &hit : found.matches) {
         auto content = hit.content;
         bool shortened = content.size() > 2048;
         if (shortened) {
+          result["truncated"] = true;
           size_t end = 2048;
           while (end && (static_cast<unsigned char>(content[end]) & 0xc0) == 0x80) --end;
           content.resize(end);
@@ -583,6 +649,8 @@ namespace chat_tools {
         }
         if (std::find(ctx.usedSources.begin(), ctx.usedSources.end(), hit.sourceId) == ctx.usedSources.end()) ctx.usedSources.push_back(hit.sourceId);
       }
+      result["outcome"] = !result["matches"].empty() ? "matches" :
+        found.failedFiles || result["truncated"].get<bool>() ? "incomplete_search" : "no_matches";
       return result;
     } catch (const std::exception &e) {
       return {{"error", preview(e.what(), 512)}};
@@ -608,7 +676,7 @@ namespace chat_tools {
   }
 
   Turn run(json messages, const Generate &generate,
-    const std::function<json(const json &)> &execute, const std::function<bool()> &connected, size_t maxSteps, const Status &onStatus)
+    const std::function<json(const json &)> &execute, const std::function<bool()> &connected, size_t maxSteps, const Status &onStatus, const std::string &displayRoot)
   {
     Turn result;
     for (size_t step = 0; step < maxSteps && connected(); ++step) {
@@ -633,40 +701,87 @@ namespace chat_tools {
       }
       if (step + 1 == maxSteps) { result.limitReached = true; return result; }
       messages.push_back(turn.assistant);
+      size_t callIndex = 0;
       for (const auto &call : *calls) {
         if (!connected()) return result;
-        auto name = call.value("function", json::object()).value("name", std::string("tool"));
-        if (onStatus) {
-          std::string description = preview(name, 64);
-          try {
-            const auto &raw = call.at("function").at("arguments").get_ref<const std::string &>();
-            const auto args = raw.size() <= 4096 ? json::parse(raw) : json::object();
-            const auto key = name == "grep" ? "pattern" : name == "list_files" ? "path_filter" : name == "search_context" ? "query" : name == "project_settings" ? "section" : "path";
-            if (args.contains(key) && args[key].is_string()) description += "(" + preview(args[key].get<std::string>(), 256) + ")";
-            if (name == "list_files" && args.contains("extension") && args["extension"].is_string())
-              description += " extension=" + preview(args["extension"].get<std::string>(), 16);
-          } catch (const std::exception &) { /* Executor reports invalid arguments below. */ }
-          std::replace(description.begin(), description.end(), '\n', ' ');
-          std::replace(description.begin(), description.end(), '\r', ' ');
-          onStatus("Step " + std::to_string(step + 1) + "/" + std::to_string(maxSteps) + ": " + description);
-        }
+        ++callIndex;
+        const auto name = call.at("function").value("name", std::string("tool"));
+        const auto callId = call.at("id").get<std::string>();
+        std::string description = preview(name, 64) + "(";
+        json args = json::object();
+        try {
+          const auto &raw = call.at("function").at("arguments").get_ref<const std::string &>();
+          args = raw.size() <= 4096 ? json::parse(raw) : json::object();
+          bool first = true;
+          if (args.is_object()) for (const auto &[key, value] : args.items()) {
+            if (!first) description += ", ";
+            first = false;
+            description += preview(key, 64) + "=";
+            description += value.dump();
+          }
+          if (name == "grep" && !args.contains("path_filter")) description += (first ? "" : ", ") + std::string("path_filter=<all configured files>");
+        } catch (const std::exception &) { description += "invalid arguments"; }
+        description = preview(description + ")", 4608);
+        const auto prefix = "Round " + std::to_string(step + 1) + "/" + std::to_string(maxSteps) +
+          " \xc2\xb7 Call " + std::to_string(callIndex) + "/" + std::to_string(calls->size()) + ": " + description;
+        const auto compactPrefix = "Round " + std::to_string(step + 1) + middle +
+          std::to_string(callIndex) + "/" + std::to_string(calls->size()) + middle;
+        json event = {{"event_id", "tool:" + std::to_string(step + 1) + ":" + callId}, {"tool", name},
+          {"round", step + 1}, {"max_rounds", maxSteps}, {"call_id", callId}, {"call_index", callIndex}, {"call_count", calls->size()},
+          {"status", "running"}, {"content", prefix}, {"summary", compactPrefix + compactAction(name, args, displayRoot)}};
+        if (onStatus) onStatus(event);
         if (!connected()) return result;
-        const auto output = execute(call);
-        if (onStatus) {
-          if (output.contains("error")) onStatus(name + " failed: " + output.at("error").get<std::string>());
-          else if (name == "grep") onStatus("grep: " + std::to_string(output.at("matches").size()) + " snippets returned" +
-            (output.value("truncated", false) ? " (truncated)" : ""));
-          else if (name == "list_files") onStatus("list_files: " + std::to_string(output.at("count").get<size_t>()) + " files returned" +
-            (output.value("truncated", false) ? " (truncated)" : ""));
-          else if (name == "search_context") onStatus("search_context: " + std::to_string(output.at("matches").size()) +
-            " excerpts returned (" + output.at("mode").get<std::string>() + ")" + (output.value("truncated", false) ? " (truncated)" : ""));
-          else if (name == "project_info" || name == "project_settings") onStatus(name + ": loaded summary returned" +
-            (output.value("truncated", false) ? " (truncated)" : ""));
-          else if (name == "git_diff" || name == "git_log" || name == "git_show") onStatus(name + ": inspection returned" +
-            (output.value("truncated", false) ? " (truncated)" : ""));
-          else if (name == "read_file") onStatus("read_file: returned lines " + std::to_string(output.at("start_line").get<size_t>()) +
-            "-" + std::to_string(output.at("end_line").get<size_t>()) + (output.value("truncated", false) ? " (truncated)" : ""));
+        json output;
+        try { output = execute(call); }
+        catch (const std::exception &e) { output = {{"error", preview(utils::sanitizeUtf8(e.what()), 512)}}; }
+        std::string summary;
+        std::string status = "success";
+        if (output.contains("error")) { summary = "failed: " + output.at("error").get<std::string>(); status = "error"; }
+        else if (name == "grep") {
+          if (output.value("outcome", "") == "no_files_matched_filter") { summary = "no files matched the filter"; status = "info"; }
+          else {
+            summary = std::to_string(output.at("matches").size()) + " snippets; searched " +
+              std::to_string(output.value("searched_files", size_t(0))) + "/" + std::to_string(output.value("matched_files", size_t(0))) + " files";
+            const auto unreadable = output.value("unreadable_files", size_t(0));
+            if (unreadable) { summary += "; " + std::to_string(unreadable) + " unreadable"; status = "warning"; }
+            else if (output.at("matches").empty()) status = "info";
+          }
+        } else if (name == "list_files") {
+          summary = std::to_string(output.at("count").get<size_t>()) + " files returned";
+          if (output.at("count") == 0) status = "info";
+        } else if (name == "search_context") {
+          summary = std::to_string(output.at("matches").size()) + " excerpts returned (" + output.at("mode").get<std::string>() + ")";
+          if (output.at("matches").empty()) status = "info";
+        } else if (name == "read_file") summary = "returned lines " + std::to_string(output.at("start_line").get<size_t>()) + "-" + std::to_string(output.at("end_line").get<size_t>());
+        else if (name == "project_info" || name == "project_settings") summary = "loaded summary returned";
+        else summary = "inspection returned";
+        if (output.value("truncated", false)) { summary += " (truncated)"; if (status != "error") status = "warning"; }
+        event["status"] = status;
+        event["content"] = prefix + " \xe2\x80\x94 " + summary;
+        std::string compactResult;
+        if (output.contains("error")) compactResult = "failed: " + preview(output.at("error").get<std::string>(), 100);
+        else if (name == "grep") {
+          if (output.value("outcome", "") == "no_files_matched_filter") compactResult = "no files matched";
+          else {
+            const auto searched = output.value("searched_files", size_t(0));
+            const auto matched = output.value("matched_files", size_t(0));
+            compactResult = std::to_string(output.at("matches").size()) + " snippets" + middle + std::to_string(searched);
+            if (searched != matched) compactResult += "/" + std::to_string(matched);
+            compactResult += " files";
+            const auto unreadable = output.value("unreadable_files", size_t(0));
+            if (unreadable) compactResult += middle + std::to_string(unreadable) + " unreadable";
+          }
+        } else if (name == "list_files") compactResult = std::to_string(output.at("count").get<size_t>()) + " files";
+        else if (name == "search_context") compactResult = std::to_string(output.at("matches").size()) + " excerpts";
+        auto compact = compactPrefix + compactAction(name, args, displayRoot, &output);
+        if (!compactResult.empty()) compact += dash + compactResult;
+        if (output.value("truncated", false)) compact += " (truncated)";
+        event["summary"] = compact;
+        if (name == "grep" && !output.contains("error")) {
+          for (const auto *key : {"outcome", "matched_files", "searched_files", "unreadable_files", "search_limited", "path_filter"})
+            if (output.contains(key)) event[key] = output[key];
         }
+        if (onStatus) onStatus(event);
         messages.push_back({{"role", "tool"}, {"tool_call_id", call.at("id")}, {"content", output.dump()}});
       }
     }

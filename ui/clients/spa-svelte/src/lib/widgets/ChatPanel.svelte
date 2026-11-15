@@ -32,6 +32,7 @@
     started = false;
     activeAssistantIndex = -1;
     metaInfoArray = [];
+    metaInfo = "";
     reasoningTextRaw = "";
     sourceids = [];
     attachments = [];
@@ -72,14 +73,14 @@
   let showScrollBtn = $state(false);
 
   let reasoningTextRaw = $state("");
-  let metaInfoArray: string[] = $state([]);
+  let metaInfoArray: (string | ChatMetaInfo)[] = $state([]);
   let sourceids: string[] = $state([]);
   let attachments: File[] = $state([]);
   let attachmentsLoaded: Attachment[] = $state([]);
 
   let attachedFilesOnly = $state(false);
 
-  const metaInfo = $derived(0 < metaInfoArray.length ? metaInfoArray[metaInfoArray.length - 1] : "");
+  let metaInfo = $state("");
 
   const hasAttachedFiles = $derived(isGoodArray(sourceids) || isGoodArray(attachments));
 
@@ -224,16 +225,46 @@
     return content;
   }
 
+  function normalizeMeta(value: unknown): ChatMetaInfo {
+    if (typeof value === "string") return { content: value, status: "info" };
+    if (!value || typeof value !== "object") return { content: "", status: "info" };
+    const info = value as Record<string, unknown>;
+    const status = ["info", "running", "success", "warning", "error"].includes(String(info.status))
+      ? info.status as ChatMetaInfo["status"] : "info";
+    return {
+      content: typeof info.content === "string" ? info.content : "",
+      ...(typeof info.summary === "string" && info.summary.length ? { summary: info.summary } : {}),
+      status,
+      ...(typeof info.event_id === "string" ? { event_id: info.event_id } : {}),
+      ...(typeof info.round === "number" ? { round: info.round } : {}),
+      ...(typeof info.call_id === "string" ? { call_id: info.call_id } : {}),
+      ...(typeof info.tool === "string" ? { tool: info.tool } : {}),
+      ...(typeof info.call_index === "number" ? { call_index: info.call_index } : {}),
+      ...(typeof info.call_count === "number" ? { call_count: info.call_count } : {}),
+    };
+  }
+
+  function mergeMeta(events: ChatMetaInfo[]) {
+    const next = [...metaInfoArray];
+    for (const event of events) {
+      const index = event.event_id ? next.findIndex(info => normalizeMeta(info).event_id === event.event_id) : -1;
+      if (index >= 0) next[index] = event;
+      else next.push(event);
+    }
+    metaInfoArray = next;
+    if (events.length) metaInfo = events[events.length - 1].summary ?? events[events.length - 1].content;
+  }
+
   // const metaTagBegin = "[meta]";
   let receivedReplayId = "";
 
-  function parseFromSSE(chunk: string): { parsed: string; remainder: string; reasoning?: string; meta?: string[] } {
+  function parseFromSSE(chunk: string): { parsed: string; remainder: string; reasoning?: string; meta?: ChatMetaInfo[] } {
     // console.log("parseFromSSE chunk:", chunk);
     let len = chunk.length;
     if (len === 0) return { parsed: "", remainder: "" };
     let fullResponse: string = "";
     let fullReasoning: string = "";
-    const meta: string[] = [];
+    const meta: ChatMetaInfo[] = [];
     let buffer: string = ""; // holds leftover partial data
     // SSE format: "data: <payload>\n\n"
     buffer += chunk.substring(0, len);
@@ -271,7 +302,7 @@
           }
         } else if (chunkJson.type === "meta") {
           if (typeof chunkJson.content === "string" && 0 < chunkJson.content?.length) {
-            meta.push(chunkJson.content);
+            meta.push(normalizeMeta(chunkJson));
           }
         } else if (chunkJson.type === "reasoning_delta") {
           if (typeof chunkJson.content === "string" && 0 < chunkJson.content?.length) {
@@ -308,6 +339,7 @@
     started = false;
     reasoningTextRaw = "";
     metaInfoArray = [];
+    metaInfo = "";
     if (appendQ) {
       if (!input.trim()) {
         toaster.error({
@@ -427,7 +459,7 @@
             reasoningTextRaw += reasoning;
             reasoningDirty = true;
           }
-          if (meta.length) metaInfoArray = [...metaInfoArray, ...meta];
+          if (meta.length) mergeMeta(meta);
           const firstFrame = !assistantMessage && !!(chunk || reasoning);
           if (firstFrame) {
             assistantMessage = { role: "assistant", content: "", _html: "" };
@@ -475,6 +507,10 @@
     } finally {
       clearTimeout(renderTimer);
       if (assistantMessage) {
+        assistantMessage._metaInfoArray = metaInfoArray.map(value => {
+          const info = normalizeMeta(value);
+          return info.status === "running" ? { ...info, status: "warning", content: info.content + " — interrupted", ...(info.summary ? { summary: info.summary + " — interrupted" } : {}) } : info;
+        });
         assistantMessage._reasoningVisible = reasoningUserChanged && liveReasoningOpen;
         if (assistantMessage._reasoningVisible) assistantMessage._metaVisible = true;
         $messages = $messages;
@@ -622,8 +658,20 @@
                 </button>
                 {#if msg._metaVisible}
                   <div class="flex flex-col" transition:slide>
-                    {#each [...(msg._metaInfoArray ?? [])].reverse() as info}
-                      <span>{info} ✓</span>
+                    {#each [...(msg._metaInfoArray ?? [])].reverse() as value}
+                      {@const info = normalizeMeta(value)}
+                      <span class="flex items-start justify-end gap-1 wrap-break-word" data-meta-status={info.status} data-meta-id={info.event_id} title={info.content + (info.call_id ? `\nCall ID: ${info.call_id}` : "")}>
+                        <span class="min-w-0">{info.summary ?? info.content}</span>
+                        {#if info.status === "running"}
+                          <icons.LoaderCircle size={12} class="shrink-0 animate-spin" aria-label="Running" />
+                        {:else if info.status === "success"}
+                          <icons.Check size={12} class="shrink-0" aria-label="Completed" />
+                        {:else if info.status === "warning"}
+                          <icons.TriangleAlert size={12} class="shrink-0 text-warning-500" aria-label="Warning" />
+                        {:else if info.status === "error"}
+                          <icons.CircleX size={12} class="shrink-0 text-error-500" aria-label="Failed" />
+                        {/if}
+                      </span>
                     {/each}
                   </div>
                   <div class="text-xs flex flex-col space-y-0 self-end text-right">
@@ -660,7 +708,9 @@
             {/if}
           </div>
           {#if isActive}
-            <span role="status" class="text-xs text-right text-surface-500">{metaInfo || "Working…"}</span>
+            {#if !msg._metaVisible}
+              <span role="status" class="text-xs text-right text-surface-500">{metaInfo || "Working…"}</span>
+            {/if}
             {#if msg._reasoningText}
               <div class="flex flex-col min-w-0 max-w-full">
                 <button

@@ -7,6 +7,7 @@
 #include "inference.h"
 #include "inference_messages.h"
 #include "chat_tools.h"
+#include "cutils.h"
 #include "sourceproc.h"
 #include "settings.h"
 #include "tokenizer.h"
@@ -221,12 +222,12 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
             return connected;
           };
 
-          auto onInfo = [packPayload, &sink, &connected](std::string_view info)
+          auto onInfo = [&sink, &connected](std::string_view info, const json &details = json::object())
             {
-              json payload = {
-                { "type", "meta" },
-                { "content", std::string(info) }
-              };
+              json payload = details;
+              payload["type"] = "meta";
+              payload["content"] = std::string(info);
+              if (!payload.contains("status")) payload["status"] = "info";
               const auto sse = "data: " + payload.dump() + "\n\n";
               if (connected && !sink.write(sse.data(), sse.size())) connected = false;
             };
@@ -268,6 +269,17 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
             std::vector<std::string> allowedFiles;
             bool filesCollected = false;
             chat_tools::GitRepositoryCache gitCache;
+            std::set<std::string> displayRoots;
+            if (!tools.empty()) for (const auto &source : imp->app_.settings().sources()) {
+              if (source.type != "directory" && source.type != "file") continue;
+              auto root = std::filesystem::absolute(std::filesystem::path(std::u8string(source.path.begin(), source.path.end()))).lexically_normal();
+              if (source.type == "file") root = root.parent_path();
+              const auto bytes = root.generic_u8string();
+              std::string text(bytes.begin(), bytes.end());
+              if (!text.ends_with('/')) text += '/';
+              displayRoots.insert(std::move(text));
+            }
+            const auto displayRoot = utils::commonDirPrefix(displayRoots);
             size_t roundNumber = 0;
             auto generate = [&](const json &messages) -> chat_tools::Turn {
               ++roundNumber;
@@ -285,7 +297,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
                 if (!chat_tools::fitToolResults(roundMessages, inputBudget, count))
                   throw std::runtime_error("Conversation leaves no room for a final answer; shorten the conversation or reduce max_tokens");
                 inputTokens = inference_contant::estimateRequestTokens(roundMessages, roundTools, count);
-                onInfo("Finishing with gathered evidence; tool step or context budget reached");
+                onInfo("Finishing with gathered evidence; tool round or context budget reached", {{"status", "warning"}});
               }
               if (inputTokens > inputBudget) throw std::runtime_error("Conversation exceeds the model context budget");
               chat_tools::Turn turn;
@@ -293,6 +305,10 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
               const auto accountRound = [&] {
                 tokenTotals.add(info, inputTokens);
               };
+              const auto roundLabel = tools.empty() ? std::string("Response") :
+                "Round " + std::to_string(roundNumber) + "/" + std::to_string(chat_tools::kMaxAgentSteps);
+              json roundMeta = {{"event_id", "round:" + std::to_string(roundNumber)}, {"round", roundNumber}, {"status", "running"}, {"summary", "Generating response..."}};
+              onInfo(roundLabel + ": generating response", roundMeta);
               try {
               turn.text = cc.generateCompletion(roundMessages, orderedResults, temperature, maxTokens,
                 [&sink, packPayload, &connected, bufferAnswer = !tools.empty()](const std::string &chunk) {
@@ -308,16 +324,32 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
                   if (!sink.write(sse.data(), sse.size())) connected = false;
                 },
                 freeChat, roundTools, false, isConnected,
-                [&connected, onInfo](const std::string &meta) {
-                  if (connected) onInfo(meta);
-                }, &info
+                {}, &info
               );
               } catch (...) {
                 accountRound();
+                roundMeta["status"] = "error";
+                roundMeta["summary"] = "Request failed";
+                onInfo(roundLabel + ": request failed", roundMeta);
                 throw;
               }
               accountRound();
               turn.incomplete = info.status == inference_contant::CompletionStatus::Incomplete;
+              const bool toolRound = info.status == inference_contant::CompletionStatus::ToolCalls;
+              std::string summary = turn.incomplete ? "response incomplete" : toolRound ?
+                "requested " + std::to_string(turn.assistant.value("tool_calls", json::array()).size()) + " tool calls" : turn.text.empty() ? "no answer text returned" : "response ready";
+              roundMeta["status"] = turn.incomplete || (!toolRound && turn.text.empty()) ? "warning" : toolRound ? "info" : "success";
+              if (info.reasoningTokens) summary += "; reasoning tokens " + std::to_string(*info.reasoningTokens);
+              else if (info.estimatedReasoningTokens) summary += "; reasoning tokens " + std::to_string(*info.estimatedReasoningTokens) + " (estimated)";
+              else summary += "; reasoning usage unavailable";
+              std::string compact = turn.incomplete ? "Response incomplete" : toolRound ?
+                "Round " + std::to_string(roundNumber) + " - " + std::to_string(turn.assistant.at("tool_calls").size()) + (turn.assistant.at("tool_calls").size() == 1 ? " tool" : " tools") :
+                turn.text.empty() ? "No answer text returned" : "Response ready";
+              if (info.reasoningTokens || info.estimatedReasoningTokens) compact += " - " +
+                std::to_string(info.reasoningTokens.value_or(info.estimatedReasoningTokens.value_or(0))) + " reasoning tokens" +
+                (info.reasoningTokens ? "" : " (est.)");
+              roundMeta["summary"] = compact;
+              onInfo(roundLabel + ": " + summary, roundMeta);
               return turn;
               };
             auto execute = [&](const json &call) {
@@ -345,7 +377,9 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
                     opts.contextLines = 2;
                     opts.maxMatchesPerFile = 10;
                     opts.maxTotalResults = 9;
-                    return imp->app_.sourceProcessor().grep({ pattern }, paths, opts);
+                    SourceProcessor::GrepStats stats;
+                    auto matches = imp->app_.sourceProcessor().grep({ pattern }, paths, opts, &stats);
+                    return chat_tools::GrepSearchResult{std::move(matches), stats.searchedFiles, stats.failedFiles, stats.limitReached};
                   });
               if (funcName == "list_files")
                 return chat_tools::executeListFiles(call, { allowedFiles, toolSources });
@@ -366,7 +400,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
                         embeddingError = true;
                         embedding.clear();
                         LOG_MSG_WARN << "search_context: unable to generate query embedding:" << e.what();
-                        onInfo("search_context: embedding server unavailable; falling back to text search");
+                        onInfo("search_context: embedding server unavailable; falling back to text search", {{"status", "warning"}});
                       }
                       const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
                       const auto queryTokens = count(query);
@@ -386,7 +420,9 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
             };
             auto outcome = tools.empty() ? generate(generationMessages) :
               chat_tools::run(generationMessages, generate, execute,
-                isConnected, chat_tools::kMaxAgentSteps, onInfo);
+                isConnected, chat_tools::kMaxAgentSteps, [&](const json &event) {
+                  onInfo(event.at("content").get_ref<const std::string &>(), event);
+                }, displayRoot);
             if (!connected) {
               const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
               imp->app_.monitor().recordRequest("chat", elapsed, true, totalInputTokens, resTokens);
@@ -395,12 +431,12 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
               return false;
             }
             const auto &fullResponse = outcome.text;
-            if (outcome.limitReached) onInfo("Tool search step limit reached");
+            if (outcome.limitReached) onInfo("Tool round limit reached", {{"status", "warning"}});
             if (!tools.empty() && !fullResponse.empty()) {
               const auto sse = packPayload(fullResponse);
               if (!sink.write(sse.data(), sse.size())) return false;
             }
-            if (outcome.incomplete) onInfo("Model response was incomplete; it was not retained for reasoning replay");
+            if (outcome.incomplete) onInfo("Model response was incomplete; it was not retained for reasoning replay", {{"status", "warning"}});
             const bool remembered = !outcome.incomplete && !fullResponse.empty() &&
               imp->app_.reasoningHistory().remember(prepared.ticket, outcome.assistant);
 
@@ -412,6 +448,13 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
               });
 #endif
             onInfo(fmt::format("Token totals{}: input {}, output {}", tokenTotals.estimated ? " (estimated in part)" : " (provider-reported)", totalInputTokens, resTokens));
+
+            std::string reasoningSummary = tokenTotals.reasoningKnownRounds ?
+              "Reasoning tokens across all rounds: " + std::to_string(tokenTotals.reasoning) : "Reasoning usage unavailable for all rounds";
+            if (tokenTotals.reasoningEstimated) reasoningSummary += " (estimated in part)";
+            if (tokenTotals.reasoningKnownRounds && tokenTotals.reasoningUnavailableRounds)
+              reasoningSummary += "; usage unavailable for " + std::to_string(tokenTotals.reasoningUnavailableRounds) + " rounds";
+            onInfo(reasoningSummary);
 
             auto costReq = apiConfig.inputTokensPrice(totalInputTokens);
             auto costRes = apiConfig.outputTokensPrice(resTokens);

@@ -674,6 +674,7 @@ std::string CompletionClient::generateCompletion(
   }
 
   const auto reasoningTokens = app_.tokenizer().countTokensWithVocab(reasoningBuffer);
+  if (!reasoningBuffer.empty()) info.estimatedReasoningTokens = reasoningTokens;
   info.estimatedOutputTokens = app_.tokenizer().countTokensWithVocab(fullResponse) + reasoningTokens +
     app_.tokenizer().countTokensWithVocab(argumentBuffer);
   if (shouldContinue && !shouldContinue()) return fullResponse;

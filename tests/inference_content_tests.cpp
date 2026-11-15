@@ -148,6 +148,12 @@ int main() {
     totals.add(fallbackUsage,50);
     if (totals.input != 250 || totals.output != 68 || !totals.estimated)
       throw std::runtime_error("missing usage uses per-round estimates and labels mixed totals");
+    if (totals.reasoning != 40 || totals.reasoningUnavailableRounds != 1)
+      throw std::runtime_error("reasoning totals distinguish known usage from missing breakdowns");
+    fallbackUsage.estimatedReasoningTokens = 4;
+    totals.add(fallbackUsage,50);
+    if (totals.reasoning != 44 || !totals.reasoningEstimated || totals.reasoningUnavailableRounds != 1)
+      throw std::runtime_error("readable reasoning estimates are accumulated without inventing missing zero usage");
     usage.observe(cfg, json::parse(R"({"usage":null,"choices":[{"finish_reason":"tool_calls"}]})"));
     if (usage.outputTokens != 30 || usage.status != inference_contant::CompletionStatus::ToolCalls)
       throw std::runtime_error("usage survives null events and tool handoffs have an explicit status");

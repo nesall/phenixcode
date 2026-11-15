@@ -146,6 +146,7 @@ bool SourceProcessor::readFileRaw(const std::string &uri, std::string &data, boo
   data.resize(static_cast<size_t>(n));
   f.seekg(0);
   f.read(data.data(), n);
+  if (f.bad() || f.gcount() != n) { data.clear(); return false; }
   data.resize(static_cast<size_t>(f.gcount()));
   if (normalizeNewlines) {
     // CRLF -> LF, preserving lone '\r'.
@@ -182,8 +183,9 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
   return grep(terms, filePaths, GrepOptions{});
 }
 
-std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &termsArg, const std::vector<std::string> &filePaths, const GrepOptions &opts) const
+std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &termsArg, const std::vector<std::string> &filePaths, const GrepOptions &opts, GrepStats *stats) const
 {
+  if (stats) *stats = {};
   if (termsArg.empty()) return {};
 
   std::vector<std::string> targets = filePaths;
@@ -279,10 +281,20 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
   std::vector<SearchResult> results;
 
   for (const auto &path : targets) {
-    if (results.size() >= opts.maxTotalResults) break;
+    if (results.size() >= opts.maxTotalResults) { if (stats) stats->limitReached = true; break; }
 
     std::string content;
-    if (!readFileRaw(path, content, true)) continue;
+    if (!readFileRaw(path, content, true)) {
+      if (stats) {
+        // readFileRaw also returns false for an empty file. Distinguish that
+        // readable, match-free case from a failed read without changing its API.
+        std::ifstream empty(path, std::ios::binary | std::ios::ate);
+        if (empty && empty.tellg() == 0) ++stats->searchedFiles;
+        else ++stats->failedFiles;
+      }
+      continue;
+    }
+    if (stats) ++stats->searchedFiles;
 
     const std::string loweredContent = toLowerAscii(content);
 
@@ -360,12 +372,13 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
       }
     }
 
+    if (stats && fileMatches >= opts.maxMatchesPerFile) stats->limitReached = true;
     if (windows.empty()) continue;
 
     const auto contentType = Chunker::contentTypeToStr(Chunker::detectContentType(content, path));
 
     for (const auto &w : windows) {
-      if (results.size() >= opts.maxTotalResults) break;
+      if (results.size() >= opts.maxTotalResults) { if (stats) stats->limitReached = true; break; }
 
       std::string snippet;
 

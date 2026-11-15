@@ -90,6 +90,9 @@ def main():
                 if self.path == "/stream" and step < 2:
                     name, args = ("grep", {"pattern": "Needle"}) if step == 0 else ("read_file", {"path": str(source)})
                     calls = [{"id": f"call_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
+                if self.path == "/batch" and step == 0:
+                    calls = [{"id": "first", "type": "function", "function": {"name": "grep", "arguments": json.dumps({"pattern": "Needle", "path_filter": "missing/"})}},
+                             {"id": "second", "type": "function", "function": {"name": "grep", "arguments": json.dumps({"pattern": "Needle(", "path_filter": str(source)})}}]
                 if self.path == "/project" and step < 2:
                     name, args = ("project_info", {}) if step == 0 else ("project_settings", {"section": "all"})
                     calls = [{"id": f"project_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
@@ -115,11 +118,16 @@ def main():
                 truncated = self.path == "/truncated"
                 message = {"role": "assistant", "content": "I will search now" if calls or truncated else "Final answer",
                            "reasoning_content": "thinking through the evidence"}
+                if self.path == "/empty":
+                    message["content"] = ""
                 if calls:
                     message["tool_calls"] = calls
                 reason = "length" if truncated else "tool_calls" if calls else "stop"
                 usage = {"prompt_tokens": (step + 1) * 100, "completion_tokens": (step + 1) * 10,
                          "completion_tokens_details": {"reasoning_tokens": 5}}
+                if self.path == "/no-reasoning-usage":
+                    message.pop("reasoning_content")
+                    usage.pop("completion_tokens_details")
                 if body["stream"]:
                     delta = dict(message)
                     if calls:
@@ -138,7 +146,7 @@ def main():
         threading.Thread(target=provider.serve_forever, daemon=True).start()
         provider_url = f"http://127.0.0.1:{provider.server_port}"
         modes = ["stream", "plain", "error", "bad-json", "truncated", "no-usage", "budget", "steps", "listing",
-                 "context-text", "context-hybrid", "context-fallback", "project", "git-diff", "git-log", "git-show", "git-branch", "git-context"]
+                 "context-text", "context-hybrid", "context-fallback", "project", "git-diff", "git-log", "git-show", "git-branch", "git-context", "batch", "no-reasoning-usage", "empty"]
         catalog = {"agent_enabled": True, "embedding_providers": [{"id": "embed", "api_url": provider_url + "/embedding", "model": "mock",
                     "query_format": "query: {}", "document_format": "document: {}"}],
                    "generation_providers": [{"id": mode, "model": mode, "api_url": provider_url + "/" + mode,
@@ -188,6 +196,10 @@ def main():
 
                 events = chat("stream")
                 check(len(requests["/stream"]) == 3, "grep/read_file require three model rounds")
+                starts = [event for event in events if event.get("status") == "running" and event.get("event_id", "").startswith("round:")]
+                check(starts and all(event.get("summary") == "Generating response..." for event in starts), "generation labels are independent of round numbering")
+                reads = [event for event in events if event.get("tool") == "read_file" and event.get("status") != "running"]
+                check(reads and "Read source.cpp:" in reads[0]["summary"] and str(root) not in reads[0]["summary"] and str(source).replace("\\", "/") not in reads[0]["summary"], "read summaries use configured-source-relative paths")
                 first = requests["/stream"][0]
                 check(first["max_tokens"] == 257 and first["stream_options"]["include_usage"], "integer max_tokens and streaming usage reach provider")
                 check("RETRIEVED_CONTEXT_SENTINEL" in first["messages"][-1]["content"], "retrieval context precedes tool decision")
@@ -195,6 +207,22 @@ def main():
                 check(any(e.get("content") == "Token totals (provider-reported): input 600, output 60" for e in events), "three-round provider totals are exact")
                 answer = "".join(e.get("content", "") for e in events if "type" not in e)
                 check(answer == "Final answer", "only final prose is published")
+                check(any(e.get("content") == "Reasoning tokens across all rounds: 15" for e in events), "reasoning usage is totaled across model rounds")
+                events = chat("batch")
+                tool_events = [event for event in events if event.get("tool") == "grep"]
+                check(len(tool_events) == 4 and [event["call_index"] for event in tool_events] == [1, 1, 2, 2] and
+                      all(event["round"] == 1 for event in tool_events), "batched tools share a round but have separate call numbers")
+                check(tool_events[0]["event_id"] == tool_events[1]["event_id"] and tool_events[2]["event_id"] == tool_events[3]["event_id"], "call results update their own start identity")
+                check(tool_events[1]["status"] == "info" and tool_events[1]["outcome"] == "no_files_matched_filter" and
+                      tool_events[3]["searched_files"] == 1 and tool_events[3]["status"] == "success", "grep distinguishes empty scope from a successful searched scope")
+                check('path_filter="missing/"' in tool_events[0]["content"] and 'pattern="Needle("' in tool_events[2]["content"], "literal patterns and path filters are visible in streaming metadata")
+                check("path_filter=" not in tool_events[0]["summary"] and "in missing/" in tool_events[0]["summary"], "compact tool summary retains custom scope without parameter names")
+                check("1/1 files" not in tool_events[3]["summary"] and "1 files" in tool_events[3]["summary"], "complete searches omit redundant denominator counts")
+                check(not any("Model stopped with reason: tool_calls" in event.get("content", "") for event in events), "normal tool handoff is not presented as a stopped model")
+                events = chat("no-reasoning-usage", free=True)
+                check(any(event.get("content") == "Reasoning usage unavailable for all rounds" for event in events), "missing reasoning breakdown is not presented as zero")
+                events = chat("empty", free=True)
+                check(any(event.get("status") == "warning" and "no answer text returned" in event.get("content", "") for event in events), "empty answers do not receive a successful response status")
                 events = chat("plain", free=True)
                 check(any(e.get("content") == "Token totals (provider-reported): input 100, output 10" for e in events), "ordinary nonstreaming output includes reasoning exactly once")
                 events = chat("no-usage", free=True)
@@ -219,7 +247,7 @@ def main():
                 check(len(requests["/listing"]) == 3, "list_files/read_file require three model rounds")
                 listed = json.loads(requests["/listing"][1]["messages"][-1]["content"])
                 check(listed["count"] == 1 and listed["files"] == [source.as_posix()], "list_files applies filters through the HTTP dispatcher")
-                check(any("list_files:" in e.get("content", "") and "1 files returned" in e["content"] for e in events),
+                check(any(e.get("tool") == "list_files" and e.get("status") != "running" and "1 files returned" in e["content"] for e in events),
                       "list_files result summary reaches typed meta SSE")
                 check(any(e.get("content") == "Final answer" for e in events), "file discovery leads to a final answer")
                 events = chat("project")
@@ -236,15 +264,15 @@ def main():
                 check(project_settings["models"]["selected_generation"]["id"] == "project" and
                       project_settings["models"]["configured_generation_id"] == "stream", "settings reflect request provider override")
                 check(provider_url not in json.dumps(project_settings), "settings omit provider endpoints")
-                check(any("project_info: loaded summary" in event.get("content", "") for event in events) and
-                      any("project_settings: loaded summary" in event.get("content", "") for event in events), "project tool progress reaches SSE")
+                check(any(event.get("tool") == "project_info" and "loaded summary" in event.get("content", "") for event in events) and
+                      any(event.get("tool") == "project_settings" and "loaded summary" in event.get("content", "") for event in events), "project tool progress reaches SSE")
                 check(any(e.get("content") == "Final answer" for e in events), "inspection evidence produces final answer")
                 for mode, expected in (("git-diff", "GIT_WORKTREE_SENTINEL"), ("git-log", "second HTTP Git fixture"), ("git-show", "void Needle"), ("git-branch", "GIT_COMMITTED_SENTINEL"), ("git-context", "GIT_WORKTREE_SENTINEL")):
                     events = chat(mode)
                     check(len(requests["/" + mode]) == 2, "Git tool result reaches a second model round")
                     git_result = json.loads(requests["/" + mode][1]["messages"][-1]["content"])
                     check(expected in git_result["content"] and "HTTP_GIT_SECRET" not in git_result["content"], "Git HTTP dispatcher enforces source scope")
-                    check(any(("git_diff" if mode in ("git-branch", "git-context") else mode.replace("-", "_")) + ": inspection returned" in event.get("content", "") for event in events), "Git progress reaches typed SSE metadata")
+                    check(any(event.get("tool") == ("git_diff" if mode in ("git-branch", "git-context") else mode.replace("-", "_")) and "inspection returned" in event.get("content", "") for event in events), "Git progress reaches typed SSE metadata")
                     if mode == "git-context":
                         check(git_result["context"] == 0 and "RETRIEVED_CONTEXT_SENTINEL" not in git_result["content"], "zero-context patch reaches the next model round without surrounding lines")
                     if mode == "git-branch":
@@ -274,11 +302,11 @@ def main():
                     check(result["mode"] == expected_mode and result["matches"], "indexed search selects hybrid retrieval or embedding-error fallback")
                     check(all("REMOVED_CONTEXT_SENTINEL" not in hit["content"] for hit in result["matches"]), "stale sources never enter tool context")
                     check(any(e.get("content") == "Final answer" for e in events), "indexed context search completes the tool workflow")
-                    check(any("search_context:" in e.get("content", "") for e in events), "context search progress reaches SSE metadata")
+                    check(any(e.get("tool") == "search_context" for e in events), "context search progress reaches SSE metadata")
                 hybrid = json.loads(requests["/context-hybrid"][1]["messages"][-1]["content"])
                 check(any("SEMANTIC_ONLY_SENTINEL" in hit["content"] for hit in hybrid["matches"]), "semantic search finds evidence without literal query matches")
                 check(any("query: recovery coordination" in req["content"] for req in requests["/embedding"]), "tool queries use the embedding provider query format")
-                print("HTTP tool/context/usage/error/budget integration checks passed (18 scenarios).")
+                print("HTTP tool/context/usage/error/budget integration checks passed (21 scenarios).")
             finally:
                 process.terminate()
                 process.wait(timeout=10)

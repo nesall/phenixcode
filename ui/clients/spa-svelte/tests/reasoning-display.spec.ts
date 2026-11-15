@@ -95,7 +95,7 @@ test("reasoning appears live without an empty answer bubble and returns under Re
   await expect(ready).toHaveAttribute("aria-expanded", "false");
   const completed = await showCompletedReasoning(reply);
   await expect(completed).toHaveText("First thought ✓ Second thought. Final detail.");
-  await expect(reply.getByText("Approx. cost incurred: $0.001 ✓", { exact: true })).toBeVisible();
+  await expect(reply.getByText("Approx. cost incurred: $0.001", { exact: true })).toBeVisible();
   await ready.click();
   await expect(completed).toHaveCount(0);
   await ready.click();
@@ -180,4 +180,80 @@ test("long reasoning scrolls within a narrow viewport and sanitized Markdown ren
   expect(bounds.height).toBeLessThanOrEqual(bounds.maxHeight);
   expect(bounds.right).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => (window as any).reasoningInjected)).toBeUndefined();
+});
+
+
+test("tool metadata updates one row per call and preserves distinct outcomes within a round", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await send(page, "Inspect tools");
+  const first = { type: "meta", event_id: "tool:1:first", round: 1, call_id: "first", call_index: 1, call_count: 2,
+    status: "running", content: 'Round 1/10 · Call 1/2: grep(pattern="onInfo", path_filter="missing/")',
+    summary: 'Round 1 · 1/2 · Search "onInfo" in missing/' };
+  const generating = { type: "meta", event_id: "round:1", status: "running", content: "Round 1/10: generating response", summary: "Generating response..." };
+  await emit(page, [{ type: "reasoning_delta", content: "Inspecting the source." }, generating]);
+  const reply = assistants(page).first();
+  await expect(reply.getByRole("status")).toHaveText("Generating response...");
+  await reply.getByRole("button", { name: "Working…", exact: true }).click();
+  await expect(reply.getByRole("status")).toHaveCount(0);
+  await expect(reply.locator('[data-meta-id="round:1"]')).toHaveText("Generating response...");
+  await emit(page, [{ ...generating, status: "info", content: "Round 1/10: requested 2 tool calls", summary: "Round 1 - 2 tools" }, first]);
+  const firstRow = reply.locator('[data-meta-id="tool:1:first"]');
+  await expect(firstRow).toHaveCount(1);
+  await expect(firstRow).toHaveAttribute("data-meta-status", "running");
+  await expect(firstRow.locator('[aria-label="Running"]')).toBeVisible();
+  await expect(firstRow.locator('[aria-label="Completed"]')).toHaveCount(0);
+  await expect(firstRow).not.toContainText("path_filter=");
+  await expect(firstRow).toHaveAttribute("title", /path_filter="missing\/"/);
+  await expect(firstRow).toHaveAttribute("title", /Call ID: first/);
+  await reply.getByRole("button", { name: "Working…", exact: true }).click();
+  await expect(reply.getByRole("status")).toHaveText(first.summary);
+  await reply.getByRole("button", { name: "Working…", exact: true }).click();
+  await expect(reply.getByRole("status")).toHaveCount(0);
+  const second = { ...first, event_id: "tool:1:second", call_id: "second", call_index: 2,
+    content: 'Round 1/10 · Call 2/2: grep(pattern="onInfo(", path_filter="src/")', summary: 'Round 1 · 2/2 · Search "onInfo(" in src/' };
+  await emit(page, [{ ...first, status: "info", content: first.content + " — no files matched the filter", summary: first.summary + " — no files matched" }, second]);
+  await expect(firstRow).toHaveCount(1);
+  await expect(firstRow).toHaveAttribute("data-meta-status", "info");
+  await expect(firstRow).toContainText('in missing/');
+  await expect(firstRow.locator("svg")).toHaveCount(0);
+  const secondRow = reply.locator('[data-meta-id="tool:1:second"]');
+  await expect(secondRow).toHaveAttribute("data-meta-status", "running");
+  await emit(page, [{ ...second, status: "error", content: second.content + " — failed: test failure", summary: second.summary + " — failed: test failure" },
+    { type: "meta", event_id: "tool:1:third", status: "success", content: "Call 3 completed" }]);
+  await expect(secondRow).toHaveCount(1);
+  await expect(secondRow).toHaveAttribute("data-meta-status", "error");
+  await expect(secondRow.locator('[aria-label="Failed"]')).toBeVisible();
+  await expect(secondRow.locator('[aria-label="Completed"]')).toHaveCount(0);
+  await expect(reply.locator('[data-meta-id="tool:1:third"] [aria-label="Completed"]')).toBeVisible();
+  expect((await firstRow.boundingBox())!.x + (await firstRow.boundingBox())!.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath("compact-tool-metadata.png") });
+  await emit(page, [{ content: "Final answer" }], true);
+  await expect(reply.getByRole("button", { name: "Ready", exact: true })).toBeVisible();
+  await expect(firstRow).toHaveAttribute("data-meta-status", "info");
+  await expect(secondRow).toHaveAttribute("data-meta-status", "error");
+  await expect(reply.locator('[data-meta-status="running"]')).toHaveCount(0);
+  // IDs are scoped to this reply; later requests may reuse them without altering history.
+  await send(page, "Another turn");
+  await emit(page, [{ type: "reasoning_delta", content: "Next thought" }, { ...first, content: "A later call" }]);
+  await expect(secondRow).toHaveAttribute("data-meta-status", "error");
+  await emit(page, [{ error: "Connection ended" }], true);
+  const interrupted = assistants(page).last();
+  await interrupted.getByRole("button", { name: "Ready", exact: true }).click();
+  await expect(interrupted.locator('[data-meta-id="tool:1:first"]')).toHaveAttribute("data-meta-status", "warning");
+  await expect(interrupted).toContainText("interrupted");
+});
+
+test("saved metadata supports legacy strings and structured failures without adding success marks", async ({ page }) => {
+  await page.evaluate(async () => {
+    const { messages } = await import("/src/lib/store.ts");
+    messages.set([{ role: "assistant", content: "Saved response", _html: "Saved response", _metaInfoArray: [
+      "Legacy metadata", { content: "Saved failed call", status: "error", event_id: "saved" },
+    ] }]);
+  });
+  const reply = assistants(page).last();
+  await reply.getByRole("button", { name: "Ready", exact: true }).click();
+  await expect(reply.getByText("Legacy metadata", { exact: true })).toBeVisible();
+  await expect(reply.locator('[data-meta-status="info"] svg')).toHaveCount(0);
+  await expect(reply.locator('[data-meta-id="saved"] [aria-label="Failed"]')).toBeVisible();
+  await expect(reply.locator('[aria-label="Completed"]')).toHaveCount(0);
 });

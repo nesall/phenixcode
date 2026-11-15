@@ -22,6 +22,11 @@ public:
     bool idfPruning = false; // two-pass DF prune; use when no FTS index exists
     float saturationScale = 10.0f;
   };
+  struct GrepStats {
+    size_t searchedFiles = 0;
+    size_t failedFiles = 0;
+    bool limitReached = false;
+  };
 private:
   Settings settings_;
 public:
@@ -35,7 +40,7 @@ public:
   std::vector<SearchResult> grep(
     const std::vector<std::string> &terms,
     const std::vector<std::string> &filePaths, // if empty, uses collectSources(false)
-    const GrepOptions &opts) const;
+    const GrepOptions &opts, GrepStats *stats = nullptr) const;
   std::vector<SearchResult> grep(const std::vector<std::string> &terms,
     const std::vector<std::string> &filePaths) const;
 
