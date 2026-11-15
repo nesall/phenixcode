@@ -111,6 +111,7 @@ add_executable(${PROJECT_NAME}
   src/inference.cpp
   src/inference_messages.cpp
   src/chat_tools.cpp
+  src/chat_tools_git.cpp
   src/database.cpp
   src/sourceproc.cpp
   src/context_builder.cpp

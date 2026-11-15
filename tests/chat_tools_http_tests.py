@@ -4,6 +4,7 @@ Uses temporary project databases and a mock provider; no model or API key needed
 """
 import json
 import os
+import shutil
 from pathlib import Path
 import socket
 import subprocess
@@ -30,6 +31,25 @@ def main():
         source.write_text("// RETRIEVED_CONTEXT_SENTINEL\nvoid Needle() {}\n", encoding="utf-8")
         large = root / "large.cpp"
         large.write_text("evidence words " * 3000, encoding="utf-8")
+        git = shutil.which("git")
+        if not git:
+            raise RuntimeError("Git is required for the HTTP Git tool fixtures")
+        def fixture_git(*args):
+            return subprocess.run([git, "-C", str(root), *args], check=True, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        fixture_git("init", "-b", "main")
+        fixture_git("config", "user.name", "Fixture")
+        fixture_git("config", "user.email", "fixture@example.invalid")
+        fixture_git("config", "core.autocrlf", "false")
+        fixture_git("config", "commit.gpgsign", "false")
+        (root / "excluded.env").write_text("HTTP_GIT_SECRET original\n", encoding="utf-8")
+        fixture_git("add", "source.cpp", "excluded.env")
+        fixture_git("commit", "-m", "initial HTTP Git fixture")
+        source.write_text(source.read_text(encoding="utf-8") + "// GIT_COMMITTED_SENTINEL\n", encoding="utf-8")
+        fixture_git("add", "source.cpp")
+        fixture_git("commit", "-m", "second HTTP Git fixture")
+        source.write_text(source.read_text(encoding="utf-8") + "// GIT_WORKTREE_SENTINEL\n", encoding="utf-8")
+        (root / "excluded.env").write_text("HTTP_GIT_SECRET modified\n", encoding="utf-8")
         semantic = root / "semantic.cpp"
         removed = root / "removed.cpp"
 
@@ -73,6 +93,14 @@ def main():
                 if self.path == "/project" and step < 2:
                     name, args = ("project_info", {}) if step == 0 else ("project_settings", {"section": "all"})
                     calls = [{"id": f"project_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
+                if self.path.startswith("/git-") and step == 0:
+                    name = "git_diff" if self.path in ("/git-branch", "/git-context") else self.path[1:].replace("-", "_")
+                    args = {"path": str(source)} if name == "git_diff" else {"limit": 1} if name == "git_log" else {"revision": "HEAD", "path": str(source)}
+                    if self.path == "/git-branch":
+                        args = {"base": "HEAD~1", "path": str(source)}
+                    if self.path == "/git-context":
+                        args = {"context": 0, "path": str(source)}
+                    calls = [{"id": "git_call", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
                 if self.path == "/listing" and step < 2:
                     name, args = ("list_files", {"path_filter": "source.cpp", "extension": "cpp"}) if step == 0 else ("read_file", {"path": str(source)})
                     calls = [{"id": f"list_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
@@ -110,12 +138,12 @@ def main():
         threading.Thread(target=provider.serve_forever, daemon=True).start()
         provider_url = f"http://127.0.0.1:{provider.server_port}"
         modes = ["stream", "plain", "error", "bad-json", "truncated", "no-usage", "budget", "steps", "listing",
-                 "context-text", "context-hybrid", "context-fallback", "project"]
+                 "context-text", "context-hybrid", "context-fallback", "project", "git-diff", "git-log", "git-show", "git-branch", "git-context"]
         catalog = {"agent_enabled": True, "embedding_providers": [{"id": "embed", "api_url": provider_url + "/embedding", "model": "mock",
                     "query_format": "query: {}", "document_format": "document: {}"}],
                    "generation_providers": [{"id": mode, "model": mode, "api_url": provider_url + "/" + mode,
                        "stream": mode not in ("plain", "bad-json"), "supports_tools": "on",
-                       "context_length": 2400 if mode == "budget" else 32000} for mode in modes]}
+                       "context_length": 4096 if mode == "budget" else 32000} for mode in modes]}
         config = json.loads((repo / "settings.json").read_text(encoding="utf-8"))
         config["source"].update(paths=[{"type": "directory", "path": str(root), "recursive": False, "extensions": [".cpp"]}],
                                 global_exclude=[], project_id="tools-http-test")
@@ -186,6 +214,7 @@ def main():
                     check(sum(m["role"] == "system" for m in requests["/" + mode][-1]["messages"]) == 1,
                           "finalization extends the existing system message")
                 check(len(requests["/steps"]) == 10, "last allowed round is reserved for final answer")
+                check(1 < len(requests["/budget"]) < 10, "small context fits all tool schemas but finalizes before the step limit")
                 events = chat("listing")
                 check(len(requests["/listing"]) == 3, "list_files/read_file require three model rounds")
                 listed = json.loads(requests["/listing"][1]["messages"][-1]["content"])
@@ -210,6 +239,17 @@ def main():
                 check(any("project_info: loaded summary" in event.get("content", "") for event in events) and
                       any("project_settings: loaded summary" in event.get("content", "") for event in events), "project tool progress reaches SSE")
                 check(any(e.get("content") == "Final answer" for e in events), "inspection evidence produces final answer")
+                for mode, expected in (("git-diff", "GIT_WORKTREE_SENTINEL"), ("git-log", "second HTTP Git fixture"), ("git-show", "void Needle"), ("git-branch", "GIT_COMMITTED_SENTINEL"), ("git-context", "GIT_WORKTREE_SENTINEL")):
+                    events = chat(mode)
+                    check(len(requests["/" + mode]) == 2, "Git tool result reaches a second model round")
+                    git_result = json.loads(requests["/" + mode][1]["messages"][-1]["content"])
+                    check(expected in git_result["content"] and "HTTP_GIT_SECRET" not in git_result["content"], "Git HTTP dispatcher enforces source scope")
+                    check(any(("git_diff" if mode in ("git-branch", "git-context") else mode.replace("-", "_")) + ": inspection returned" in event.get("content", "") for event in events), "Git progress reaches typed SSE metadata")
+                    if mode == "git-context":
+                        check(git_result["context"] == 0 and "RETRIEVED_CONTEXT_SENTINEL" not in git_result["content"], "zero-context patch reaches the next model round without surrounding lines")
+                    if mode == "git-branch":
+                        check(git_result["mode"] == "branch" and "GIT_WORKTREE_SENTINEL" not in git_result["content"], "branch review excludes uncommitted worktree changes")
+                    check(any(event.get("content") == "Final answer" for event in events), "model completes answer after Git inspection")
                 events = chat("context-text")
                 text_result = json.loads(requests["/context-text"][1]["messages"][-1]["content"])
                 check(text_result["mode"] == "text" and any("Needle" in hit["content"] for hit in text_result["matches"]),
@@ -238,7 +278,7 @@ def main():
                 hybrid = json.loads(requests["/context-hybrid"][1]["messages"][-1]["content"])
                 check(any("SEMANTIC_ONLY_SENTINEL" in hit["content"] for hit in hybrid["matches"]), "semantic search finds evidence without literal query matches")
                 check(any("query: recovery coordination" in req["content"] for req in requests["/embedding"]), "tool queries use the embedding provider query format")
-                print("HTTP tool/context/usage/error/budget integration checks passed (13 scenarios).")
+                print("HTTP tool/context/usage/error/budget integration checks passed (18 scenarios).")
             finally:
                 process.terminate()
                 process.wait(timeout=10)

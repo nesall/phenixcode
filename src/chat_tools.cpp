@@ -662,6 +662,8 @@ namespace chat_tools {
             " excerpts returned (" + output.at("mode").get<std::string>() + ")" + (output.value("truncated", false) ? " (truncated)" : ""));
           else if (name == "project_info" || name == "project_settings") onStatus(name + ": loaded summary returned" +
             (output.value("truncated", false) ? " (truncated)" : ""));
+          else if (name == "git_diff" || name == "git_log" || name == "git_show") onStatus(name + ": inspection returned" +
+            (output.value("truncated", false) ? " (truncated)" : ""));
           else if (name == "read_file") onStatus("read_file: returned lines " + std::to_string(output.at("start_line").get<size_t>()) +
             "-" + std::to_string(output.at("end_line").get<size_t>()) + (output.value("truncated", false) ? " (truncated)" : ""));
         }

@@ -4,6 +4,8 @@
 #include "database.h"
 #include "inference_messages.h"
 #include <functional>
+#include <filesystem>
+#include <map>
 #include <string_view>
 
 struct ApiConfig;
@@ -20,6 +22,13 @@ namespace chat_tools {
     std::vector<std::string> &usedSources;
   };
 
+  // Request-local discovery only. Never share across requests or source-scope changes.
+  struct GitRepositoryCache {
+    std::filesystem::path workingDirectory;
+    std::map<std::string, std::filesystem::path> files;
+    std::map<std::filesystem::path, std::filesystem::path> roots;
+  };
+
   bool enabled(bool agentEnabled, const ApiConfig &api, bool freeChat, bool attachedOnly);
   nlohmann::json grepDefinition();
   nlohmann::json readFileDefinition();
@@ -27,6 +36,10 @@ namespace chat_tools {
   nlohmann::json searchContextDefinition();
   nlohmann::json projectInfoDefinition();
   nlohmann::json projectSettingsDefinition();
+  nlohmann::json gitDiffDefinition();
+  nlohmann::json gitLogDefinition();
+  nlohmann::json gitShowDefinition();
+  nlohmann::json executeGit(const nlohmann::json &call, const ToolContext &ctx, GitRepositoryCache *cache = nullptr);
   nlohmann::json executeProjectInfo(const nlohmann::json &call, const Settings &settings,
     const ToolContext &ctx, size_t indexedChunks, const std::vector<std::string> &availableTools);
   nlohmann::json executeProjectSettings(const nlohmann::json &call, const Settings &settings, const ApiConfig &selectedApi);

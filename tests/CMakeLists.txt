@@ -42,7 +42,7 @@ add_test(NAME tokenizer_tests COMMAND tokenizer_tests)
 set_tests_properties(tokenizer_tests PROPERTIES TIMEOUT 30)
 
 find_path(HTTPLIB_INCLUDE_DIR httplib.h HINTS ../build_rel/_deps/httplib-src REQUIRED)
-add_executable(chat_tools_tests chat_tools_tests.cpp ../src/chat_tools.cpp ../src/inference_messages.cpp
+add_executable(chat_tools_tests chat_tools_tests.cpp ../src/chat_tools.cpp ../src/chat_tools_git.cpp ../src/inference_messages.cpp
   ../src/sourceproc.cpp ../src/settings.cpp ../src/cutils.cpp ../src/chunker.cpp ../src/tokenizer.cpp)
 target_compile_features(chat_tools_tests PRIVATE cxx_std_20)
 target_include_directories(chat_tools_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}" "${HTTPLIB_INCLUDE_DIR}")
@@ -51,3 +51,14 @@ if(WIN32)
 endif()
 add_test(NAME chat_tools_tests COMMAND chat_tools_tests)
 set_tests_properties(chat_tools_tests PROPERTIES TIMEOUT 30)
+
+find_package(Git QUIET)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(GIT_FOUND AND Python3_Interpreter_FOUND)
+  add_executable(git_tools_tests git_tools_tests.cpp ../src/chat_tools_git.cpp ../src/cutils.cpp)
+  target_compile_features(git_tools_tests PRIVATE cxx_std_20)
+  target_include_directories(git_tools_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}")
+  add_test(NAME git_tools_tests COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/git_tools_tests.py"
+    $<TARGET_FILE:git_tools_tests> "${GIT_EXECUTABLE}")
+  set_tests_properties(git_tools_tests PROPERTIES TIMEOUT 60)
+endif()

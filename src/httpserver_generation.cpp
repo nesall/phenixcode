@@ -149,7 +149,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
       const bool agentEnabled = imp->app_.settings().providers().agentEnabled();
       const json tools = chat_tools::enabled(agentEnabled, apiConfig, freeChat, request.value("attachedonly", false))
-        ? json::array({chat_tools::grepDefinition(), chat_tools::readFileDefinition(), chat_tools::listFilesDefinition(), chat_tools::searchContextDefinition(), chat_tools::projectInfoDefinition(), chat_tools::projectSettingsDefinition()}) : json::array();
+        ? json::array({chat_tools::grepDefinition(), chat_tools::readFileDefinition(), chat_tools::listFilesDefinition(), chat_tools::searchContextDefinition(), chat_tools::projectInfoDefinition(), chat_tools::projectSettingsDefinition(), chat_tools::gitDiffDefinition(), chat_tools::gitLogDefinition(), chat_tools::gitShowDefinition()}) : json::array();
       if (agentEnabled && !freeChat && !request.value("attachedonly", false)) {
         if (apiConfig.supportsTools == "on" && apiConfig.apiStyle == ApiConfig::ApiStyle::Anthropic)
           pendingInfoVec.push_back("Tools are unavailable for Anthropic API style; continuing without tools");
@@ -267,6 +267,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
             std::vector<std::string> toolSources;
             std::vector<std::string> allowedFiles;
             bool filesCollected = false;
+            chat_tools::GitRepositoryCache gitCache;
             size_t roundNumber = 0;
             auto generate = [&](const json &messages) -> chat_tools::Turn {
               ++roundNumber;
@@ -333,6 +334,8 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
                 for (const auto &tool : tools) availableTools.push_back(tool.at("function").at("name").get<std::string>());
                 return chat_tools::executeProjectInfo(call, imp->app_.settings(), {allowedFiles, toolSources}, imp->app_.db().chunkCount(), availableTools);
               }
+              if (funcName == "git_diff" || funcName == "git_log" || funcName == "git_show")
+                return chat_tools::executeGit(call, {allowedFiles, toolSources}, &gitCache);
               if (funcName == "read_file")
                 return chat_tools::executeReadFile(call, { allowedFiles, toolSources });
               if (funcName == "grep")
