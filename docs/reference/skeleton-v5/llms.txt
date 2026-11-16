@@ -1,0 +1,183 @@
+# Skeleton Documentation
+
+## React
+
+### Get Started
+
+- [Introduction](/docs/react/get-started/introduction.md)
+- [Installation](/docs/react/get-started/installation.md)
+- [Fundamentals](/docs/react/get-started/fundamentals.md)
+- [Core API](/docs/react/get-started/core-api.md)
+- [Migrate from v4](/docs/react/get-started/migrate-from-v4.md)
+
+### Guides
+
+- [Dark Mode](/docs/react/guides/mode.md)
+- [Layouts](/docs/react/guides/layouts.md)
+- [Cookbook](/docs/react/guides/cookbook.md)
+
+### Design System
+
+- [Globals](/docs/react/design/globals.md)
+- [Themes](/docs/react/design/themes.md)
+- [Colors](/docs/react/design/colors.md)
+- [Typography](/docs/react/design/typography.md)
+- [Spacing](/docs/react/design/spacing.md)
+- [Iconography](/docs/react/design/iconography.md)
+
+### Tailwind Utilities
+
+- [Corner Shapes](/docs/react/tailwind-utilities/corner-shapes.md)
+- [Masks](/docs/react/tailwind-utilities/masks.md)
+- [Presets](/docs/react/tailwind-utilities/presets.md)
+
+### Tailwind Components
+
+- [Badges](/docs/react/tailwind-components/badges.md)
+- [Buttons](/docs/react/tailwind-components/buttons.md)
+- [Cards](/docs/react/tailwind-components/cards.md)
+- [Chips](/docs/react/tailwind-components/chips.md)
+- [Dialogs](/docs/react/tailwind-components/dialogs.md)
+- [Disclosures](/docs/react/tailwind-components/disclosures.md)
+- [Dividers](/docs/react/tailwind-components/dividers.md)
+- [Forms and Inputs](/docs/react/tailwind-components/forms.md)
+- [Placeholders](/docs/react/tailwind-components/placeholders.md)
+- [Tables](/docs/react/tailwind-components/tables.md)
+
+### Framework Components
+
+- [Accordion](/docs/react/framework-components/accordion.md)
+- [App Bar](/docs/react/framework-components/app-bar.md)
+- [Avatar](/docs/react/framework-components/avatar.md)
+- [Carousel](/docs/react/framework-components/carousel.md)
+- [Collapsible](/docs/react/framework-components/collapsible.md)
+- [Combobox](/docs/react/framework-components/combobox.md)
+- [Date Picker](/docs/react/framework-components/date-picker.md)
+- [Dialog](/docs/react/framework-components/dialog.md)
+- [File Upload](/docs/react/framework-components/file-upload.md)
+- [Floating Panel](/docs/react/framework-components/floating-panel.md)
+- [Listbox](/docs/react/framework-components/listbox.md)
+- [Locale Provider](/docs/react/framework-components/locale-provider.md)
+- [Marquee](/docs/react/framework-components/marquee.md)
+- [Menu](/docs/react/framework-components/menu.md)
+- [Navigation](/docs/react/framework-components/navigation.md)
+- [Pagination](/docs/react/framework-components/pagination.md)
+- [Popover](/docs/react/framework-components/popover.md)
+- [Portal](/docs/react/framework-components/portal.md)
+- [Progress - Circular](/docs/react/framework-components/progress-circular.md)
+- [Progress - Linear](/docs/react/framework-components/progress-linear.md)
+- [QR Code](/docs/react/framework-components/qr-code.md)
+- [Rating Group](/docs/react/framework-components/rating-group.md)
+- [Segmented Control](/docs/react/framework-components/segmented-control.md)
+- [Slider](/docs/react/framework-components/slider.md)
+- [Steps](/docs/react/framework-components/steps.md)
+- [Switch](/docs/react/framework-components/switch.md)
+- [Tabs](/docs/react/framework-components/tabs.md)
+- [Tags Input](/docs/react/framework-components/tags-input.md)
+- [Toast](/docs/react/framework-components/toast.md)
+- [Toggle Group](/docs/react/framework-components/toggle-group.md)
+- [Tooltip](/docs/react/framework-components/tooltip.md)
+- [Tree View](/docs/react/framework-components/tree-view.md)
+
+### Integrations
+
+- [Code Block](/docs/react/integrations/code-block.md)
+- [Bits UI](/docs/react/integrations/bits-ui.md)
+- [Melt UI](/docs/react/integrations/melt-ui.md)
+- [Radix UI](/docs/react/integrations/radix-ui.md)
+
+### Resources
+
+- [Contribute](/docs/react/resources/contribute.md)
+- [LLMs](/docs/react/resources/llms.md)
+
+## Svelte
+
+### Get Started
+
+- [Introduction](/docs/svelte/get-started/introduction.md)
+- [Installation](/docs/svelte/get-started/installation.md)
+- [Fundamentals](/docs/svelte/get-started/fundamentals.md)
+- [Core API](/docs/svelte/get-started/core-api.md)
+- [Migrate from v4](/docs/svelte/get-started/migrate-from-v4.md)
+
+### Guides
+
+- [Dark Mode](/docs/svelte/guides/mode.md)
+- [Layouts](/docs/svelte/guides/layouts.md)
+- [Cookbook](/docs/svelte/guides/cookbook.md)
+
+### Design System
+
+- [Globals](/docs/svelte/design/globals.md)
+- [Themes](/docs/svelte/design/themes.md)
+- [Colors](/docs/svelte/design/colors.md)
+- [Typography](/docs/svelte/design/typography.md)
+- [Spacing](/docs/svelte/design/spacing.md)
+- [Iconography](/docs/svelte/design/iconography.md)
+
+### Tailwind Utilities
+
+- [Corner Shapes](/docs/svelte/tailwind-utilities/corner-shapes.md)
+- [Masks](/docs/svelte/tailwind-utilities/masks.md)
+- [Presets](/docs/svelte/tailwind-utilities/presets.md)
+
+### Tailwind Components
+
+- [Badges](/docs/svelte/tailwind-components/badges.md)
+- [Buttons](/docs/svelte/tailwind-components/buttons.md)
+- [Cards](/docs/svelte/tailwind-components/cards.md)
+- [Chips](/docs/svelte/tailwind-components/chips.md)
+- [Dialogs](/docs/svelte/tailwind-components/dialogs.md)
+- [Disclosures](/docs/svelte/tailwind-components/disclosures.md)
+- [Dividers](/docs/svelte/tailwind-components/dividers.md)
+- [Forms and Inputs](/docs/svelte/tailwind-components/forms.md)
+- [Placeholders](/docs/svelte/tailwind-components/placeholders.md)
+- [Tables](/docs/svelte/tailwind-components/tables.md)
+
+### Framework Components
+
+- [Accordion](/docs/svelte/framework-components/accordion.md)
+- [App Bar](/docs/svelte/framework-components/app-bar.md)
+- [Avatar](/docs/svelte/framework-components/avatar.md)
+- [Carousel](/docs/svelte/framework-components/carousel.md)
+- [Collapsible](/docs/svelte/framework-components/collapsible.md)
+- [Combobox](/docs/svelte/framework-components/combobox.md)
+- [Date Picker](/docs/svelte/framework-components/date-picker.md)
+- [Dialog](/docs/svelte/framework-components/dialog.md)
+- [File Upload](/docs/svelte/framework-components/file-upload.md)
+- [Floating Panel](/docs/svelte/framework-components/floating-panel.md)
+- [Listbox](/docs/svelte/framework-components/listbox.md)
+- [Locale Provider](/docs/svelte/framework-components/locale-provider.md)
+- [Marquee](/docs/svelte/framework-components/marquee.md)
+- [Menu](/docs/svelte/framework-components/menu.md)
+- [Navigation](/docs/svelte/framework-components/navigation.md)
+- [Pagination](/docs/svelte/framework-components/pagination.md)
+- [Popover](/docs/svelte/framework-components/popover.md)
+- [Portal](/docs/svelte/framework-components/portal.md)
+- [Progress - Circular](/docs/svelte/framework-components/progress-circular.md)
+- [Progress - Linear](/docs/svelte/framework-components/progress-linear.md)
+- [QR Code](/docs/svelte/framework-components/qr-code.md)
+- [Rating Group](/docs/svelte/framework-components/rating-group.md)
+- [Segmented Control](/docs/svelte/framework-components/segmented-control.md)
+- [Slider](/docs/svelte/framework-components/slider.md)
+- [Steps](/docs/svelte/framework-components/steps.md)
+- [Switch](/docs/svelte/framework-components/switch.md)
+- [Tabs](/docs/svelte/framework-components/tabs.md)
+- [Tags Input](/docs/svelte/framework-components/tags-input.md)
+- [Toast](/docs/svelte/framework-components/toast.md)
+- [Toggle Group](/docs/svelte/framework-components/toggle-group.md)
+- [Tooltip](/docs/svelte/framework-components/tooltip.md)
+- [Tree View](/docs/svelte/framework-components/tree-view.md)
+
+### Integrations
+
+- [Code Block](/docs/svelte/integrations/code-block.md)
+- [Bits UI](/docs/svelte/integrations/bits-ui.md)
+- [Melt UI](/docs/svelte/integrations/melt-ui.md)
+- [Radix UI](/docs/svelte/integrations/radix-ui.md)
+
+### Resources
+
+- [Contribute](/docs/svelte/resources/contribute.md)
+- [LLMs](/docs/svelte/resources/llms.md)
