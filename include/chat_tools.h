@@ -57,7 +57,8 @@ namespace chat_tools {
   using ContextSearch = std::function<ContextSearchResult(const std::string &)>;
   nlohmann::json executeGrep(const nlohmann::json &call, const ToolContext &ctx, const Search &search);
   nlohmann::json executeReadFile(const nlohmann::json &call, const ToolContext &ctx);
-  nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx);
+  using FileMetadataReader = std::function<std::vector<FileMetadata>()>;
+  nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx, const FileMetadataReader &metadata = {});
   nlohmann::json executeSearchContext(const nlohmann::json &call, const ToolContext &ctx, const ContextSearch &search);
 
   struct Turn {

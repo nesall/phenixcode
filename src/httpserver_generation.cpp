@@ -382,7 +382,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
                     return chat_tools::GrepSearchResult{std::move(matches), stats.searchedFiles, stats.failedFiles, stats.limitReached};
                   });
               if (funcName == "list_files")
-                return chat_tools::executeListFiles(call, { allowedFiles, toolSources });
+                return chat_tools::executeListFiles(call, { allowedFiles, toolSources }, [&] { return imp->app_.db().getTrackedFiles(); });
               if (funcName == "search_context")
                 return chat_tools::executeSearchContext(call, {allowedFiles, toolSources},
                   [&](const std::string &query) -> chat_tools::ContextSearchResult {

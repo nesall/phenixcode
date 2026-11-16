@@ -64,7 +64,12 @@ namespace chat_tools {
       };
       if (name == "grep") return scoped("Search " + quoted("pattern"));
       if (name == "search_context") return "Search context " + quoted("query");
-      if (name == "list_files") return scoped("List " + (text("extension").empty() ? std::string{} : preview(text("extension"), 16) + " ") + "files");
+      if (name == "list_files") {
+        auto label = scoped("List " + (text("extension").empty() ? std::string{} : preview(text("extension"), 16) + " ") + "files");
+        if (!text("sort_by").empty() || !text("order").empty()) label += middle + "by " +
+          (text("sort_by").empty() ? "path" : preview(text("sort_by"), 16)) + " " + (text("order").empty() ? "asc" : preview(text("order"), 8));
+        return label;
+      }
       if (name == "read_file") {
         auto label = "Read " + shortPath(text("path"), root);
         if (output && !output->contains("error")) label += ":" + std::to_string(output->value("start_line", size_t(0))) + "-" + std::to_string(output->value("end_line", size_t(0)));
@@ -137,7 +142,11 @@ namespace chat_tools {
         { "description",
          "List files available in the project source scope. Optionally narrow by path "
          "prefix or file extension. Returns up to 200 files and 8 KiB. "
-         "Use to discover file names before read_file or grep." },
+         "Use to discover file names before read_file or grep, or rank potential splitting candidates by size or lines. "
+         "Sorting covers all matching allowed files before limiting. Size/line sorting adds file_metadata alongside the files path array; "
+         "values are stored index snapshots, may be stale, and are null for unindexed files. Unknown values sort last in either direction. "
+         "Line counts use stored newline counts. "
+         "Files excluded by project rules or max_file_size_mb are not listed." },
         { "parameters",{
           { "type", "object" },
           { "properties",{
@@ -148,7 +157,13 @@ namespace chat_tools {
             { "extension",{
               { "type", "string" },
               { "description", "Optional file extension filter, e.g. '.cpp'; up to 16 bytes including the dot." }
-            } }
+            } },
+            { "sort_by", {{"type", "string"}, {"enum", json::array({"path", "size", "lines"})},
+              {"description", "Sort by path, indexed byte size, or indexed line count. Omit sort_by and order to preserve discovery order."}} },
+            { "order", {{"type", "string"}, {"enum", json::array({"asc", "desc"})},
+              {"description", "Sort direction; default asc. With no sort_by, sorts by path. Use desc for largest files."}} },
+            { "limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 200},
+              {"description", "Maximum files to return, default 200; the 8 KiB result cap still applies."}} }
           } },
           { "required", json::array() },
           { "additionalProperties", false }
@@ -519,7 +534,7 @@ namespace chat_tools {
     }
   }
 
-  nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx)
+  nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx, const FileMetadataReader &readMetadata)
   {
     LOG_MSG_DEBUG << "executeListFiles: " << call.dump();
     try {
@@ -532,11 +547,23 @@ namespace chat_tools {
         throw std::invalid_argument("arguments must be an object");
 
       for (auto it = args.begin(); it != args.end(); ++it) {
-        if (it.key() != "path_filter" && it.key() != "extension")
+        if (it.key() != "path_filter" && it.key() != "extension" && it.key() != "sort_by" && it.key() != "order" && it.key() != "limit")
           throw std::invalid_argument("unknown argument: " + preview(it.key(), 128));
       }
 
       const auto filter = pathFilter(args);
+      const auto sortBy = args.value("sort_by", std::string("path"));
+      const auto order = args.value("order", std::string("asc"));
+      if (sortBy != "path" && sortBy != "size" && sortBy != "lines") throw std::invalid_argument("sort_by must be path, size or lines");
+      if (order != "asc" && order != "desc") throw std::invalid_argument("order must be asc or desc");
+      size_t limit = 200;
+      if (args.contains("limit")) {
+        if (!args["limit"].is_number_integer() || args["limit"] < 1 || args["limit"] > 200)
+          throw std::invalid_argument("limit must be an integer between 1 and 200");
+        limit = args["limit"].get<size_t>();
+      }
+      const bool sorted = args.contains("sort_by") || args.contains("order");
+      const bool withMetadata = sortBy == "size" || sortBy == "lines";
 
       // validate extension
       std::string ext;
@@ -554,13 +581,18 @@ namespace chat_tools {
       }
 
       json result = {{"files", json::array()}, {"count", 0}, {"truncated", false}};
-      auto &files = result["files"];
-      constexpr size_t kMaxListedFiles = 200;
+      struct Entry { std::string path; std::string key; const FileMetadata *metadata = nullptr; };
+      std::vector<Entry> entries;
+      const auto normalize = [](std::string path) {
+        std::replace(path.begin(), path.end(), '\\', '/');
+        const auto bytes = std::filesystem::path(std::u8string(path.begin(), path.end())).lexically_normal().generic_u8string();
+        return std::string(bytes.begin(), bytes.end());
+      };
       for (const std::string &path : ctx.allowedFiles) {
         std::string rel = path;
         std::replace(rel.begin(), rel.end(), '\\', '/');
         if (!filter.empty()) {
-          const auto normalized = std::filesystem::path(rel).lexically_normal().generic_string();
+          const auto normalized = normalize(rel);
           // same heuristic as grep: match '/filter' anywhere or exact prefix
           if (normalized != filter &&
             normalized.rfind(filter, 0) != 0 &&
@@ -574,14 +606,48 @@ namespace chat_tools {
             [](unsigned char c) { return std::tolower(c); });
           if (tail != ext) continue;
         }
-        if (files.size() >= kMaxListedFiles) {
-          result["truncated"] = true;
-          break;
+        entries.push_back({rel, normalize(rel)});
+      }
+      // Keep the snapshot alive while entries hold pointers into it. Only return
+      // metadata for the current allowed scope, never the full tracked-file list.
+      const auto metadata = withMetadata && !entries.empty() && readMetadata ? readMetadata() : std::vector<FileMetadata>{};
+      if (withMetadata) {
+        std::unordered_map<std::string, const FileMetadata *> byPath;
+        for (const auto &file : metadata) byPath.emplace(normalize(file.path), &file);
+        for (auto &entry : entries) {
+          const auto found = byPath.find(entry.key);
+          if (found != byPath.end()) entry.metadata = found->second;
         }
-        files.push_back(rel);
+        result["file_metadata"] = json::array();
+        result["metadata_source"] = "index";
+        result["metadata_freshness"] = "unknown";
+      }
+      if (sorted) {
+        std::stable_sort(entries.begin(), entries.end(), [&](const Entry &a, const Entry &b) {
+          if (withMetadata) {
+            if (bool(a.metadata) != bool(b.metadata)) return a.metadata != nullptr;
+            if (a.metadata && b.metadata) {
+              const auto av = sortBy == "size" ? a.metadata->fileSize : a.metadata->nofLines;
+              const auto bv = sortBy == "size" ? b.metadata->fileSize : b.metadata->nofLines;
+              if (av != bv) return order == "asc" ? av < bv : av > bv;
+            }
+            // Metric ties and unknown values always use ascending source paths.
+            return a.key < b.key;
+          }
+          return order == "asc" ? a.key < b.key : a.key > b.key;
+        });
+      }
+      auto &files = result["files"];
+      for (const auto &entry : entries) {
+        if (files.size() >= limit) { result["truncated"] = true; break; }
+        files.push_back(entry.path);
+        if (withMetadata) result["file_metadata"].push_back({{"source", entry.path},
+          {"size_bytes", entry.metadata ? json(entry.metadata->fileSize) : json(nullptr)},
+          {"line_count", entry.metadata ? json(entry.metadata->nofLines) : json(nullptr)}});
         result["count"] = files.size();
         if (result.dump().size() > kMaxResultBytes) {
           files.erase(files.end() - 1);
+          if (withMetadata) result["file_metadata"].erase(result["file_metadata"].end() - 1);
           result["count"] = files.size();
           result["truncated"] = true;
           break;

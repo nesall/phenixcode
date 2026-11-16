@@ -449,6 +449,70 @@ int main() {
     listed = list(json::object());
     check(listed.dump().size() <= chat_tools::kMaxResultBytes && listed["count"] == listed["files"].size(),
       "serialized limit includes JSON escaping and keeps whole Unicode paths");
+    std::vector<std::string> rankedFiles{"src/z.cpp", "src/b.cpp", "src/a.cpp", "src/new.cpp", "include/a.h", "src/empty.cpp"};
+    std::vector<FileMetadata> rankedMetadata{{"src/z.cpp", 0, 300, 30}, {"src/./b.cpp", 0, 500, 20},
+      {"src/a.cpp", 0, 500, 10}, {"include/a.h", 0, 800, 40}, {"src/empty.cpp", 0, 0, 0}, {"excluded/secret.cpp", 0, 999999, 9999}};
+    size_t metadataReads = 0;
+    const auto rankedList = [&](json args) {
+      return chat_tools::executeListFiles(call("ranking", args, "list_files"), {rankedFiles, listingUsed}, [&] {
+        ++metadataReads;
+        return rankedMetadata;
+      });
+    };
+    auto ranked = rankedList(json::object());
+    check(metadataReads == 0 && ranked["files"] == rankedFiles && !ranked.contains("file_metadata"),
+      "default listing retains discovery order and path-only response without reading metadata");
+    ranked = rankedList({{"sort_by", "path"}, {"limit", 2}});
+    check(metadataReads == 0 && ranked["files"] == json::array({"include/a.h", "src/a.cpp"}) && ranked["truncated"],
+      "path sorting defaults to ascending and sorts the whole filtered set before limiting");
+    ranked = rankedList({{"order", "desc"}, {"limit", 1}});
+    check(ranked["files"] == json::array({"src/z.cpp"}), "order alone sorts paths descending");
+    ranked = rankedList({{"sort_by", "size"}, {"order", "desc"}, {"path_filter", "src"}, {"limit", 3}});
+    check(ranked["files"] == json::array({"src/a.cpp", "src/b.cpp", "src/z.cpp"}) && ranked["truncated"] &&
+      ranked["file_metadata"][0]["size_bytes"] == 500 && ranked["file_metadata"][0]["line_count"] == 10 &&
+      ranked["metadata_source"] == "index" && ranked["metadata_freshness"] == "unknown",
+      "size ranking uses indexed metrics with deterministic path ties and explicit freshness");
+    check(ranked.dump().find("secret.cpp") == std::string::npos && listingUsed.empty(),
+      "metadata never widens source scope or marks files as read");
+    ranked = rankedList({{"sort_by", "lines"}, {"order", "desc"}, {"extension", "cpp"}});
+    check(ranked["files"] == json::array({"src/z.cpp", "src/b.cpp", "src/a.cpp", "src/empty.cpp", "src/new.cpp"}) &&
+      ranked["file_metadata"][3]["line_count"] == 0 && ranked["file_metadata"][4]["line_count"].is_null(),
+      "line ranking filters extensions and distinguishes indexed zero from unknown values sorted last");
+    ranked = rankedList({{"sort_by", "lines"}, {"order", "asc"}, {"path_filter", "src"}});
+    check(ranked["files"] == json::array({"src/empty.cpp", "src/a.cpp", "src/b.cpp", "src/z.cpp", "src/new.cpp"}),
+      "ascending line ranking also places unknown metadata last");
+    ranked = chat_tools::executeListFiles(call("ranking", {{"sort_by", "size"}}, "list_files"), {rankedFiles, listingUsed});
+    check(ranked["count"] == rankedFiles.size() && ranked["file_metadata"][0]["size_bytes"].is_null(),
+      "a missing index keeps allowed files visible with unknown metrics");
+    const auto beforeInvalidRanking = metadataReads;
+    for (const auto &args : json::array({{{"sort_by", "other"}}, {{"sort_by", nullptr}}, {{"sort_by", 42}},
+        {{"order", "down"}}, {{"order", false}}, {{"limit", 0}}, {{"limit", -1}}, {{"limit", 201}},
+        {{"limit", 1.5}}, {{"limit", "20"}}, {{"limit", nullptr}}, {{"limit", true}}}))
+      check(rankedList(args).contains("error"), "invalid ranking arguments are rejected");
+    ranked = rankedList({{"sort_by", "size"}, {"path_filter", "missing"}});
+    check(metadataReads == beforeInvalidRanking && ranked["files"].empty() && ranked["file_metadata"].empty() && !ranked["truncated"],
+      "invalid arguments and empty filtered scopes never read indexed metadata");
+    rankedFiles.clear(); rankedMetadata.clear();
+    for (size_t i = 0; i < 250; ++i) {
+      rankedFiles.push_back("src/" + std::to_string(i) + ".cpp");
+      rankedMetadata.push_back({rankedFiles.back(), 0, i, i});
+    }
+    ranked = rankedList({{"sort_by", "size"}, {"order", "desc"}, {"limit", 1}});
+    check(ranked["files"] == json::array({"src/249.cpp"}) && ranked["truncated"],
+      "ranking considers files beyond the old 200-entry discovery cap");
+    ranked = rankedList({{"sort_by", "lines"}, {"order", "desc"}});
+    check(ranked.dump().size() <= chat_tools::kMaxResultBytes && ranked["count"] < 200 && ranked["truncated"] &&
+      ranked["files"].size() == ranked["file_metadata"].size(), "ranked metadata shares the serialized byte limit and stays aligned with paths");
+    for (size_t i = 0; i < ranked["files"].size(); ++i)
+      check(ranked["files"][i] == ranked["file_metadata"][i]["source"], "ranked path and metadata arrays have identical order");
+    rankedFiles.assign(200, "src/" + std::string(100, '\"') + "\xce\xb1.cpp");
+    rankedMetadata = {{rankedFiles[0], 0, 300, 30}};
+    ranked = rankedList({{"sort_by", "size"}, {"path_filter", "src"}});
+    const auto serializedRanking = ranked.dump();
+    check(serializedRanking.size() <= chat_tools::kMaxResultBytes && ranked["count"] < 200 && ranked["truncated"] &&
+      ranked["file_metadata"][0]["size_bytes"] == 300 && utf8::is_valid(serializedRanking.begin(), serializedRanking.end()),
+      "ranked Unicode paths match metadata and account for JSON escaping in the byte cap");
+
     listingSources = {"src/a.cpp", "src/b.h"};
     rounds = 0; status.clear();
     const auto listAssistant = json{{"role", "assistant"}, {"tool_calls", json::array({

@@ -107,6 +107,8 @@ def main():
                 if self.path == "/listing" and step < 2:
                     name, args = ("list_files", {"path_filter": "source.cpp", "extension": "cpp"}) if step == 0 else ("read_file", {"path": str(source)})
                     calls = [{"id": f"list_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
+                if self.path in ("/ranked-listing", "/ranked-unindexed") and step == 0:
+                    calls = [{"id": "ranked", "type": "function", "function": {"name": "list_files", "arguments": json.dumps({"sort_by": "lines", "order": "desc", "limit": 20})}}]
                 if self.path.startswith("/context") and step < 2:
                     query = "recovery coordination" if self.path == "/context-hybrid" else "Needle fallback_error" if self.path == "/context-fallback" else "Needle"
                     target = semantic if self.path == "/context-hybrid" else source
@@ -145,7 +147,7 @@ def main():
         provider = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
         threading.Thread(target=provider.serve_forever, daemon=True).start()
         provider_url = f"http://127.0.0.1:{provider.server_port}"
-        modes = ["stream", "plain", "error", "bad-json", "truncated", "no-usage", "budget", "steps", "listing",
+        modes = ["stream", "plain", "error", "bad-json", "truncated", "no-usage", "budget", "steps", "listing", "ranked-listing", "ranked-unindexed",
                  "context-text", "context-hybrid", "context-fallback", "project", "git-diff", "git-log", "git-show", "git-branch", "git-context", "batch", "no-reasoning-usage", "empty"]
         catalog = {"agent_enabled": True, "embedding_providers": [{"id": "embed", "api_url": provider_url + "/embedding", "model": "mock",
                     "query_format": "query: {}", "document_format": "document: {}"}],
@@ -250,6 +252,10 @@ def main():
                 check(listed["count"] == 1 and listed["files"] == [source.as_posix()], "list_files applies filters through the HTTP dispatcher")
                 check(any(e.get("tool") == "list_files" and e.get("status") != "running" and "1 files returned" in e["content"] for e in events),
                       "list_files result summary reaches typed meta SSE")
+                chat("ranked-unindexed")
+                unindexed = json.loads(requests["/ranked-unindexed"][1]["messages"][-1]["content"])
+                check(unindexed["count"] == 2 and all(item["line_count"] is None and item["size_bytes"] is None for item in unindexed["file_metadata"]),
+                      "unindexed ranking returns allowed files with unknown metrics")
                 check(any(e.get("content") == "Final answer" for e in events), "file discovery leads to a final answer")
                 events = chat("project")
                 check(len(requests["/project"]) == 3, "project inspection completes a full tool workflow")
@@ -297,6 +303,15 @@ def main():
                 removed.unlink()  # Leave a deliberately stale entry in the fixture index.
                 process = start_server()
                 wait_for_server()
+                events = chat("ranked-listing")
+                ranked = json.loads(requests["/ranked-listing"][1]["messages"][-1]["content"])
+                metadata = {item["source"]: item for item in ranked["file_metadata"]}
+                check(metadata[source.as_posix()]["size_bytes"] == source.stat().st_size and metadata[source.as_posix()]["line_count"] == 4,
+                      "ranked listing reads persisted indexed size and line metadata through the dispatcher")
+                check(removed.as_posix() not in metadata and ranked["metadata_source"] == "index" and ranked["metadata_freshness"] == "unknown",
+                      "deleted indexed sources are omitted and snapshot freshness is explicit")
+                check(any(event.get("tool") == "list_files" and "by lines desc" in event.get("summary", "") for event in events),
+                      "ranked listing exposes compact sorting information in progress")
                 for mode, expected_mode in (("context-hybrid", "hybrid"), ("context-fallback", "text")):
                     events = chat(mode)
                     result = json.loads(requests["/" + mode][1]["messages"][-1]["content"])
@@ -307,7 +322,7 @@ def main():
                 hybrid = json.loads(requests["/context-hybrid"][1]["messages"][-1]["content"])
                 check(any("SEMANTIC_ONLY_SENTINEL" in hit["content"] for hit in hybrid["matches"]), "semantic search finds evidence without literal query matches")
                 check(any("query: recovery coordination" in req["content"] for req in requests["/embedding"]), "tool queries use the embedding provider query format")
-                print("HTTP tool/context/usage/error/budget integration checks passed (21 scenarios).")
+                print("HTTP tool/context/usage/error/budget integration checks passed (23 scenarios).")
             finally:
                 process.terminate()
                 process.wait(timeout=10)
