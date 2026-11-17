@@ -11,7 +11,9 @@
   import type { ProjectItem } from "../../../app";
   import { projectStore } from "../../store.svelte";
   import * as icons from "@lucide/svelte";
+  import MCP from "./config/MCP.svelte";
 
+  let { active = true }: { active?: boolean } = $props();
   let value = $state("sources");
 
   function onChanged(p: ProjectItem) {
@@ -50,6 +52,9 @@
       <Tabs.Trigger value="tokenizer" class="text-sm {selected(value, 'tokenizer')} w-full justify-start">
         <icons.CodeXml size={16} /><span class="hidden lg:inline">Tokenizer</span>
       </Tabs.Trigger>
+      <Tabs.Trigger value="mcp" class="text-sm {selected(value, 'mcp')} w-full justify-start">
+        <icons.Network size={16} /><span class="hidden lg:inline">MCP</span>
+      </Tabs.Trigger>
       <Tabs.Trigger value="json" class="text-sm {selected(value, 'json')} w-full justify-start">
         <icons.FileBraces size={16} /><span class="hidden lg:inline">JSON</span>
       </Tabs.Trigger>
@@ -76,6 +81,9 @@
     </Tabs.Content>
     <Tabs.Content value="tokenizer" class="grow">
       <Tokenizer {onChanged} />
+    </Tabs.Content>
+    <Tabs.Content value="mcp" class="grow">
+      <MCP {onChanged} active={active && value === "mcp"} />
     </Tabs.Content>
     <Tabs.Content value="json" class="grow">
       <JSON />

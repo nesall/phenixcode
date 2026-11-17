@@ -1,5 +1,5 @@
 import type { DatabaseRequest, DatabaseResult, DatabasePage, DatabaseChunks, DatabaseFile, DatabaseSource } from "../app";
-import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings, LogTailResult, MonitorSnapshot } from "../app";
+import type { InstanceItem, ProjectItem, SettingsJsonType, ProvidersSettings, LogTailResult, MonitorSnapshot, McpCredentialRequest, McpCredentialResult } from "../app";
 import { createToaster } from '@skeletonlabs/skeleton-svelte';
 
 export const toaster = createToaster();
@@ -129,7 +129,8 @@ const testJsonSettings: SettingsJsonType =
     "log_to_console": true,
     "log_to_file": true,
     "logging_file": "embedder.log",
-    "diagnostics_file": "embedder_d.log"
+    "diagnostics_file": "embedder_d.log",
+    "min_log_level": "info"
   }
 };
 
@@ -765,3 +766,48 @@ export const helper_selectDatabaseDirectory = (params: DatabaseRequest) => datab
 export const helper_databaseChunks = (params: DatabaseRequest) => databaseRequest<DatabaseChunks>("getDatabaseSourceChunks", params);
 export const helper_databaseFile = (params: DatabaseRequest) => databaseRequest<DatabaseFile>("readDatabaseSourceFile", params);
 export const helper_openDatabaseDirectory = (params: DatabaseRequest) => databaseRequest<Record<string, never>>("openDatabaseSourceDirectory", params);
+
+type McpCredentialOperation = "getMcpCredentialStatus" | "revealMcpCredential" | "generateMcpCredential" | "regenerateMcpCredential";
+
+const mockMcpTokens = new Map<string, { token: string; generation: number }>();
+
+async function mcpCredentialRequest(op: McpCredentialOperation, params: McpCredentialRequest): Promise<McpCredentialResult> {
+  if (window.cppApi) {
+    return window.cppApi[op](params);
+  }
+  const projectId = params.projectId.trim();
+  if (!projectId) {
+    return { status: "error", code: "missing_project_id", message: "Set a valid Project ID in Sources first." };
+  }
+  const existing = mockMcpTokens.get(projectId);
+  if (op === "getMcpCredentialStatus") {
+    return {
+      status: "success",
+      state: existing ? "configured" : "missing",
+      has_token: !!existing,
+      generation: existing?.generation ?? 0,
+      project_id: projectId,
+    };
+  }
+  if (op === "revealMcpCredential") {
+    if (!existing) return { status: "error", code: "not_found", message: "No stored MCP credential exists yet." };
+    return { status: "success", state: "configured", has_token: true, generation: existing.generation, project_id: projectId, token: existing.token };
+  }
+  if (op === "generateMcpCredential") {
+    if (existing) {
+      return { status: "success", state: "configured", has_token: true, created: false, generation: existing.generation, project_id: projectId };
+    }
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, "0")).join("");
+    mockMcpTokens.set(projectId, { token, generation: 1 });
+    return { status: "success", state: "configured", has_token: true, created: true, generation: 1, project_id: projectId };
+  }
+  const nextGen = (existing?.generation ?? 0) + 1;
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, "0")).join("");
+  mockMcpTokens.set(projectId, { token, generation: nextGen });
+  return { status: "success", state: "configured", has_token: true, generation: nextGen, project_id: projectId };
+}
+
+export const helper_getMcpCredentialStatus = (params: McpCredentialRequest) => mcpCredentialRequest("getMcpCredentialStatus", params);
+export const helper_revealMcpCredential = (params: McpCredentialRequest) => mcpCredentialRequest("revealMcpCredential", params);
+export const helper_generateMcpCredential = (params: McpCredentialRequest) => mcpCredentialRequest("generateMcpCredential", params);
+export const helper_regenerateMcpCredential = (params: McpCredentialRequest) => mcpCredentialRequest("regenerateMcpCredential", params);

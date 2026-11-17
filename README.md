@@ -233,6 +233,82 @@ To enable tools, set the top-level `agent_enabled` to `true` in `providers.json`
 
 Tool execution currently applies to `/api/chat` with OpenAI-compatible providers. `supports_tools: "auto"` does not perform detection yet; Anthropic tool execution is not supported. Tools are disabled for free-chat and attached-files-only requests. The interactive CLI `chat` command does not execute these tools.
 
+### MCP context server
+
+The core can expose its read-only project tools to local agents through an optional,
+separate loopback HTTP listener. Add this block to the project's settings.json:
+
+```json
+"mcp": { "enabled": true, "port": 8765 }
+```
+
+Credentials are managed automatically per OS user and project (`source.project_id`) using a
+32-byte cryptographically random bearer token:
+
+- **First use / CLI / Dashboard:** A credential is created automatically when MCP starts in
+  `serve` if none exists yet, or can be viewed, generated, and regenerated in the dashboard's
+  **MCP** panel or via `phenixcode-core mcp-credential`. Opening the MCP panel does not
+  create a token automatically.
+- **Storage location:** Credentials are stored outside the repository and `settings.json`
+  under the OS user profile (`%LOCALAPPDATA%\PhenixCode\mcp-credentials` on Windows with
+  user-only ACLs, `~/Library/Application Support/PhenixCode/mcp-credentials` on macOS, and
+  `${XDG_CONFIG_HOME:-~/.config}/phenixcode/mcp-credentials` on Linux/Unix with `0700`/`0600`
+  permissions). Set `PHENIXCODE_MCP_CREDENTIALS_DIR` to override the store directory for
+  isolated deployments or tests.
+- **Regeneration & live invalidation:** Regenerating a token from the dashboard or
+  `phenixcode-core mcp-credential --project-id <id> --action regenerate` atomically replaces
+  the stored credential and invalidates the previous token immediately for subsequent
+  requests across all running MCP listeners for that project. In-flight authorized tool calls
+  may finish; existing MCP clients must update their credentials.
+- **Corruption handling:** Unreadable, overly permissive, or corrupt credential files are
+  never silently overwritten and report an actionable error.
+
+Missing `mcp` configuration disables MCP. The endpoint is `http://127.0.0.1:8765/mcp`; the
+configured port must be available. Send `Authorization: Bearer <token>` on every request.
+
+This implementation supports MCP **2026-07-28** only. Configure the agent host's
+Streamable HTTP URL and authorization header using that host's configuration format.
+Older initialization-based clients need a compatibility adapter and are not supported
+by this initial implementation. No stdio bridge, resources, prompts, sessions, or
+subscriptions are provided.
+
+Supported RPCs are `server/discover`, `tools/list`, and `tools/call`. Requests require
+the protocol version and client capabilities in `params._meta`, matching
+`MCP-Protocol-Version` and `Mcp-Method` headers, and `Mcp-Name` for tool calls.
+Use `Content-Type: application/json` and
+`Accept: application/json, text/event-stream`. Responses use JSON.
+An absent Origin is allowed for native clients; a present Origin must match the
+listener's localhost or 127.0.0.1 HTTP origin.
+
+Tools: `project_info`, `search_context`, `list_files`, `read_file`, `grep`,
+`git_diff`, `git_log`, and `git_show`. These reuse Chat's execution and current
+local source allowlist, exclusions, result limits, and Git restrictions.
+URL sources and `project_settings` are not exposed. Indexed content and file
+metadata may be stale; use `read_file` for current text.
+MCP works independently of Chat's agent flag and generation provider tool support.
+No generation request is made by MCP, but semantic retrieval can call the configured
+embedding provider and incur its cost; text fallback remains available.
+Normal core startup provider probes still apply unless `--no-startup-tests` is set.
+
+The dashboard's MCP panel discovers supported tools through `cppApi.getMcpTools()`,
+using the core executable configured in dashboard settings. This runs
+`phenixcode-core mcp-tools --json` against the same catalog used by the MCP listener;
+it requires no project configuration, running server, token, or provider calls.
+The command also accepts `--output <path>` to write its JSON result to a file.
+Credential actions in the dashboard likewise run `phenixcode-core mcp-credential`
+without loading indexes, providers, or models.
+
+The listener accepts at most 16 KiB per request, 4 KiB serialized tool arguments,
+two executing requests, 32 queued connections, and 120 authenticated POST requests
+per minute across clients. It shares the loaded project's database rather than
+opening another index. Configure separate ports for separate project instances.
+
+Validate using temporary project fixtures:
+
+```sh
+python -B tests/mcp_http_tests.py /absolute/path/to/phenixcode-core
+```
+
 ### Reasoning Settings
 
 Configure a provider's `reasoning.parameters` in the dashboard to expose its supported choices in the Chat UI's **Reasoning** picker. Parameters remain independent; PhenixCode does not infer that one option enables or disables another. Object-valued parameters use `value_field` to serialize the selected value into the provider's expected object.
@@ -254,6 +330,8 @@ Commands:
   compact            Reclaim deleted vector and SQLite storage
   chat               Interactive terminal chat mode
   serve              Start HTTP API server
+  mcp-tools          List supported MCP tools (--json, --output <path>)
+  mcp-credential     Manage per-project MCP credentials (--project-id / -c, --action status|reveal|generate|regenerate, --json)
   providers          List or test configured LLM providers
   eval               Evaluate retrieval quality against a dataset
 

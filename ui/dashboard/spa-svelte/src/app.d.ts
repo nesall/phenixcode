@@ -193,6 +193,11 @@ export interface TokenizerSettings {
   config_path: string;
 }
 
+export interface McpSettings {
+  enabled: boolean;
+  port: number;
+}
+
 /**
  * The root interface for the entire application configuration.
  */
@@ -204,6 +209,7 @@ export interface SettingsJsonType {
   chunking: ChunkingSettings;
   source: SourceSettings;
   logging: LoggingSettings;
+  mcp?: McpSettings;
 }
 
 export interface ProvidersSettings {
@@ -237,8 +243,29 @@ export interface InstanceItem {
   started_at_str: string;
   status: string;
   _hidden?: boolean;
-  params: { watch_interval?: number; database_path?: string };
+  params: { watch_interval?: number; database_path?: string; mcp?: { enabled?: boolean; port?: number } };
 }
+
+export interface McpCredentialRequest {
+  settingsFilePath: string;
+  projectId: string;
+}
+
+export type McpCredentialResult =
+  | {
+      status: "success";
+      state: "missing" | "configured";
+      has_token: boolean;
+      generation?: number;
+      created?: boolean;
+      project_id: string;
+      token?: string;
+    }
+  | {
+      status: "error";
+      code?: string;
+      message: string;
+    };
 
 
 // ---------------------------------------------------------------------------

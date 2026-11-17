@@ -1,12 +1,15 @@
 #include "app.h"
 #include "evaluator.h"
 #include "settings.h"
+#include "tool_service.h"
+#include "mcp_credentials.h"
 #include "auth.h"
 #include "3rdparty/fmt/format.h"
 #include "3rdparty/CLI11.hpp"
 #include <utils_log/logger.hpp>
 
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <csignal>
@@ -166,6 +169,22 @@ int App::run(int argc, char *argv[])
     fmt::format("PhenixCode RAG System\nAuthor: Arman Sahakyan\nVersion: {}\nBuild date: {} {}", EMBEDDER_VERSION, __DATE__, __TIME__));
   app.require_subcommand(0, 1); // Allow 0 or 1 subcommand (0 shows help)
 
+  auto cmdMcpTools = app.add_subcommand("mcp-tools", "List supported MCP tools without loading a project");
+  bool mcpToolsJson = false;
+  std::string mcpToolsOutput;
+  cmdMcpTools->add_flag("--json", mcpToolsJson, "Output the tool catalog as JSON");
+  cmdMcpTools->add_option("--output", mcpToolsOutput, "Write JSON to a file instead of stdout");
+
+  auto cmdMcpCredential = app.add_subcommand("mcp-credential", "Manage MCP project credentials without loading indexes or models");
+  cmdMcpCredential->fallthrough();
+  std::string mcpCredProjectId;
+  std::string mcpCredAction = "status";
+  bool mcpCredJson = false;
+  cmdMcpCredential->add_option("--project-id", mcpCredProjectId, "Stable project ID (or specify -c/--config)");
+  cmdMcpCredential->add_option("--action", mcpCredAction, "Operation: status, reveal, generate, regenerate")
+    ->check(CLI::IsMember({"status", "reveal", "generate", "regenerate"}));
+  cmdMcpCredential->add_flag("--json", mcpCredJson, "Output result as JSON");
+
   std::string configPath = "settings.json";
   app.add_option("-c,--config", configPath, "Config file path")->envname("PHENIXCODE_PROJECT_CONFIG")->check(CLI::ExistingFile);
 
@@ -274,6 +293,131 @@ int App::run(int argc, char *argv[])
 
   try {
     app.parse(argc, argv);
+
+    if (cmdMcpTools->parsed()) {
+      auto tools = nlohmann::json::array();
+      for (const auto &definition : chat_tools::definitions()) {
+        const auto &tool = definition.at("function");
+        tools.push_back({{"name", tool.at("name")}, {"description", tool.at("description")}});
+      }
+      if (!mcpToolsOutput.empty()) {
+        std::ofstream output(std::filesystem::u8path(mcpToolsOutput));
+        output << nlohmann::json{{"tools", tools}}.dump() << '\n';
+        output.close();
+        if (!output) throw std::runtime_error("Unable to write MCP tool catalog");
+      } else if (mcpToolsJson) {
+        std::cout << nlohmann::json{{"tools", tools}}.dump() << '\n';
+      } else {
+        for (const auto &tool : tools)
+          std::cout << tool.at("name").get<std::string>() << ": " << tool.at("description").get<std::string>() << '\n';
+      }
+      return 0;
+    }
+
+    if (cmdMcpCredential->parsed()) {
+      auto errorCodeString = [](mcp::credentials::ErrorCode code) -> const char * {
+        using EC = mcp::credentials::ErrorCode;
+        switch (code) {
+          case EC::InvalidProjectId: return "invalid_project_id";
+          case EC::InvalidStoreDir: return "invalid_store_dir";
+          case EC::PermissionError: return "permission_error";
+          case EC::CorruptCredential: return "corrupt_credential";
+          case EC::NotFound: return "not_found";
+          case EC::IoError: return "io_error";
+          case EC::CryptoError: return "crypto_error";
+          case EC::None: break;
+        }
+        return "error";
+      };
+      try {
+        if (mcpCredProjectId.empty() && app.get_option("--config")->count() > 0) {
+          std::ifstream cfgStream(std::filesystem::u8path(configPath));
+          if (!cfgStream.is_open()) {
+            throw mcp::credentials::StoreError(mcp::credentials::ErrorCode::InvalidProjectId,
+              "Cannot open settings file: " + configPath);
+          }
+          const auto cfgJson = nlohmann::json::parse(cfgStream);
+          Settings::validateProjectJson(cfgJson);
+          mcpCredProjectId = cfgJson["source"].value("project_id", std::string{});
+        }
+        if (!mcp::credentials::isValidProjectId(mcpCredProjectId)) {
+          throw mcp::credentials::StoreError(mcp::credentials::ErrorCode::InvalidProjectId,
+            "Invalid or missing project_id: specify --project-id <id> or --config <settings.json> with a valid source.project_id.");
+        }
+        mcp::credentials::Store store;
+        nlohmann::json result;
+        if (mcpCredAction == "status") {
+          const auto st = store.status(mcpCredProjectId);
+          result = {
+            {"status", "success"},
+            {"state", st.hasCredential ? "configured" : "missing"},
+            {"has_token", st.hasCredential},
+            {"generation", st.generation},
+            {"project_id", mcpCredProjectId}
+          };
+        } else if (mcpCredAction == "reveal") {
+          const auto rec = store.get(mcpCredProjectId);
+          result = {
+            {"status", "success"},
+            {"state", "configured"},
+            {"has_token", true},
+            {"generation", rec.generation},
+            {"project_id", mcpCredProjectId},
+            {"token", rec.token}
+          };
+        } else if (mcpCredAction == "generate") {
+          const auto rec = store.ensure(mcpCredProjectId);
+          result = {
+            {"status", "success"},
+            {"state", "configured"},
+            {"has_token", true},
+            {"created", rec.created},
+            {"generation", rec.generation},
+            {"project_id", mcpCredProjectId}
+          };
+        } else if (mcpCredAction == "regenerate") {
+          const auto rec = store.regenerate(mcpCredProjectId);
+          result = {
+            {"status", "success"},
+            {"state", "configured"},
+            {"has_token", true},
+            {"generation", rec.generation},
+            {"project_id", mcpCredProjectId}
+          };
+        }
+        if (mcpCredJson) {
+          std::cout << result.dump() << '\n';
+        } else if (mcpCredAction == "reveal") {
+          std::cout << result.at("token").get<std::string>() << '\n';
+        } else {
+          std::cout << "state=" << result.at("state").get<std::string>()
+                    << " generation=" << result.at("generation").get<uint64_t>() << '\n';
+        }
+        return 0;
+      } catch (const mcp::credentials::StoreError &e) {
+        if (mcpCredJson) {
+          std::cout << nlohmann::json{
+            {"status", "error"},
+            {"code", errorCodeString(e.code())},
+            {"message", e.what()}
+          }.dump() << '\n';
+        } else {
+          std::cerr << e.what() << '\n';
+        }
+        return 1;
+      } catch (const std::exception &e) {
+        if (mcpCredJson) {
+          std::cout << nlohmann::json{
+            {"status", "error"},
+            {"code", "error"},
+            {"message", e.what()}
+          }.dump() << '\n';
+        } else {
+          std::cerr << e.what() << '\n';
+        }
+        return 1;
+      }
+    }
 
     configPath = findConfigFile(configPath);
     if (configPath.empty()) {

@@ -611,6 +611,8 @@ void Settings::validateProjectJson(nlohmann::json j)
 void Settings::validate()
 {
   validateProjectJson(config_);
+  (void)mcpEnabled();
+  (void)mcpPort();
   const auto &chunking = config_.at("chunking");
   const auto minimum = chunking.value("nof_min_tokens", int64_t(50));
   const auto maximum = chunking.value("nof_max_tokens", int64_t(500));

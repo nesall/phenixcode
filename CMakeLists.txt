@@ -103,6 +103,10 @@ add_executable(${PROJECT_NAME}
   include/httpserver_internal.h
   include/inference_messages.h
   include/chat_tools.h
+  include/mcp_credentials.h
+  include/mcp_protocol.h
+  include/mcp_server.h
+  include/tool_service.h
   include/3rdparty/nlohmann/nlohmann_json.natvis
   src/main.cpp
   src/tokenizer.cpp
@@ -110,6 +114,10 @@ add_executable(${PROJECT_NAME}
   src/chunker.cpp
   src/inference.cpp
   src/inference_messages.cpp
+  src/tool_service.cpp
+  src/mcp_credentials.cpp
+  src/mcp_protocol.cpp
+  src/mcp_server.cpp
   src/chat_tools.cpp
   src/chat_tools_git.cpp
   src/database.cpp
@@ -198,7 +206,7 @@ endif()
 
 # Platform-specific settings
 if(WIN32)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 wsock32)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 wsock32 bcrypt advapi32 shell32 ole32)
 endif()
 
 if(APPLE)

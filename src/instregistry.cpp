@@ -374,6 +374,14 @@ struct InstanceRegistry::Impl {
     // Keep the effective database location available if settings are edited while this instance runs.
     const auto databasePath = std::filesystem::absolute(std::filesystem::u8path(settings.databaseSqlitePath())).generic_u8string();
     jsonParams["database_path"] = std::string(reinterpret_cast<const char *>(databasePath.data()), databasePath.size());
+    if (settings.mcpEnabled()) {
+      jsonParams["mcp"] = {
+        {"enabled", true},
+        {"port", settings.mcpPort()}
+      };
+    } else {
+      jsonParams["mcp"] = {{"enabled", false}};
+    }
     auto paramsText = jsonParams.dump();
     sqlite3_bind_text(stmt.ref(), 14, paramsText.c_str(), -1, SQLITE_TRANSIENT);
     rc = sqlite3_step(stmt.ref());

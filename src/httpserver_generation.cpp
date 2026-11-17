@@ -7,6 +7,7 @@
 #include "inference.h"
 #include "inference_messages.h"
 #include "chat_tools.h"
+#include "tool_service.h"
 #include "cutils.h"
 #include "sourceproc.h"
 #include "settings.h"
@@ -150,7 +151,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
       const bool agentEnabled = imp->app_.settings().providers().agentEnabled();
       const json tools = chat_tools::enabled(agentEnabled, apiConfig, freeChat, request.value("attachedonly", false))
-        ? json::array({chat_tools::grepDefinition(), chat_tools::readFileDefinition(), chat_tools::listFilesDefinition(), chat_tools::searchContextDefinition(), chat_tools::projectInfoDefinition(), chat_tools::projectSettingsDefinition(), chat_tools::gitDiffDefinition(), chat_tools::gitLogDefinition(), chat_tools::gitShowDefinition()}) : json::array();
+        ? chat_tools::definitions(true) : json::array();
       if (agentEnabled && !freeChat && !request.value("attachedonly", false)) {
         if (apiConfig.supportsTools == "on" && apiConfig.apiStyle == ApiConfig::ApiStyle::Anthropic)
           pendingInfoVec.push_back("Tools are unavailable for Anthropic API style; continuing without tools");
@@ -265,10 +266,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
             }
             if (inference_contant::estimateRequestTokens(generationMessages, json::array(), count) > retrievalBudget)
               throw std::runtime_error("Conversation history exceeds the available input budget");
-            std::vector<std::string> toolSources;
-            std::vector<std::string> allowedFiles;
-            bool filesCollected = false;
-            chat_tools::GitRepositoryCache gitCache;
+            chat_tools::Service toolService(imp->app_);
             std::set<std::string> displayRoots;
             if (!tools.empty()) for (const auto &source : imp->app_.settings().sources()) {
               if (source.type != "directory" && source.type != "file") continue;
@@ -353,70 +351,8 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
               return turn;
               };
             auto execute = [&](const json &call) {
-              const auto funcName = call.value("function", json::object()).value("name", "");
-              if (funcName == "project_settings")
-                return chat_tools::executeProjectSettings(call, imp->app_.settings(), apiConfig);
-              if (!filesCollected) {
-                for (const auto &source : imp->app_.sourceProcessor().collectSources(false))
-                  if (!source.isUrl) allowedFiles.push_back(source.source);
-                filesCollected = true;
-              }
-              if (funcName == "project_info") {
-                std::vector<std::string> availableTools;
-                for (const auto &tool : tools) availableTools.push_back(tool.at("function").at("name").get<std::string>());
-                return chat_tools::executeProjectInfo(call, imp->app_.settings(), {allowedFiles, toolSources}, imp->app_.db().chunkCount(), availableTools);
-              }
-              if (funcName == "git_diff" || funcName == "git_log" || funcName == "git_show")
-                return chat_tools::executeGit(call, {allowedFiles, toolSources}, &gitCache);
-              if (funcName == "read_file")
-                return chat_tools::executeReadFile(call, { allowedFiles, toolSources });
-              if (funcName == "grep")
-                return chat_tools::executeGrep(call, { allowedFiles, toolSources },
-                  [&](const std::string &pattern, const std::vector<std::string> &paths) {
-                    SourceProcessor::GrepOptions opts;
-                    opts.contextLines = 2;
-                    opts.maxMatchesPerFile = 10;
-                    opts.maxTotalResults = 9;
-                    SourceProcessor::GrepStats stats;
-                    auto matches = imp->app_.sourceProcessor().grep({ pattern }, paths, opts, &stats);
-                    return chat_tools::GrepSearchResult{std::move(matches), stats.searchedFiles, stats.failedFiles, stats.limitReached};
-                  });
-              if (funcName == "list_files")
-                return chat_tools::executeListFiles(call, { allowedFiles, toolSources }, [&] { return imp->app_.db().getTrackedFiles(); });
-              if (funcName == "search_context")
-                return chat_tools::executeSearchContext(call, {allowedFiles, toolSources},
-                  [&](const std::string &query) -> chat_tools::ContextSearchResult {
-                    std::vector<float> embedding;
-                    if (imp->app_.db().chunkCount() > 0) {
-                      const auto t0 = std::chrono::steady_clock::now();
-                      bool embeddingError = false;
-                      try {
-                        EmbeddingClient client(imp->app_.settings().embeddingCurrentApi(), imp->app_.settings().embeddingTimeoutMs());
-                        client.generateEmbeddings(query, embedding, EmbeddingClient::EncodeType::Query);
-                        if (embedding.size() != imp->app_.settings().databaseVectorDim() ||
-                            !std::all_of(embedding.begin(), embedding.end(), [](float value) { return std::isfinite(value); }))
-                          throw std::runtime_error("Invalid embedding returned for search_context");
-                      } catch (const std::exception &e) {
-                        embeddingError = true;
-                        embedding.clear();
-                        LOG_MSG_WARN << "search_context: unable to generate query embedding:" << e.what();
-                        onInfo("search_context: embedding server unavailable; falling back to text search", {{"status", "warning"}});
-                      }
-                      const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-                      const auto queryTokens = count(query);
-                      imp->app_.monitor().recordRequest("embed", elapsed, embeddingError, queryTokens, 0);
-                      if (!embeddingError)
-                        imp->app_.monitor().recordEmbeddingCost(imp->app_.settings().embeddingCurrentApi().id, queryTokens, imp->app_.settings().providers());
-                    }
-                    if (!isConnected()) return {};
-                    // Overfetch a bounded candidate pool before the executor excludes
-                    // stale/out-of-scope index entries and caps the delivered excerpts.
-                    return {imp->app_.retrieve(query, embedding, 32, SearchMode::Auto), embedding.empty()};
-                  });
-              else {
-                LOG_MSG_WARN << "Unknown tool function: " << funcName;
-                return json{ { "error", "Unknown tool function: " + funcName } };
-              }
+              return toolService.execute(call, tools, &apiConfig, isConnected,
+                [&](const std::string &message) { onInfo(message, {{"status", "warning"}}); });
             };
             auto outcome = tools.empty() ? generate(generationMessages) :
               chat_tools::run(generationMessages, generate, execute,
@@ -497,7 +433,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
               }
             }
 
-            for (const auto &source : toolSources)
+            for (const auto &source : toolService.usedSources())
               if (distinctSources.insert(source).second) sourcesJson.push_back(source);
 
             // Send sources information as a separate SSE message

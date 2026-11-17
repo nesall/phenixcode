@@ -93,6 +93,7 @@ set(SOURCES
   "${ROOT_DIR}/src/instregistry.cpp"
   "${ROOT_DIR}/src/cutils.cpp"
   "${ROOT_DIR}/src/sqlite3_helper.cpp"
+  "${ROOT_DIR}/src/mcp_credentials.cpp"
   "${ROOT_DIR}/include/3rdparty/nlohmann/nlohmann_json.natvis"
   admconfig.json  
 )
@@ -142,7 +143,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 
 # Platform-specific libraries
 if(WIN32)
-  target_link_libraries(${PROJECT_NAME} PRIVATE ole32 Comctl32 shell32 win_dark)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ole32 Comctl32 shell32 win_dark bcrypt advapi32)
 elseif(APPLE)
   find_library(COCOA Cocoa)
   find_library(WEBKIT WebKit)

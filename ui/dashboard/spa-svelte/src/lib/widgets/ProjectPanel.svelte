@@ -27,7 +27,7 @@
       {/if}
     </Tabs.List>
     <Tabs.Content value="config" class="h-0 flex-grow">
-      <ConfigPanel />
+      <ConfigPanel active={active && tab === "config"} />
     </Tabs.Content>
     <Tabs.Content value="instance" class="h-0 flex-grow">
       <Instance />

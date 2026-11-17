@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "instregistry.h"
 #include "settings.h"
+#include "mcp_credentials.h"
 #include "database_browser.h"
 #include "3rdparty/portable-file-dialogs.h"
 #include "json_shim.h"
@@ -41,6 +42,8 @@
 #include <limits.h>
 #include <unistd.h>
 #include <spawn.h>
+#include <poll.h>
+#include <signal.h>
 #include <sys/wait.h>
 extern char **environ;
 #endif
@@ -249,6 +252,230 @@ namespace {
   }
   bool testInstanceAlive(const std::string &configPath, const std::string instanceId, int steps = 16) {
     return testInstanceStatus(true, configPath, instanceId, steps);
+  }
+
+  std::string resolveCoreExecutable(shared::AppConfig &prefs) {
+    std::string executable = "./phenixcode-core";
+    {
+      std::lock_guard<std::mutex> lock(prefs.mutex_);
+      const auto it = prefs.uiPrefs.find("CoreExecutablePath");
+      if (it != prefs.uiPrefs.end() && !it->second.empty()) executable = it->second;
+    }
+#ifdef _WIN32
+    if (!executable.ends_with(".exe")) executable += ".exe";
+#endif
+    if (!fs::is_regular_file(fs::u8path(executable)))
+      throw std::runtime_error("Core executable not found. Check its path in dashboard settings.");
+    return executable;
+  }
+
+#ifdef _WIN32
+  std::wstring utf8ToWide(const std::string &s) {
+    if (s.empty()) return {};
+    const int needed = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    if (needed <= 0) throw std::runtime_error("UTF-8 conversion failed");
+    std::wstring out(static_cast<size_t>(needed), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), out.data(), needed);
+    return out;
+  }
+
+  std::wstring quoteWindowsArg(const std::wstring &arg) {
+    if (!arg.empty() && arg.find_first_of(L" \t\n\v\"") == std::wstring::npos) return arg;
+    std::wstring out = L"\"";
+    for (auto it = arg.begin();; ++it) {
+      size_t backslashes = 0;
+      while (it != arg.end() && *it == L'\\') { ++it; ++backslashes; }
+      if (it == arg.end()) {
+        out.append(backslashes * 2, L'\\');
+        break;
+      } else if (*it == L'"') {
+        out.append(backslashes * 2 + 1, L'\\');
+        out.push_back(L'"');
+      } else {
+        out.append(backslashes, L'\\');
+        out.push_back(*it);
+      }
+    }
+    out.push_back(L'"');
+    return out;
+  }
+#endif
+
+  int runCoreCaptureStdout(const std::string &executable, const std::vector<std::string> &args,
+                           int timeoutMs, std::string &stdoutOut) {
+    stdoutOut.clear();
+    constexpr size_t kMaxOutputBytes = 65536;
+#ifdef _WIN32
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE hReadOut = nullptr, hWriteOut = nullptr;
+    if (!CreatePipe(&hReadOut, &hWriteOut, &sa, 0))
+      throw std::runtime_error("Unable to create pipe for core command");
+    SetHandleInformation(hReadOut, HANDLE_FLAG_INHERIT, 0);
+
+    HANDLE hNulIn = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE hNulErr = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+
+    std::wstring cmdLine = quoteWindowsArg(utf8ToWide(executable));
+    for (const auto &arg : args) cmdLine += L" " + quoteWindowsArg(utf8ToWide(arg));
+    std::vector<wchar_t> cmdBuf(cmdLine.begin(), cmdLine.end());
+    cmdBuf.push_back(L'\0');
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
+    si.wShowWindow = SW_HIDE;
+    si.hStdInput = hNulIn != INVALID_HANDLE_VALUE ? hNulIn : nullptr;
+    si.hStdOutput = hWriteOut;
+    si.hStdError = hNulErr != INVALID_HANDLE_VALUE ? hNulErr : hWriteOut;
+
+    PROCESS_INFORMATION pi{};
+    const BOOL ok = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(hWriteOut);
+    if (hNulIn != INVALID_HANDLE_VALUE) CloseHandle(hNulIn);
+    if (hNulErr != INVALID_HANDLE_VALUE) CloseHandle(hNulErr);
+    if (!ok) {
+      CloseHandle(hReadOut);
+      throw std::runtime_error("Unable to start core command");
+    }
+
+    std::thread reader([&]() {
+      char buf[4096];
+      DWORD readBytes = 0;
+      while (ReadFile(hReadOut, buf, sizeof(buf), &readBytes, nullptr) && readBytes > 0) {
+        if (stdoutOut.size() < kMaxOutputBytes) {
+          const size_t take = (std::min)(static_cast<size_t>(readBytes), kMaxOutputBytes - stdoutOut.size());
+          stdoutOut.append(buf, take);
+        }
+      }
+    });
+
+    const DWORD waitRes = WaitForSingleObject(pi.hProcess, static_cast<DWORD>(timeoutMs));
+    if (waitRes != WAIT_OBJECT_0) {
+      TerminateProcess(pi.hProcess, 1);
+      WaitForSingleObject(pi.hProcess, INFINITE);
+      reader.join();
+      CloseHandle(hReadOut);
+      CloseHandle(pi.hProcess);
+      CloseHandle(pi.hThread);
+      throw std::runtime_error("Core command timed out");
+    }
+    DWORD exitCode = 1;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    reader.join();
+    CloseHandle(hReadOut);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return static_cast<int>(exitCode);
+#else
+    int pipeFds[2]{-1, -1};
+    if (::pipe(pipeFds) != 0) throw std::runtime_error("Unable to create pipe for core command");
+    ::fcntl(pipeFds[0], F_SETFD, FD_CLOEXEC);
+    ::fcntl(pipeFds[1], F_SETFD, FD_CLOEXEC);
+
+    const pid_t child = ::fork();
+    if (child < 0) {
+      ::close(pipeFds[0]);
+      ::close(pipeFds[1]);
+      throw std::runtime_error("Unable to fork core command");
+    }
+    if (child == 0) {
+      ::close(pipeFds[0]);
+      ::dup2(pipeFds[1], STDOUT_FILENO);
+      ::close(pipeFds[1]);
+      const int devNull = ::open("/dev/null", O_RDWR);
+      if (devNull >= 0) {
+        ::dup2(devNull, STDIN_FILENO);
+        ::dup2(devNull, STDERR_FILENO);
+        if (devNull > STDERR_FILENO) ::close(devNull);
+      }
+      std::vector<char *> argv;
+      argv.push_back(const_cast<char *>(executable.c_str()));
+      for (const auto &a : args) argv.push_back(const_cast<char *>(a.c_str()));
+      argv.push_back(nullptr);
+      ::execvp(executable.c_str(), argv.data());
+      _exit(127);
+    }
+
+    ::close(pipeFds[1]);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    char buf[4096];
+    while (true) {
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= deadline) {
+        ::kill(child, SIGKILL);
+        int st = 0;
+        while (::waitpid(child, &st, 0) < 0 && errno == EINTR) {}
+        ::close(pipeFds[0]);
+        throw std::runtime_error("Core command timed out");
+      }
+      const int remainingMs = static_cast<int>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
+      struct pollfd pfd{pipeFds[0], POLLIN, 0};
+      const int pr = ::poll(&pfd, 1, remainingMs);
+      if (pr < 0) {
+        if (errno == EINTR) continue;
+        break;
+      }
+      if (pr == 0) continue;
+      const ssize_t n = ::read(pipeFds[0], buf, sizeof(buf));
+      if (n < 0) {
+        if (errno == EINTR) continue;
+        break;
+      }
+      if (n == 0) break;
+      if (stdoutOut.size() < kMaxOutputBytes) {
+        const size_t take = (std::min)(static_cast<size_t>(n), kMaxOutputBytes - stdoutOut.size());
+        stdoutOut.append(buf, take);
+      }
+    }
+    ::close(pipeFds[0]);
+    int status = 0;
+    while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    return 1;
+#endif
+  }
+
+  struct CredentialBindingError : public std::runtime_error {
+    std::string code;
+    CredentialBindingError(std::string c, const std::string &msg)
+      : std::runtime_error(msg), code(std::move(c)) {}
+  };
+
+  std::string validateProjectIdentityForCredential(const json &params) {
+    const std::string settingsFilePath = params.value("settingsFilePath", std::string{});
+    if (settingsFilePath.empty()) {
+      throw CredentialBindingError("invalid_project", "Project settingsFilePath is required.");
+    }
+    const fs::path settingsPath = fs::u8path(settingsFilePath);
+    if (!fs::is_regular_file(settingsPath)) {
+      throw CredentialBindingError("invalid_project", "Project settings file does not exist.");
+    }
+    std::ifstream input(settingsPath);
+    if (!input.is_open()) {
+      throw CredentialBindingError("invalid_project", "Unable to open project settings file.");
+    }
+    json diskJson;
+    try {
+      input >> diskJson;
+    } catch (const std::exception &) {
+      throw CredentialBindingError("invalid_project", "Project settings file is not valid JSON.");
+    }
+    Settings::validateProjectJson(diskJson);
+    const std::string diskProjectId = diskJson["source"].value("project_id", std::string{});
+    if (!mcp::credentials::isValidProjectId(diskProjectId)) {
+      throw CredentialBindingError("missing_project_id",
+        "This project does not have a valid Project ID saved in its settings file. Set a Project ID in Sources first.");
+    }
+    const std::string requestedProjectId = params.value("projectId", std::string{});
+    if (!requestedProjectId.empty() && requestedProjectId != diskProjectId) {
+      throw CredentialBindingError("project_id_mismatch",
+        "The selected Project ID does not match the saved settings file. Save or reload the project first.");
+    }
+    return diskProjectId;
   }
 
 } // anonymous namespace
@@ -1086,6 +1313,83 @@ int main() {
       }
     );
 
+    w.bind("getMcpTools", [&prefs](const std::string &) -> std::string {
+      fs::path temporaryDirectory;
+      bool directoryCreated = false;
+      try {
+        const std::string executable = resolveCoreExecutable(prefs);
+        // Reserve a private result directory and invoke directly, without a shell.
+        temporaryDirectory = fs::temp_directory_path() / ("phenixcode-mcp-tools-" + shared::generateRandomId(24));
+        if (!fs::create_directory(temporaryDirectory)) throw std::runtime_error("Unable to create catalog result directory");
+        directoryCreated = true;
+        const auto output = temporaryDirectory / "tools.json";
+        ProcessManager process;
+        if (!process.startProcess(executable, {"mcp-tools", "--json", "--output", database_browser::pathText(output)}))
+          throw std::runtime_error("Unable to start core tool catalog query");
+        if (!process.waitForCompletion(5000)) {
+          process.stopProcess(true);
+          throw std::runtime_error("Core tool catalog query timed out");
+        }
+        if (process.getExitCode() != 0)
+          throw std::runtime_error("Core tool catalog query failed. Ensure the core supports mcp-tools.");
+        std::ifstream file(output);
+        auto result = json::parse(file);
+        if (!result.at("tools").is_array()) throw std::runtime_error("Invalid core tool catalog");
+        for (const auto &tool : result.at("tools")) {
+          if (!tool.at("name").is_string() || !tool.at("description").is_string())
+            throw std::runtime_error("Invalid core tool catalog entry");
+        }
+        file.close();
+        fs::remove(output);
+        fs::remove(temporaryDirectory);
+        result["status"] = "success";
+        return result.dump();
+      } catch (const std::exception &error) {
+        if (directoryCreated) {
+          std::error_code ignored;
+          fs::remove(temporaryDirectory / "tools.json", ignored);
+          fs::remove(temporaryDirectory, ignored);
+        }
+        return json{{"status", "error"}, {"message", error.what()}}.dump();
+      }
+    });
+
+    for (const auto &[bindingName, action] : std::vector<std::pair<std::string, std::string>>{
+         {"getMcpCredentialStatus", "status"},
+         {"revealMcpCredential", "reveal"},
+         {"generateMcpCredential", "generate"},
+         {"regenerateMcpCredential", "regenerate"}}) {
+      w.bind(bindingName, [&prefs, action](const std::string &data) -> std::string {
+        // Never log credential tokens or stdout payloads from mcp-credential.
+        try {
+          const auto args = json::parse(data);
+          if (!args.is_array() || args.empty() || !args[0].is_object()) {
+            throw CredentialBindingError("invalid_params", "Invalid parameters for MCP credential operation.");
+          }
+          const std::string projectId = validateProjectIdentityForCredential(args[0]);
+          const std::string executable = resolveCoreExecutable(prefs);
+          std::string stdoutText;
+          const int exitCode = runCoreCaptureStdout(
+            executable, {"mcp-credential", "--project-id", projectId, "--action", action, "--json"}, 5000, stdoutText);
+          const auto parsed = json::parse(stdoutText, nullptr, false);
+          if (parsed.is_object() && parsed.contains("status")) {
+            return parsed.dump();
+          }
+          if (exitCode != 0) {
+            throw CredentialBindingError("core_failed",
+              "Core MCP credential command failed. Ensure the configured core supports mcp-credential.");
+          }
+          throw CredentialBindingError("invalid_response", "Invalid response from core MCP credential command.");
+        } catch (const CredentialBindingError &err) {
+          LOG_MSG_ERROR << "MCP credential" << action << "failed:" << err.code << err.what();
+          return json{{"status", "error"}, {"code", err.code}, {"message", err.what()}}.dump();
+        } catch (const std::exception &err) {
+          LOG_MSG_ERROR << "MCP credential" << action << "failed:" << err.what();
+          return json{{"status", "error"}, {"code", "error"}, {"message", err.what()}}.dump();
+        }
+      });
+    }
+
     w.bind("testProvider", [&w](const std::string &data) -> std::string
       {
         json res;
@@ -1136,6 +1440,11 @@ int main() {
 
     w.init(R"(
       window.cppApi = {
+        getMcpTools,
+        getMcpCredentialStatus,
+        revealMcpCredential,
+        generateMcpCredential,
+        regenerateMcpCredential,
         setPersistentKey,
         getPersistentKey,
         getEnv,

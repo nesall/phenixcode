@@ -7,6 +7,7 @@
 #include <vector>
 #include <map>
 #include <cstdint>
+#include <stdexcept>
 #include "json_shim.h"
 
 inline constexpr std::string_view kAutoApiId = "auto";
@@ -58,7 +59,7 @@ struct ApiConfig {
   ApiStyle apiStyle = ApiStyle::OpenAI;
 
   // Compute an effective "combined" price per million tokens.
-  // hitRatio = fraction of input tokens served from cache (0.0–1.0)
+  // hitRatio = fraction of input tokens served from cache (0.0ï¿½1.0)
   double combinedPrice(double hitRatio = 0.05) const {
     // Only input can be cached; output is always fully billed
     double effectiveInput = pricing.input;
@@ -280,6 +281,20 @@ public:
     return config_.contains("logging") ? config_["logging"].value("min_debug_level", "info") : std::string("info");
   }
 
+  bool mcpEnabled() const {
+    const auto m = config_.value("mcp", nlohmann::json::object());
+    if (!m.is_object() || (m.contains("enabled") && !m["enabled"].is_boolean()))
+      throw std::runtime_error("mcp.enabled must be boolean");
+    return m.value("enabled", false);
+  }
+  int mcpPort() const {
+    const auto m = config_.value("mcp", nlohmann::json::object());
+    if (!m.is_object() || (m.contains("port") && !m["port"].is_number_integer()))
+      throw std::runtime_error("mcp.port must be an integer");
+    const auto port = m.value("port", int64_t(8765));
+    if (port < 1 || port > 65535) throw std::runtime_error("mcp.port must be between 1 and 65535");
+    return static_cast<int>(port);
+  }
   void initProjectIdIfMissing(bool hydrateFile);
   void initProjectTitleIfMissing(bool hydrateFile);
 

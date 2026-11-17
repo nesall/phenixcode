@@ -3,6 +3,14 @@ declare const __BUILD_DATE__: string;
 declare interface Window {
   HLJS_CUSTOM?: { hlAuto: (content: string, languages?: string[]) => { value: string } };
   cppApi: {
+    getMcpTools: () => Promise<
+      { status: "success"; tools: { name: string; description: string }[] } |
+      { status: "error"; message: string }
+    >;
+    getMcpCredentialStatus: (params: import("./app").McpCredentialRequest) => Promise<import("./app").McpCredentialResult>;
+    revealMcpCredential: (params: import("./app").McpCredentialRequest) => Promise<import("./app").McpCredentialResult>;
+    generateMcpCredential: (params: import("./app").McpCredentialRequest) => Promise<import("./app").McpCredentialResult>;
+    regenerateMcpCredential: (params: import("./app").McpCredentialRequest) => Promise<import("./app").McpCredentialResult>;
     setPersistentKey: (key: string, value: string) => Promise<void>;
     getPersistentKey: (key: string) => Promise<string | null>;
     getEnv: (key: string) => Promise<string | null>;

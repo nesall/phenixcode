@@ -15,6 +15,10 @@ extern void runUnitTests();
 
 int main(int argc, char *argv[]) {
 
+  // Metadata and credential queries must also avoid the debug-only tokenizer and test setup.
+  if (argc > 1 && (std::string(argv[1]) == "mcp-tools" || std::string(argv[1]) == "mcp-credential"))
+    return App::run(argc, argv);
+
 #ifdef TEST_CHUNKING
 
   if (argc > 1 && std::string(argv[1]) == "test_chunking") {

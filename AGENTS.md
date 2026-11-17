@@ -129,6 +129,8 @@ cmake --build build/chat-db-tests --config Release --parallel
 ctest --test-dir build/chat-db-tests -C Release --output-on-failure
 ```
 
+Note that python binary can be found at: `D:/workspace/sdks/Python/Python312/python.exe`
+
 ## Protect local data
 
 - Never clear, reset, migrate experimentally, re-embed, or overwrite an existing user project/chat database or vector index as part of testing. Use temporary copies or purpose-built fixtures.

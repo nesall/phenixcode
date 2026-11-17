@@ -8,6 +8,7 @@
 #include "tokenizer.h"
 #include "sourceproc.h"
 #include "httpserver.h"
+#include "mcp_server.h"
 #include "auth.h"
 #include "instregistry.h"
 #include "cutils.h"
@@ -226,12 +227,22 @@ namespace {
       orderedLanguages[language] = count;
     }
 
+    std::vector<std::pair<std::string, int>> sortedDirectories(byDirectory.begin(), byDirectory.end());
+    std::sort(sortedDirectories.begin(), sortedDirectories.end(), [](const auto &a, const auto &b) {
+      if (a.second != b.second) return a.second > b.second;
+      return a.first < b.first;
+      });
+    nlohmann::ordered_json orderedDirectories = nlohmann::ordered_json::object();
+    for (const auto &[dir, count] : sortedDirectories) {
+      orderedDirectories[dir] = count;
+    }
+
     return {
         { "total_files", trackedFiles.size() },
         { "total_lines", totalLines },
         { "total_size_bytes", totalSize },
         { "by_language", orderedLanguages },
-        { "by_directory", byDirectory },
+        { "by_directory", orderedDirectories },
         { "top_files", ar }
     };
   }
@@ -735,20 +746,23 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
 {
   std::thread watchThread;
   std::thread serverThread;
+  McpServer mcp(*this);
 
   // Use scope guard for cleanup
   auto cleanup = [&]() {
     LOG_MSG << "Shutting down gracefully...";
 
+    mcp.stop();
     imp->httpServer_->stop();
-    imp->db_->persist();
     if (serverThread.joinable()) serverThread.join();
     if (watchThread.joinable()) watchThread.join();
+    imp->db_->persist();
 
     LOG_MSG << "Shutdown complete.";
     };
 
   try {
+    mcp.start();
     if (watch) {
       LOG_MSG << "Auto-update: enabled (every" << interval << "s)";
       watchThread = std::thread([this, interval]() {
@@ -782,6 +796,9 @@ void App::serve(int suggestedPort, bool watch, int interval, const std::string &
         try {
           json infoData;
           infoData["port"] = newPort;
+          if (settings().mcpEnabled())
+            infoData["mcp"] = {{"url", "http://127.0.0.1:" + std::to_string(settings().mcpPort()) + "/mcp"},
+              {"protocol_version", "2026-07-28"}};
           infoData["timestamp"] = static_cast<size_t>(std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
           infoData["watch_enabled"] = watch;
           infoData["watch_interval"] = interval;
