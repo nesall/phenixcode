@@ -1,5 +1,6 @@
 #include "chat_tools.h"
 #include "cutils.h"
+#include <utils_log/logger.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -397,6 +398,7 @@ namespace chat_tools {
       {{"context", patchContext()}, {"revision", {{"type", "string"}, {"description", "Commit ID from git_log, branch, tag, or HEAD ancestry such as HEAD~1"}}}}, json::array({"revision"}));
   }
   json executeGit(const json &call, const ToolContext &ctx, GitRepositoryCache *cache) {
+    LOG_MSG_DEBUG << "executeGit:" << call.dump();
     try {
       const auto preparationDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
       if (!call.contains("function") || !call["function"].is_object()) throw std::invalid_argument("Tool call requires a function object");
@@ -404,7 +406,11 @@ namespace chat_tools {
       if (!function.contains("name") || !function["name"].is_string()) throw std::invalid_argument("Tool function requires a string name");
       if (!function.contains("arguments") || !function["arguments"].is_string()) throw std::invalid_argument("Tool arguments must be a JSON string");
       const auto name = function.at("name").get<std::string>();
-      if (name != "git_diff" && name != "git_log" && name != "git_show") throw std::invalid_argument("Unknown Git tool");
+      if (name != "git_diff" && name != "git_log" && name != "git_show") {
+        LOG_MSG_WARN << "Unknown Git tool: " << name;
+        throw std::invalid_argument("Unknown Git tool");
+      }
+      LOG_MSG_INFO << "[tool]" << name << "called";
       const auto raw = function.at("arguments").get<std::string>();
       if (raw.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
       const auto args = json::parse(raw, nullptr, false);

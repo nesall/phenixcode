@@ -291,6 +291,8 @@ namespace chat_tools {
   }
 
   json executeProjectInfo(const json &call, const Settings &settings, const ToolContext &ctx, size_t indexedChunks, const std::vector<std::string> &availableTools) {
+    LOG_MSG_DEBUG << "executeProjectInfo: " << call.dump();
+    LOG_MSG_INFO << "[tool] project_info called";
     try { projectArguments(call, "project_info", false); }
     catch (const std::invalid_argument &e) { return {{"error", preview(e.what(), 512)}}; }
     try {
@@ -316,6 +318,8 @@ namespace chat_tools {
   }
 
   json executeProjectSettings(const json &call, const Settings &settings, const ApiConfig &selectedApi) {
+    LOG_MSG_DEBUG << "executeProjectSettings: " << call.dump();
+    LOG_MSG_INFO << "[tool] project_settings called";
     json args;
     try { args = projectArguments(call, "project_settings", true); }
     catch (const std::invalid_argument &e) { return {{"error", preview(e.what(), 512)}}; }
@@ -371,6 +375,7 @@ namespace chat_tools {
   json executeSearchContext(const json &call, const ToolContext &ctx, const ContextSearch &search)
   {
     LOG_MSG_DEBUG << "executeSearchContext: " << call.dump();
+    LOG_MSG_INFO << "[tool] search_context called";
     try {
       const auto &function = call.at("function");
       if (function.at("name") != "search_context") throw std::invalid_argument("Unknown tool");
@@ -435,6 +440,7 @@ namespace chat_tools {
   json executeReadFile(const json &call, const ToolContext &ctx)
   {
     LOG_MSG_DEBUG << "executeReadFile: " << call.dump();
+    LOG_MSG_INFO << "[tool] read_file called";
     try {
       const auto &function = call.at("function");
       if (function.at("name") != "read_file") throw std::invalid_argument("Unknown tool");
@@ -537,6 +543,7 @@ namespace chat_tools {
   nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx, const FileMetadataReader &readMetadata)
   {
     LOG_MSG_DEBUG << "executeListFiles: " << call.dump();
+    LOG_MSG_INFO << "[tool] list_files called";
     try {
       const auto &function = call.at("function");
       if (function.at("name") != "list_files") throw std::invalid_argument("Unknown tool");
@@ -664,6 +671,7 @@ namespace chat_tools {
   json executeGrep(const json &call, const ToolContext &ctx, const Search &search)
   {
     LOG_MSG_DEBUG << "executeGrep: " << call.dump();
+    LOG_MSG_INFO << "[tool] grep called";
     try {
       const auto &function = call.at("function");
       if (function.at("name") != "grep") throw std::invalid_argument("Unknown tool; available tools are grep, read_file, list_files and search_context");

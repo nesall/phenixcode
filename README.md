@@ -266,10 +266,10 @@ Credentials are managed automatically per OS user and project (`source.project_i
 Missing `mcp` configuration disables MCP. The endpoint is `http://127.0.0.1:8765/mcp`; the
 configured port must be available. Send `Authorization: Bearer <token>` on every request.
 
-This implementation supports MCP **2026-07-28** only. Configure the agent host's
-Streamable HTTP URL and authorization header using that host's configuration format.
-Older initialization-based clients need a compatibility adapter and are not supported
-by this initial implementation. No stdio bridge, resources, prompts, sessions, or
+This implementation supports MCP **2026-07-28** as well as stateful/legacy MCP
+handshake clients (`initialize`, `notifications/initialized`, `ping`, `tools/list`,
+`tools/call`). Configure the agent host's Streamable HTTP URL and authorization header
+using that host's configuration format. No stdio bridge, resources, prompts, or
 subscriptions are provided.
 
 Supported RPCs are `server/discover`, `tools/list`, and `tools/call`. Requests require
@@ -299,7 +299,7 @@ Credential actions in the dashboard likewise run `phenixcode-core mcp-credential
 without loading indexes, providers, or models.
 
 The listener accepts at most 16 KiB per request, 4 KiB serialized tool arguments,
-two executing requests, 32 queued connections, and 120 authenticated POST requests
+two executing requests, 32 queued connections, and 300 authenticated POST requests
 per minute across clients. It shares the loaded project's database rather than
 opening another index. Configure separate ports for separate project instances.
 

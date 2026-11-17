@@ -45,8 +45,40 @@ int main() {
     check(json::parse(run(r).body)["result"]["tools"][0]["inputSchema"]["type"] == "object");
     r.body = "{"; check(json::parse(run(r).body)["error"]["code"] == -32700);
     r.body = "[]"; check(json::parse(run(r).body)["error"]["code"] == -32600);
-    r = request("tools/list"); auto body = json::parse(r.body); body["params"]["_meta"] = json::object();
+    r = request("tools/list"); auto body = json::parse(r.body);
+    body["params"]["_meta"] = {{"io.modelcontextprotocol/protocolVersion", "2026-07-28"}};
     r.body = body.dump(); check(json::parse(run(r).body)["error"]["code"] == -32602);
+    body["params"]["_meta"] = "bad"; r.body = body.dump();
+    check(json::parse(run(r).body)["error"]["code"] == -32602);
+
+    // Stateful / legacy client flow: initialize, notification, ping, tools/list, tools/call without Mcp-Name, unknown method 200.
+    auto legacyReq = [&](const std::string &method, const json &params = json::object(), bool notification = false) {
+      httplib::Request req;
+      req.headers = {{"Host", "127.0.0.1:8765"}, {"Authorization", "bearer " + std::string(32, 'a')},
+        {"Content-Type", "application/json"}, {"Accept", "application/json, text/event-stream"}};
+      json payload = {{"jsonrpc", "2.0"}, {"method", method}, {"params", params}};
+      if (!notification) payload["id"] = 1;
+      req.body = payload.dump();
+      return req;
+    };
+    auto initRes = run(legacyReq("initialize", {{"protocolVersion", "2025-06-18"}, {"capabilities", json::object()}}));
+    auto initResult = json::parse(initRes.body)["result"];
+    check(initRes.status == 200 && initResult["protocolVersion"] == "2025-06-18" &&
+      initResult["serverInfo"]["name"] == "phenixcode" && initResult.contains("instructions") &&
+      !initResult.contains("resultType") && !initResult.contains("_meta"));
+    auto initDefault = json::parse(run(legacyReq("initialize", {{"protocolVersion", "unknown"}})).body)["result"];
+    check(initDefault["protocolVersion"] == "2025-11-25");
+    auto notifRes = run(legacyReq("notifications/initialized", json::object(), true));
+    check(notifRes.status == 202 && notifRes.body.empty());
+    auto pingRes = run(legacyReq("ping"));
+    check(pingRes.status == 200 && json::parse(pingRes.body)["result"] == json::object());
+    auto legacyListRes = run(legacyReq("tools/list"));
+    check(legacyListRes.status == 200 && !json::parse(legacyListRes.body)["result"].contains("resultType"));
+    auto legacyCallRes = run(legacyReq("tools/call", {{"name", "read_file"}, {"arguments", json::object()}}));
+    check(legacyCallRes.status == 200 && json::parse(legacyCallRes.body)["result"]["structuredContent"]["truncated"] == true);
+    auto legacyMissing = run(legacyReq("missing"));
+    check(legacyMissing.status == 200 && json::parse(legacyMissing.body)["error"]["code"] == -32601);
+
     r = request("tools/list"); r.headers.erase("Mcp-Method"); check(json::parse(run(r).body)["error"]["code"] == -32020);
     r = request("tools/list"); body = json::parse(r.body);
     body["params"]["_meta"]["io.modelcontextprotocol/protocolVersion"] = "unknown";
@@ -65,9 +97,29 @@ int main() {
     body["params"]["name"] = "missing"; r.body = body.dump();
     r.headers.erase("Mcp-Name"); r.headers.emplace("Mcp-Name", "missing");
     check(json::parse(run(r).body)["error"]["code"] == -32602);
-    check(executions == 2);
+    check(executions == 3);
+    // Non-object tool output wraps structuredContent; json::exception inside execute yields 500 -32603.
+    {
+      mcp::Handler scalarHandler(std::string(32, 'a'), 8765);
+      auto scalarExec = [](const json &call) -> json {
+        if (call["function"]["arguments"] == "{\"throw\":true}") return json::array({1, 2}).at(99);
+        return json::array({"a", "b"});
+      };
+      auto callScalar = [&](const json &args) {
+        httplib::Response res;
+        res.status = 200;
+        auto req = legacyReq("tools/call", {{"name", "read_file"}, {"arguments", args}});
+        scalarHandler.handle(req, res, tools, scalarExec);
+        return res;
+      };
+      auto arrRes = callScalar(json::object());
+      check(arrRes.status == 200 && json::parse(arrRes.body)["result"]["structuredContent"] == json({{"value", json::array({"a", "b"})}}) &&
+        json::parse(arrRes.body)["result"]["isError"] == false);
+      auto errRes = callScalar({{"throw", true}});
+      check(errRes.status == 500 && json::parse(errRes.body)["error"]["code"] == -32603);
+    }
     bool limited = false;
-    for (int i = 0; i < 125; ++i) limited |= run(request("server/discover")).status == 429;
+    for (int i = 0; i < 305; ++i) limited |= run(request("server/discover")).status == 429;
     check(limited);
 
     // Verify dynamic multi-listener live rotation and fail-closed corruption handling.

@@ -128,11 +128,12 @@ def main():
                 token = revealed["token"]
                 check(rc == 0 and len(token) >= 64, "revealed managed token generated from 32+ random bytes")
 
-                def rpc(method="server/discover", params=None, headers=None, raw=None, verb="POST", target_port=port, auth_token=None):
+                def rpc(method="server/discover", params=None, headers=None, raw=None, verb="POST", target_port=port, auth_token=None, include_meta=True):
                     active_token = token if auth_token is None else auth_token
                     params = dict(params or {})
-                    params.setdefault("_meta", {"io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                                                "io.modelcontextprotocol/clientCapabilities": {}})
+                    if include_meta:
+                        params.setdefault("_meta", {"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                                                    "io.modelcontextprotocol/clientCapabilities": {}})
                     body = raw if raw is not None else json.dumps({"jsonrpc": "2.0", "id": "test", "method": method, "params": params}).encode()
                     hdr = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
                            "Authorization": "Bearer " + active_token, "MCP-Protocol-Version": "2026-07-28",
@@ -156,7 +157,43 @@ def main():
                 check(rpc(headers={"Origin": f"http://127.0.0.1:{port}"})[0] == 200, "valid Origin")
                 check(rpc(raw=b"{")[1]["error"]["code"] == -32700, "malformed JSON")
                 check(rpc(raw=b"[]")[1]["error"]["code"] == -32600, "batch rejected")
-                check(rpc(params={"_meta": {}})[1]["error"]["code"] == -32602, "metadata required")
+                check(rpc(params={"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}})[1]["error"]["code"] == -32602,
+                      "stateless metadata requires clientCapabilities")
+                check(rpc(params={"_meta": "bad"})[1]["error"]["code"] == -32602, "non-object _meta rejected")
+
+                # Stateful / legacy client flow (e.g. Claude Desktop): initialize, notifications/initialized, ping, tools/list, tools/call.
+                def legacy_rpc(method, params=None, notification=False):
+                    payload = {"jsonrpc": "2.0", "method": method, "params": params or {}}
+                    if not notification:
+                        payload["id"] = "legacy"
+                    hdr = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+                           "Authorization": "bearer " + token}
+                    try:
+                        reply = urlopen(Request(f"http://127.0.0.1:{port}/mcp", json.dumps(payload).encode(), hdr, method="POST"), timeout=20)
+                    except HTTPError as e:
+                        reply = e
+                    with reply:
+                        text = reply.read()
+                        return reply.code, json.loads(text) if text else None
+
+                init_code, init_body = legacy_rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}})
+                check(init_code == 200 and init_body["result"]["protocolVersion"] == "2025-06-18"
+                      and "resultType" not in init_body["result"] and "_meta" not in init_body["result"],
+                      "legacy initialize handshake")
+                notif_code, notif_body = legacy_rpc("notifications/initialized", notification=True)
+                check(notif_code == 202 and notif_body is None, "notification accepted with 202 and empty body")
+                ping_code, ping_body = legacy_rpc("ping")
+                check(ping_code == 200 and ping_body["result"] == {}, "legacy ping")
+                legacy_list_code, legacy_list_body = legacy_rpc("tools/list")
+                check(legacy_list_code == 200 and "resultType" not in legacy_list_body["result"],
+                      "legacy tools/list without _meta or stateless headers")
+                legacy_call_code, legacy_call_body = legacy_rpc("tools/call", {"name": "list_files", "arguments": {}})
+                check(legacy_call_code == 200 and legacy_call_body["result"]["structuredContent"]["count"] == 2,
+                      "legacy tools/call without Mcp-Name header")
+                legacy_missing_code, legacy_missing_body = legacy_rpc("missing")
+                check(legacy_missing_code == 200 and legacy_missing_body["error"]["code"] == -32601,
+                      "legacy unknown method returns 200 with JSON-RPC -32601")
+
                 check(rpc(headers={"Mcp-Method": "wrong"})[1]["error"]["code"] == -32020, "header mismatch")
                 check(rpc(params={"_meta": {"io.modelcontextprotocol/protocolVersion": "1900-01-01",
                                            "io.modelcontextprotocol/clientCapabilities": {}}},
@@ -237,7 +274,7 @@ def main():
                         check(secret not in blob, f"credential leaked in {label}")
 
                 # Exercise the global request budget after all functional checks.
-                check(any(rpc(auth_token=new_token)[0] == 429 for _ in range(125)), "rate limit")
+                check(any(rpc(auth_token=new_token)[0] == 429 for _ in range(305)), "rate limit")
                 print("MCP HTTP integration checks PASSED")
             finally:
                 for p in (process2, process):
