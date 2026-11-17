@@ -208,7 +208,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
 
       res.set_chunked_content_provider(
         "text/event-stream",
-        [=]
+        [=, this]
         (size_t offset, httplib::DataSink &sink) {
 
           auto packPayload = [](std::string data) {

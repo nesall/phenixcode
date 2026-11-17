@@ -18,7 +18,7 @@ namespace {
     if (ok) {
       std::cout << "[PASS] " << t.name << "\n";
     } else {
-      utils::stripMarkdownFromCodeBlock(t.input);
+      //utils::stripMarkdownFromCodeBlock(t.input);
 
       std::cout << "[FAIL] " << t.name << "\n";
       std::cout << "  input   : " << t.input << "\n";
