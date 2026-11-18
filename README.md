@@ -211,17 +211,19 @@ Agent tools let the model investigate beyond the initial retrieved context. They
 
 | Tool | Purpose |
 | --- | --- |
-| `grep` | Search source text for a literal pattern and return matching snippets. |
+| `grep` | Search source text for a literal pattern or RE2 regular expression, with `case_sensitive`, `whole_word`, `context_lines` (0–10), `path_filter`, and `glob` filters, returning matching snippets. |
 | `read_file` | Read selected line ranges from an allowed source file. |
+| `read_files` | Batch-read 1 to 5 line ranges from allowed source files (including disjoint ranges of the same file) sharing an 8 KiB output budget. |
 | `list_files` | Discover source paths, filter by path or extension, or rank files by indexed byte size or line count with `sort_by`, `order`, and `limit`. |
 | `search_context` | Retrieve relevant indexed excerpts using natural-language hybrid search, with text fallback when query embeddings are unavailable. |
 | `project_info` | Inspect project identity, configured sources, current local source count, indexed chunk count, and available tools. Index freshness is reported as unknown. |
-| `git_diff` | Inspect unstaged changes, staged changes with `staged: true`, or committed branch changes with `base: "main"`. Configured untracked filenames are reported separately. |
-| `git_log` | Read recent local commits touching configured files; optional `path` and `limit` (1–20, default 5). |
-| `git_show` | Inspect a local commit's scoped patch, or a configured file's contents at a `revision` when `path` is supplied. |
 | `project_settings` | Inspect loaded project, model, retrieval, or reasoning settings, including the generation provider selected for the request. Credentials, URLs, and prompts are omitted; database locations are filenames only. Reasoning choices describe configured defaults. |
+| `git_diff` | Inspect unstaged changes, staged changes with `staged: true`, or committed branch changes with `base: "main"`. Configured untracked filenames are reported separately. |
+| `git_log` | Read recent local commits touching configured files; optional `path`, `limit` (1–20, default 5), `author`, `since`, `until`, and pickaxe `search` (`-S`, or `-G` with `search_regex: true`). |
+| `git_show` | Inspect a local commit's scoped patch, or a configured file's contents at a `revision` when `path` is supplied. |
+| `git_blame` | Annotate up to 200 lines of a configured local file (`path`, optional `start_line`/`end_line`, optional `revision`) with commit ID, author, date, and text. |
 
-Git tools require Git on the backend's `PATH`. Repositories are discovered from the configured local source files, including linked worktrees. An optional `path` selects one allowed source file; supply it when sources span multiple repositories or the full scope exceeds the command-size limit. Historical access is limited to currently configured files and does not follow renames. Diff patches omit untracked contents; `untracked_files` lists up to 50 configured, non-ignored filenames within a 2 KiB allowance, with `untracked_truncated` indicating omitted names. These files can be inspected with `read_file`. With `base`, the patch compares the unique merge base of that local revision and `HEAD` against `HEAD`, excluding staged and unstaged changes; `base` cannot be combined with `staged: true`. Git commands run without a shell and disable external diff/text-conversion helpers. Clean/process filters are suppressed for working-tree comparisons only. Preparation has a 5-second budget (including checks around filesystem discovery), followed by a separate 10-second execution budget. Patch tools accept `context` from 0 to 20 surrounding lines (default 3); `git_show` rejects this option when `path` requests historical file contents. Each result is capped at 8 KiB, including untracked names and truncation flags. Repository discovery is reused only within the current request. The tools do not fetch remote history or change the index or working tree.
+Git tools require Git on the backend's `PATH`. Repositories are discovered from the configured local source files, including linked worktrees. An optional `path` selects one allowed source file (`git_blame` requires `path`); supply it when sources span multiple repositories or the full scope exceeds the command-size limit. Historical access is limited to currently configured files and does not follow renames. Diff patches omit untracked contents; `untracked_files` lists up to 50 configured, non-ignored filenames within a 2 KiB allowance, with `untracked_truncated` indicating omitted names. These files can be inspected with `read_file` or `read_files`. With `base`, the patch compares the unique merge base of that local revision and `HEAD` against `HEAD`, excluding staged and unstaged changes; `base` cannot be combined with `staged: true`. Git commands run without a shell and disable external diff/text-conversion helpers. Clean/process filters are suppressed for working-tree comparisons and working-tree `git_blame` only. Preparation has a 5-second budget (including checks around filesystem discovery), followed by a separate 10-second execution budget. Patch tools accept `context` from 0 to 20 surrounding lines (default 3); `git_show` rejects this option when `path` requests historical file contents. Each result is capped at 8 KiB, including untracked names and truncation flags. Repository discovery is reused only within the current request. The tools do not fetch remote history or change the index or working tree.
 
 Tool progress shows compact round/call summaries, explicit search filters, and source-relative paths. Full arguments, call IDs, and diagnostic counts remain available on hover. The Chat UI updates each call from running to completed, neutral, warning, or failed. Grep distinguishes an empty file scope from no text matches and reports unreadable files. Reasoning usage is labeled per round and totaled across rounds, with missing breakdowns reported as unavailable.
 
@@ -280,11 +282,11 @@ Use `Content-Type: application/json` and
 An absent Origin is allowed for native clients; a present Origin must match the
 listener's localhost or 127.0.0.1 HTTP origin.
 
-Tools: `project_info`, `search_context`, `list_files`, `read_file`, `grep`,
-`git_diff`, `git_log`, and `git_show`. These reuse Chat's execution and current
+Tools: `project_info`, `search_context`, `list_files`, `read_file`, `read_files`, `grep`,
+`git_diff`, `git_log`, `git_show`, and `git_blame`. These reuse Chat's execution and current
 local source allowlist, exclusions, result limits, and Git restrictions.
 URL sources and `project_settings` are not exposed. Indexed content and file
-metadata may be stale; use `read_file` for current text.
+metadata may be stale; use `read_file` or `read_files` for current text.
 MCP works independently of Chat's agent flag and generation provider tool support.
 No generation request is made by MCP, but semantic retrieval can call the configured
 embedding provider and incur its cost; text fallback remains available.

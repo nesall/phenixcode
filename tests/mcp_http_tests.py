@@ -203,8 +203,8 @@ def main():
                 check(rpc(verb="GET")[0] == 405, "GET unsupported")
                 tools = rpc("tools/list")[1]["result"]["tools"]
                 names = {t["name"] for t in tools}
-                check(names == {"grep", "read_file", "list_files", "search_context", "project_info",
-                                "git_diff", "git_log", "git_show"}, "catalog independent of Chat flags")
+                check(names == {"grep", "read_file", "read_files", "list_files", "search_context", "project_info",
+                                "git_diff", "git_log", "git_show", "git_blame"}, "catalog independent of Chat flags")
                 def call(name, arguments=None):
                     return rpc("tools/call", {"name": name, "arguments": arguments or {}})[1]["result"]
                 info = call("project_info")["structuredContent"]
@@ -220,8 +220,13 @@ def main():
                       json.loads(read["content"][0]["text"]) == read["structuredContent"], "text and structured results")
                 check(call("read_file", {"path": "large.cpp"})["structuredContent"]["truncated"], "truncation preserved")
                 check(call("grep", {"pattern": "MCP_NEEDLE"})["structuredContent"]["matches"], "grep")
+                check(call("grep", {"pattern": "void\\s+context\\(", "regex": True, "glob": "*.cpp"})["structuredContent"]["matches"], "RE2 grep with glob")
+                rf = call("read_files", {"files": [{"path": "source.cpp", "start_line": 1, "end_line": 1}, {"path": "source.cpp", "start_line": 2, "end_line": 2}]})["structuredContent"]
+                check(rf["count"] == 2 and "MCP_NEEDLE" in rf["results"][0]["content"], "read_files")
                 check(call("search_context", {"query": "MCP_NEEDLE"})["structuredContent"]["mode"] == "text", "unindexed fallback without provider")
                 check("WORKTREE_NEEDLE" in call("git_diff")["structuredContent"]["content"], "read-only Git")
+                check("MCP_NEEDLE" in call("git_blame", {"path": "source.cpp", "start_line": 1, "end_line": 2})["structuredContent"]["content"], "git_blame")
+                check("fixture" in call("git_log", {"search": "MCP_NEEDLE", "author": "Fixture"})["structuredContent"]["content"], "git_log filters")
                 check(rpc("tools/call", {"name": "project_settings"})[1]["error"]["code"] == -32602, "unadvertised tool denied")
                 with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
                     results = list(pool.map(lambda _: call("list_files"), range(8)))

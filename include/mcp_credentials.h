@@ -14,7 +14,7 @@ inline constexpr size_t kGeneratedRandomBytes = 32;
 inline constexpr const char *kDirEnvVar = "PHENIXCODE_MCP_CREDENTIALS_DIR";
 
 enum class ErrorCode {
-  None = 0,
+  None,
   InvalidProjectId,
   InvalidStoreDir,
   PermissionError,

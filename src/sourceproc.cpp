@@ -14,7 +14,9 @@
 #include <iterator>
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <httplib.h>
+#include <re2/re2.h>
 #include <utils_log/logger.hpp>
 #include <3rdparty/utf8.h>
 
@@ -27,6 +29,54 @@ namespace {
       out[i] = static_cast<char>((ch >= 'A' && ch <= 'Z') ? ch + ('a' - 'A') : ch);
     }
     return out;
+  }
+
+  bool isWordByte(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+  }
+
+  std::unique_ptr<re2::RE2> compileGrepPattern(const std::string &term, bool useRegex, bool caseSensitive, bool wholeWord) {
+    re2::RE2::Options opt;
+    opt.set_log_errors(false);
+    opt.set_max_mem(4 << 20);
+    opt.set_case_sensitive(caseSensitive);
+    if (useRegex) {
+      opt.set_one_line(true);
+      auto raw = std::make_unique<re2::RE2>(term, opt);
+      if (!raw->ok()) return nullptr;
+      if (!wholeWord) return raw;
+      auto wrapped = std::make_unique<re2::RE2>("(?:\\b(?:" + term + ")\\b)", opt);
+      return wrapped->ok() ? std::move(wrapped) : nullptr;
+    }
+    opt.set_literal(true);
+    auto literal = std::make_unique<re2::RE2>(term, opt);
+    return literal->ok() ? std::move(literal) : nullptr;
+  }
+
+  bool matchLineRe2(std::string_view line, const re2::RE2 &re, bool useRegex, bool wholeWord, size_t &matchStart, size_t &matchLen) {
+    re2::StringPiece sub;
+    if (useRegex || !wholeWord) {
+      if (!re.Match(line, 0, line.size(), re2::RE2::UNANCHORED, &sub, 1)) return false;
+      matchStart = static_cast<size_t>(sub.data() - line.data());
+      matchLen = sub.size();
+      return true;
+    }
+    size_t pos = 0;
+    while (pos <= line.size()) {
+      if (!re.Match(line, pos, line.size(), re2::RE2::UNANCHORED, &sub, 1)) return false;
+      const size_t ms = static_cast<size_t>(sub.data() - line.data());
+      const size_t ml = sub.size();
+      const bool prevOk = (ms == 0) || !isWordByte(line[ms - 1]);
+      const bool nextOk = (ms + ml >= line.size()) || !isWordByte(line[ms + ml]);
+      if (prevOk && nextOk) {
+        matchStart = ms;
+        matchLen = ml;
+        return true;
+      }
+      if (ms >= line.size()) break;
+      pos = ms + 1;
+    }
+    return false;
   }
 
   float occWeight(std::string_view line, size_t p, size_t len)
@@ -196,14 +246,22 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
   }
   if (targets.empty()) return {};
 
-  // Prepare terms and their lowercase equivalents.
+  // Prepare terms and their lowercase equivalents (or RE2 patterns when enabled).
+  const bool useRe2 = opts.useRegex || opts.caseSensitive || opts.wholeWord;
   std::vector<std::string> terms;
   std::vector<std::string> loweredTerms;
+  std::vector<std::unique_ptr<re2::RE2>> compiledTerms;
 
   for (const auto &term : termsArg) {
     if (term.length() > 1 && term.length() < 65) {
+      if (useRe2) {
+        auto compiled = compileGrepPattern(term, opts.useRegex, opts.caseSensitive, opts.wholeWord);
+        if (!compiled) continue;
+        compiledTerms.push_back(std::move(compiled));
+      } else {
+        loweredTerms.push_back(toLowerAscii(term));
+      }
       terms.push_back(term);
-      loweredTerms.push_back(toLowerAscii(term));
     }
   }
 
@@ -223,11 +281,31 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
       if (!readFileRaw(path, content, true)) continue;
 
       ++readable;
-      const std::string loweredContent = toLowerAscii(content);
+      if (useRe2) {
+        size_t pos = 0;
+        std::vector<bool> matched(terms.size(), false);
+        size_t remaining = terms.size();
+        while (pos < content.size() && remaining > 0) {
+          const size_t next = content.find('\n', pos);
+          const std::string_view line(content.data() + pos, (next == std::string::npos ? content.size() : next) - pos);
+          pos = (next == std::string::npos) ? content.size() : next + 1;
+          for (size_t t = 0; t < terms.size(); ++t) {
+            if (matched[t]) continue;
+            size_t ms = 0, ml = 0;
+            if (matchLineRe2(line, *compiledTerms[t], opts.useRegex, opts.wholeWord, ms, ml)) {
+              matched[t] = true;
+              ++df[t];
+              --remaining;
+            }
+          }
+        }
+      } else {
+        const std::string loweredContent = toLowerAscii(content);
 
-      for (size_t t = 0; t < terms.size(); ++t) {
-        if (loweredContent.find(loweredTerms[t]) != std::string::npos) {
-          ++df[t];
+        for (size_t t = 0; t < terms.size(); ++t) {
+          if (loweredContent.find(loweredTerms[t]) != std::string::npos) {
+            ++df[t];
+          }
         }
       }
     }
@@ -241,24 +319,28 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
 
     std::vector<std::string> keptTerms;
     std::vector<std::string> keptLowered;
+    std::vector<std::unique_ptr<re2::RE2>> keptCompiled;
     std::vector<size_t> keptDf;
 
     keptTerms.reserve(terms.size());
-    keptLowered.reserve(loweredTerms.size());
+    if (!useRe2) keptLowered.reserve(loweredTerms.size());
+    else keptCompiled.reserve(compiledTerms.size());
     keptDf.reserve(terms.size());
 
     for (size_t t = 0; t < terms.size(); ++t) {
       if (df[t] == 0 || df[t] > maxDf) continue;
 
       keptTerms.push_back(std::move(terms[t]));
-      keptLowered.push_back(std::move(loweredTerms[t]));
+      if (useRe2) keptCompiled.push_back(std::move(compiledTerms[t]));
+      else keptLowered.push_back(std::move(loweredTerms[t]));
       keptDf.push_back(df[t]);
     }
 
     if (keptTerms.empty()) return {};
 
     terms = std::move(keptTerms);
-    loweredTerms = std::move(keptLowered);
+    if (useRe2) compiledTerms = std::move(keptCompiled);
+    else loweredTerms = std::move(keptLowered);
 
     // IDF: ln(1 + N / df), where N is the readable-file count.
     idfByTerm.resize(keptDf.size());
@@ -296,7 +378,7 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
     }
     if (stats) ++stats->searchedFiles;
 
-    const std::string loweredContent = toLowerAscii(content);
+    const std::string loweredContent = useRe2 ? std::string{} : toLowerAscii(content);
 
     std::vector<std::string_view> lines;
     size_t pos = 0;
@@ -331,26 +413,39 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
     for (size_t i = 0;
       i < lines.size() && fileMatches < opts.maxMatchesPerFile;
       ++i) {
-      const size_t offset = static_cast<size_t>(lines[i].data() - content.data());
-
-      const std::string_view loweredLine(loweredContent.data() + offset, lines[i].size());
-
       float lineScore = 0.0f;
       bool exact = false;
 
-      for (size_t t = 0; t < terms.size(); ++t) {
-        if (terms[t].empty()) continue;
+      if (useRe2) {
+        std::string loweredLineScratch;
+        for (size_t t = 0; t < terms.size(); ++t) {
+          size_t ms = 0, ml = 0;
+          if (!matchLineRe2(lines[i], *compiledTerms[t], opts.useRegex, opts.wholeWord, ms, ml)) continue;
+          if (loweredLineScratch.empty() && !lines[i].empty()) loweredLineScratch = toLowerAscii(lines[i]);
+          const float w = occWeight(loweredLineScratch, ms, ml);
+          lineScore += w * (idfByTerm.empty() ? 1.0f : idfByTerm[t]);
+          if (opts.caseSensitive || (!opts.useRegex && lines[i].find(terms[t]) != std::string_view::npos)) {
+            exact = true;
+          }
+        }
+      } else {
+        const size_t offset = static_cast<size_t>(lines[i].data() - content.data());
+        const std::string_view loweredLine(loweredContent.data() + offset, lines[i].size());
 
-        // Count only the first occurrence of each term per line.
-        const size_t p = loweredLine.find(loweredTerms[t]);
-        if (p == std::string_view::npos) continue;
+        for (size_t t = 0; t < terms.size(); ++t) {
+          if (terms[t].empty()) continue;
 
-        const float w = occWeight(loweredLine, p, loweredTerms[t].size());
+          // Count only the first occurrence of each term per line.
+          const size_t p = loweredLine.find(loweredTerms[t]);
+          if (p == std::string_view::npos) continue;
 
-        lineScore += w * (idfByTerm.empty() ? 1.0f : idfByTerm[t]);
+          const float w = occWeight(loweredLine, p, loweredTerms[t].size());
 
-        if (lines[i].find(terms[t]) != std::string_view::npos) {
-          exact = true;
+          lineScore += w * (idfByTerm.empty() ? 1.0f : idfByTerm[t]);
+
+          if (lines[i].find(terms[t]) != std::string_view::npos) {
+            exact = true;
+          }
         }
       }
 

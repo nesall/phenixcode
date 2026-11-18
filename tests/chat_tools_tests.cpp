@@ -651,6 +651,126 @@ int main() {
       events[3]["content"].get<std::string>().find(source) != std::string::npos,
       "compact reads show source-relative paths and actual ranges while details preserve original arguments");
 
+    // Upgraded grep: RE2 regex, case_sensitive, whole_word, context_lines, glob.
+    check(chat_tools::grepDefinition()["function"]["parameters"]["additionalProperties"] == false, "upgraded grep schema remains strict");
+    const auto regexTarget = (fixture.directory / "src" / "re2_target.h").generic_string();
+    const auto regexExtra = (fixture.directory / "src" / "word_test.cpp").generic_string();
+    fs::create_directories(fixture.directory / "src");
+    { std::ofstream f(regexTarget); f << "line1\nvoid FindTarget(int x);\nvoid FindTargetHelper();\nline4\nline5\n"; }
+    { std::ofstream f(regexExtra); f << "aaaaaaaaaaaaaaaaaaaaaaaaaaaac\nfoo foobar myfoo\n"; }
+    const std::vector<std::string> grepFiles{source, regexTarget, regexExtra};
+    std::vector<std::string> grepUsed;
+    size_t re2Searches = 0;
+    const auto executeUpgradedGrep = [&](json args) {
+      return chat_tools::executeGrepWithOptions(call("re2", args), {grepFiles, grepUsed},
+        chat_tools::SearchWithOptions([&](const chat_tools::GrepQuery &query, const std::vector<std::string> &paths) {
+          ++re2Searches;
+          SourceProcessor::GrepOptions opts;
+          opts.useRegex = query.useRegex;
+          opts.caseSensitive = query.caseSensitive;
+          opts.wholeWord = query.wholeWord;
+          opts.contextLines = query.contextLines;
+          opts.maxMatchesPerFile = 10;
+          opts.maxTotalResults = 9;
+          SourceProcessor::GrepStats stats;
+          auto hits = processor.grep({query.pattern}, paths, opts, &stats);
+          return chat_tools::GrepSearchResult{std::move(hits), stats.searchedFiles, stats.failedFiles, stats.limitReached};
+        }));
+    };
+    auto reHits = executeUpgradedGrep({{"pattern", "void\\s+FindTarget\\("}, {"regex", true}, {"case_sensitive", true}, {"context_lines", 0}, {"glob", "*.h"}});
+    check(reHits["matches"].size() == 1 && reHits["matches"][0]["source"] == regexTarget &&
+      reHits["matches"][0]["start_line"] == 2 && reHits["matches"][0]["end_line"] == 2 && reHits["glob"] == "*.h",
+      "RE2 grep supports regex, case sensitivity, zero context_lines, and filename globs");
+    check(executeUpgradedGrep({{"pattern", "findtarget\\("}, {"regex", true}, {"case_sensitive", true}, {"glob", "src/**/*.h"}})["matches"].empty(),
+      "case_sensitive regex distinguishes casing");
+    auto braceGlob = executeUpgradedGrep({{"pattern", "FindTarget"}, {"glob", "src/*.{cpp,h}"}});
+    check(braceGlob["matched_files"] == 2 && braceGlob["matches"].size() == 1, "brace glob filters matching extensions");
+    auto wholeWordLit = executeUpgradedGrep({{"pattern", "foo"}, {"whole_word", true}, {"glob", "word_test.cpp"}});
+    check(wholeWordLit["matches"].size() == 1 && wholeWordLit["matches"][0]["start_line"] == 1,
+      "whole_word literal matches 'foo' without matching 'foobar' or 'myfoo'");
+    check(executeUpgradedGrep({{"pattern", "myfo"}, {"whole_word", true}, {"glob", "word_test.cpp"}})["matches"].empty(),
+      "whole_word rejects partial identifier matches");
+    check(executeUpgradedGrep({{"pattern", "foo|bar"}, {"regex", true}, {"whole_word", true}, {"glob", "word_test.cpp"}})["matches"].size() == 1,
+      "whole_word works with RE2 regex alternations");
+    const auto t0 = std::chrono::steady_clock::now();
+    auto redosSafe = executeUpgradedGrep({{"pattern", "(a+)+b"}, {"regex", true}, {"glob", "*.cpp"}});
+    const auto redosMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    check(redosSafe["outcome"] == "no_matches" && redosMs < 1000, "RE2 handles classic backtracking patterns in linear time");
+    const auto beforeInvalidRe = re2Searches;
+    for (const auto &badArgs : json::array({
+        {{"pattern", "(unclosed"}, {"regex", true}},
+        {{"pattern", "(?=lookahead)x"}, {"regex", true}},
+        {{"pattern", "foo"}, {"regex", "yes"}},
+        {{"pattern", "foo"}, {"case_sensitive", 1}},
+        {{"pattern", "foo"}, {"whole_word", "true"}},
+        {{"pattern", "foo"}, {"context_lines", -1}},
+        {{"pattern", "foo"}, {"context_lines", 11}},
+        {{"pattern", "foo"}, {"context_lines", 1.5}},
+        {{"pattern", "foo"}, {"glob", "{unclosed"}},
+        {{"pattern", "foo"}, {"glob", "../secret.cpp"}}}))
+      check(executeUpgradedGrep(badArgs).contains("error"), "invalid RE2 regex, flags, context_lines, and globs return structured errors");
+    check(re2Searches == beforeInvalidRe, "invalid grep parameters fail before invoking search");
+
+    // Batch reads (read_files).
+    check(chat_tools::readFilesDefinition()["function"]["parameters"]["additionalProperties"] == false,
+      "read_files schema rejects unknown arguments");
+    std::vector<std::string> batchUsed;
+    const auto readFiles = [&](json args) {
+      return chat_tools::executeReadFiles(call("rf_1", args, "read_files"), {{source, regexTarget, manyLines}, batchUsed});
+    };
+    auto batchRead = readFiles({{"files", {
+      {{"path", "source.cpp"}, {"start_line", 1}, {"end_line", 1}},
+      {{"path", "source.cpp"}, {"start_line", 3}, {"end_line", 3}},
+      {{"path", regexTarget}, {"start_line", 2}, {"end_line", 3}}
+    }}});
+    check(!batchRead.contains("error") && batchRead["count"] == 3 && batchRead["requested_count"] == 3 &&
+      batchRead["truncated"] == false && batchRead["results"][0]["content"] == "1: int unrelated;\n" &&
+      batchRead["results"][1]["content"] == "3: const char *pattern = \"a.*b\";\n" &&
+      batchRead["results"][2]["start_line"] == 2 && batchRead["results"][2]["end_line"] == 3,
+      "read_files supports disjoint ranges in one file and multiple files in one call");
+    check(batchUsed.size() == 2, "read_files deduplicates usedSources across disjoint ranges of the same file");
+    batchUsed.clear();
+    auto partialRead = readFiles({{"files", {
+      {{"path", "source.cpp"}, {"start_line", 1}, {"end_line", 1}},
+      {{"path", "../secret.cpp"}}
+    }}});
+    check(!partialRead.contains("error") && partialRead["partial_errors"] == true &&
+      partialRead["results"][0]["source"] == source && partialRead["results"][1].contains("error") &&
+      batchUsed == std::vector<std::string>{source},
+      "read_files preserves valid items on partial error and never tracks failed paths");
+    check(readFiles({{"files", {{{"path", "../secret.cpp"}}}}}) .contains("error"),
+      "read_files returns top-level error when all requested reads fail");
+    for (const auto &badBatch : json::array({
+        json::object(), {{"files", json::array()}},
+        {{"files", json::array({{{"path", "a"}}, {{"path", "b"}}, {{"path", "c"}}, {{"path", "d"}}, {{"path", "e"}}, {{"path", "f"}}})}},
+        {{"files", {{{"path", "source.cpp"}, {"extra", 1}}}}},
+        {{"files", {{{"path", "source.cpp"}, {"start_line", 5}, {"end_line", 2}}}}},
+        {{"files", json::array()}, {"extra", true}}}))
+      check(readFiles(badBatch).contains("error"), "read_files validates array bounds and item schemas");
+
+    const auto bigA = (fixture.directory / "bigA.txt").generic_string();
+    const auto smallB = (fixture.directory / "smallB.txt").generic_string();
+    { std::ofstream f(bigA); for (int i = 1; i <= 200; ++i) f << "line-" << i << "-" << std::string(60, 'x') << "\n"; }
+    { std::ofstream f(smallB); f << "small1\nsmall2\n"; }
+    std::vector<std::string> budgetUsed;
+    auto sharedBudget = chat_tools::executeReadFiles(call("rf_budget", {{"files", {
+      {{"path", bigA}, {"start_line", 1}, {"end_line", 200}},
+      {{"path", smallB}, {"start_line", 1}, {"end_line", 2}}
+    }}}, "read_files"), {{bigA, smallB}, budgetUsed});
+    check(sharedBudget.dump().size() <= chat_tools::kMaxResultBytes && sharedBudget["truncated"] == true &&
+      sharedBudget["count"] == 2 && sharedBudget["results"][0]["truncated"] == true &&
+      sharedBudget["results"][1]["content"] == "1: small1\n2: small2\n",
+      "read_files trims the largest item first so smaller items in the batch are not starved");
+
+    const auto longLinePath = (fixture.directory / "long_line.txt").generic_string();
+    { std::ofstream f(longLinePath); f << std::string(3000, 'z') << "\n"; }
+    auto fiveBig = chat_tools::executeReadFiles(call("rf_five", {{"files", {
+      {{"path", longLinePath}}, {{"path", longLinePath}}, {{"path", longLinePath}},
+      {{"path", longLinePath}}, {{"path", longLinePath}}
+    }}}, "read_files"), {{longLinePath}, budgetUsed});
+    check(fiveBig.dump().size() <= chat_tools::kMaxResultBytes && fiveBig["truncated"] == true,
+      "read_files enforces 8 KiB serialized limit across 5 oversized items");
+
     std::cout << checks << " tool checks passed.\n";
   } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

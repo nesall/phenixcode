@@ -96,9 +96,17 @@ def main():
                 if self.path == "/project" and step < 2:
                     name, args = ("project_info", {}) if step == 0 else ("project_settings", {"section": "all"})
                     calls = [{"id": f"project_{step}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]
+                if self.path == "/grep-re2" and step == 0:
+                    calls = [{"id": "re2_0", "type": "function", "function": {"name": "grep", "arguments": json.dumps(
+                        {"pattern": "void\\s+Needle\\(", "regex": True, "case_sensitive": True, "context_lines": 0, "glob": "*.cpp"})}}]
+                if self.path == "/read-files" and step == 0:
+                    calls = [{"id": "rf_0", "type": "function", "function": {"name": "read_files", "arguments": json.dumps(
+                        {"files": [{"path": str(source), "start_line": 1, "end_line": 1}, {"path": str(source), "start_line": 2, "end_line": 2}]})}}]
                 if self.path.startswith("/git-") and step == 0:
-                    name = "git_diff" if self.path in ("/git-branch", "/git-context") else self.path[1:].replace("-", "_")
-                    args = {"path": str(source)} if name == "git_diff" else {"limit": 1} if name == "git_log" else {"revision": "HEAD", "path": str(source)}
+                    name = "git_diff" if self.path in ("/git-branch", "/git-context") else "git_log" if self.path == "/git-log-search" else self.path[1:].replace("-", "_")
+                    args = {"path": str(source)} if name == "git_diff" else {"limit": 1} if name == "git_log" else {"path": str(source), "start_line": 1, "end_line": 4} if name == "git_blame" else {"revision": "HEAD", "path": str(source)}
+                    if self.path == "/git-log-search":
+                        args = {"search": "GIT_COMMITTED_SENTINEL", "author": "Fixture"}
                     if self.path == "/git-branch":
                         args = {"base": "HEAD~1", "path": str(source)}
                     if self.path == "/git-context":
@@ -148,7 +156,8 @@ def main():
         threading.Thread(target=provider.serve_forever, daemon=True).start()
         provider_url = f"http://127.0.0.1:{provider.server_port}"
         modes = ["stream", "plain", "error", "bad-json", "truncated", "no-usage", "budget", "steps", "listing", "ranked-listing", "ranked-unindexed",
-                 "context-text", "context-hybrid", "context-fallback", "project", "git-diff", "git-log", "git-show", "git-branch", "git-context", "batch", "no-reasoning-usage", "empty"]
+                 "context-text", "context-hybrid", "context-fallback", "project", "git-diff", "git-log", "git-show", "git-branch", "git-context",
+                 "git-blame", "git-log-search", "grep-re2", "read-files", "batch", "no-reasoning-usage", "empty"]
         catalog = {"agent_enabled": True, "embedding_providers": [{"id": "embed", "api_url": provider_url + "/embedding", "model": "mock",
                     "query_format": "query: {}", "document_format": "document: {}"}],
                    "generation_providers": [{"id": mode, "model": mode, "api_url": provider_url + "/" + mode,
@@ -274,17 +283,33 @@ def main():
                 check(any(event.get("tool") == "project_info" and "loaded summary" in event.get("content", "") for event in events) and
                       any(event.get("tool") == "project_settings" and "loaded summary" in event.get("content", "") for event in events), "project tool progress reaches SSE")
                 check(any(e.get("content") == "Final answer" for e in events), "inspection evidence produces final answer")
-                for mode, expected in (("git-diff", "GIT_WORKTREE_SENTINEL"), ("git-log", "second HTTP Git fixture"), ("git-show", "void Needle"), ("git-branch", "GIT_COMMITTED_SENTINEL"), ("git-context", "GIT_WORKTREE_SENTINEL")):
+                for mode, expected in (("git-diff", "GIT_WORKTREE_SENTINEL"), ("git-log", "second HTTP Git fixture"), ("git-show", "void Needle"), ("git-branch", "GIT_COMMITTED_SENTINEL"), ("git-context", "GIT_WORKTREE_SENTINEL"), ("git-blame", "GIT_WORKTREE_SENTINEL"), ("git-log-search", "second HTTP Git fixture")):
                     events = chat(mode)
                     check(len(requests["/" + mode]) == 2, "Git tool result reaches a second model round")
                     git_result = json.loads(requests["/" + mode][1]["messages"][-1]["content"])
                     check(expected in git_result["content"] and "HTTP_GIT_SECRET" not in git_result["content"], "Git HTTP dispatcher enforces source scope")
-                    check(any(event.get("tool") == ("git_diff" if mode in ("git-branch", "git-context") else mode.replace("-", "_")) and "inspection returned" in event.get("content", "") for event in events), "Git progress reaches typed SSE metadata")
+                    expected_tool = "git_diff" if mode in ("git-branch", "git-context") else "git_log" if mode == "git-log-search" else mode.replace("-", "_")
+                    check(any(event.get("tool") == expected_tool and "inspection returned" in event.get("content", "") for event in events), "Git progress reaches typed SSE metadata")
                     if mode == "git-context":
                         check(git_result["context"] == 0 and "RETRIEVED_CONTEXT_SENTINEL" not in git_result["content"], "zero-context patch reaches the next model round without surrounding lines")
                     if mode == "git-branch":
                         check(git_result["mode"] == "branch" and "GIT_WORKTREE_SENTINEL" not in git_result["content"], "branch review excludes uncommitted worktree changes")
+                    if mode == "git-blame":
+                        check(git_result["start_line"] == 1 and git_result["end_line"] == 4, "git_blame line range reaches model round")
+                    if mode == "git-log-search":
+                        check("initial HTTP Git fixture" not in git_result["content"], "git_log pickaxe/author filter excludes non-matching commits")
                     check(any(event.get("content") == "Final answer" for event in events), "model completes answer after Git inspection")
+                events = chat("grep-re2")
+                re2_result = json.loads(requests["/grep-re2"][1]["messages"][-1]["content"])
+                check(len(re2_result["matches"]) == 1 and re2_result["matches"][0]["start_line"] == 2 and
+                      re2_result["matches"][0]["end_line"] == 2 and re2_result["glob"] == "*.cpp",
+                      "RE2 regex, zero context_lines, and glob filter work through HTTP dispatcher")
+                events = chat("read-files")
+                rf_result = json.loads(requests["/read-files"][1]["messages"][-1]["content"])
+                check(rf_result["count"] == 2 and rf_result["results"][0]["start_line"] == 1 and rf_result["results"][1]["start_line"] == 2,
+                      "read_files batch reads disjoint ranges through HTTP dispatcher")
+                check(any(event.get("tool") == "read_files" and "2/2 files returned" in event.get("content", "") for event in events),
+                      "read_files progress reaches typed SSE metadata")
                 events = chat("context-text")
                 text_result = json.loads(requests["/context-text"][1]["messages"][-1]["content"])
                 check(text_result["mode"] == "text" and any("Needle" in hit["content"] for hit in text_result["matches"]),

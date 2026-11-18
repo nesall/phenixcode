@@ -19,6 +19,8 @@ public:
     size_t maxMatchesPerFile = 50;
     size_t maxTotalResults = 200;
     bool useRegex = false;
+    bool caseSensitive = false;
+    bool wholeWord = false;
     bool idfPruning = false; // two-pass DF prune; use when no FTS index exists
     float saturationScale = 10.0f;
   };

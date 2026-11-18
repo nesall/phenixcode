@@ -15,9 +15,9 @@ using json = nlohmann::json;
 namespace chat_tools {
 
   json definitions(bool includeSettings) {
-    auto tools = json::array({ grepDefinition(), readFileDefinition(), listFilesDefinition(), searchContextDefinition(), projectInfoDefinition() });
+    auto tools = json::array({ grepDefinition(), readFileDefinition(), readFilesDefinition(), listFilesDefinition(), searchContextDefinition(), projectInfoDefinition() });
     if (includeSettings) tools.push_back(projectSettingsDefinition());
-    for (auto tool : { gitDiffDefinition(), gitLogDefinition(), gitShowDefinition() }) tools.push_back(std::move(tool));
+    for (auto tool : { gitDiffDefinition(), gitLogDefinition(), gitShowDefinition(), gitBlameDefinition() }) tools.push_back(std::move(tool));
     return tools;
   }
 
@@ -39,19 +39,24 @@ namespace chat_tools {
       for (const auto &tool : tools) availableTools.push_back(tool.at("function").at("name").get<std::string>());
       return chat_tools::executeProjectInfo(call, app_.settings(), { allowedFiles_, usedSources_ }, app_.db().chunkCount(), availableTools);
     }
-    if (funcName == "git_diff" || funcName == "git_log" || funcName == "git_show")
+    if (funcName == "git_diff" || funcName == "git_log" || funcName == "git_show" || funcName == "git_blame")
       return chat_tools::executeGit(call, { allowedFiles_, usedSources_ }, &gitCache_);
     if (funcName == "read_file")
       return chat_tools::executeReadFile(call, { allowedFiles_, usedSources_ });
+    if (funcName == "read_files")
+      return chat_tools::executeReadFiles(call, { allowedFiles_, usedSources_ });
     if (funcName == "grep")
-      return chat_tools::executeGrep(call, { allowedFiles_, usedSources_ },
-        [&](const std::string &pattern, const std::vector<std::string> &paths) {
+      return chat_tools::executeGrepWithOptions(call, { allowedFiles_, usedSources_ },
+        [&](const chat_tools::GrepQuery &query, const std::vector<std::string> &paths) {
           SourceProcessor::GrepOptions opts;
-          opts.contextLines = 2;
+          opts.contextLines = query.contextLines;
+          opts.useRegex = query.useRegex;
+          opts.caseSensitive = query.caseSensitive;
+          opts.wholeWord = query.wholeWord;
           opts.maxMatchesPerFile = 10;
           opts.maxTotalResults = 9;
           SourceProcessor::GrepStats stats;
-          auto matches = app_.sourceProcessor().grep({ pattern }, paths, opts, &stats);
+          auto matches = app_.sourceProcessor().grep({ query.pattern }, paths, opts, &stats);
           return chat_tools::GrepSearchResult{ std::move(matches), stats.searchedFiles, stats.failedFiles, stats.limitReached };
         });
     if (funcName == "list_files")

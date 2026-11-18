@@ -12,7 +12,7 @@ namespace {
   constexpr auto version = "2026-07-28";
   constexpr auto instructions =
     "Read-only context for one loaded PhenixCode project. Indexed excerpts may be stale; "
-    "read_file returns current text. Semantic search may call the configured embedding provider.";
+    "read_file and read_files return current text. Semantic search may call the configured embedding provider.";
   constexpr size_t kRateLimitPerMinute = 300;
 
   json identity() { return { { "name", "phenixcode" },{ "version", EMBEDDER_VERSION } }; }

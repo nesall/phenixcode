@@ -7,9 +7,9 @@
 #include <set>
 #include <stdexcept>
 #include <fstream>
-#include <iterator>
+#include <memory>
 #include <unordered_map>
-#include <3rdparty/utf8.h>
+#include <re2/re2.h>
 
 using nlohmann::json;
 
@@ -62,7 +62,11 @@ namespace chat_tools {
         const auto display = shortPath(filter, root);
         return filter.empty() || display == "." ? label : label + " in " + display;
       };
-      if (name == "grep") return scoped("Search " + quoted("pattern"));
+      if (name == "grep") {
+        auto label = scoped("Search " + quoted("pattern"));
+        if (!text("glob").empty()) label += " (" + preview(text("glob"), 32) + ")";
+        return label;
+      }
       if (name == "search_context") return "Search context " + quoted("query");
       if (name == "list_files") {
         auto label = scoped("List " + (text("extension").empty() ? std::string{} : preview(text("extension"), 16) + " ") + "files");
@@ -75,6 +79,10 @@ namespace chat_tools {
         if (output && !output->contains("error")) label += ":" + std::to_string(output->value("start_line", size_t(0))) + "-" + std::to_string(output->value("end_line", size_t(0)));
         return label;
       }
+      if (name == "read_files") {
+        const size_t n = args.contains("files") && args["files"].is_array() ? args["files"].size() : size_t(0);
+        return "Read " + std::to_string(n) + (n == 1 ? " file" : " files");
+      }
       if (name == "project_info") return "Project info";
       if (name == "project_settings") return "Project settings" + (text("section").empty() || text("section") == "all" ? std::string{} : middle + preview(text("section"), 32));
       std::string label = preview(name, 64);
@@ -84,7 +92,10 @@ namespace chat_tools {
       }
       else if (name == "git_log") label = "Git history";
       else if (name == "git_show") label = "Git show " + preview(text("revision"), 32);
+      else if (name == "git_blame") label = "Git blame";
       if (!text("path").empty()) label += middle + shortPath(text("path"), root);
+      if (name == "git_blame" && output && !output->contains("error") && output->contains("start_line"))
+        label += ":" + std::to_string(output->value("start_line", size_t(0))) + "-" + std::to_string(output->value("end_line", size_t(0)));
       return label;
     }
 
@@ -102,6 +113,93 @@ namespace chat_tools {
       filter = std::filesystem::path(filter).lexically_normal().generic_string();
       return filter == "." ? std::string{} : filter;
     }
+
+    std::unique_ptr<re2::RE2> compileGlob(const json &args, std::string &normalizedGlob) {
+      normalizedGlob.clear();
+      if (!args.contains("glob")) return nullptr;
+      if (!args["glob"].is_string()) throw std::invalid_argument("glob must be a string");
+      auto glob = args["glob"].get<std::string>();
+      if (glob.empty()) return nullptr;
+      if (glob.size() > 256) throw std::invalid_argument("glob must be at most 256 bytes");
+      if (glob.find('\0') != std::string::npos || glob.find_first_of("\r\n") != std::string::npos)
+        throw std::invalid_argument("glob contains invalid characters");
+      std::replace(glob.begin(), glob.end(), '\\', '/');
+      for (const auto &part : std::filesystem::path(glob))
+        if (part == "..") throw std::invalid_argument("glob must not contain parent traversal");
+      while (glob.starts_with("./")) glob.erase(0, 2);
+      if (glob.empty()) return nullptr;
+      normalizedGlob = glob;
+
+      auto escapeLiteral = [](char c, std::string &out) {
+        switch (c) {
+          case '.': case '+': case '(': case ')': case '[': case ']':
+          case '^': case '$': case '|': case '\\':
+            out.push_back('\\');
+            [[fallthrough]];
+          default:
+            out.push_back(c);
+        }
+      };
+
+      const bool hasSlash = glob.find('/') != std::string::npos;
+      const bool anchoredRoot = hasSlash && (glob.front() == '/' || (glob.size() >= 2 && glob[1] == ':'));
+      std::string pattern = anchoredRoot ? "^" : "(?:^|/)";
+      for (size_t i = 0; i < glob.size(); ++i) {
+        const char c = glob[i];
+        if (c == '*') {
+          if (i + 1 < glob.size() && glob[i + 1] == '*') {
+            if (i + 2 < glob.size() && glob[i + 2] == '/') {
+              pattern += "(?:.*/)?";
+              i += 2;
+            } else {
+              pattern += ".*";
+              ++i;
+            }
+          } else {
+            pattern += "[^/]*";
+          }
+        } else if (c == '?') {
+          pattern += "[^/]";
+        } else if (c == '{') {
+          const auto close = glob.find('}', i + 1);
+          if (close == std::string::npos || close == i + 1)
+            throw std::invalid_argument("glob contains invalid brace group");
+          const auto group = glob.substr(i + 1, close - i - 1);
+          if (group.find('{') != std::string::npos)
+            throw std::invalid_argument("glob does not support nested brace groups");
+          pattern += "(?:";
+          size_t start = 0;
+          bool first = true;
+          while (start <= group.size()) {
+            const auto comma = group.find(',', start);
+            const auto alt = group.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+            if (!first) pattern.push_back('|');
+            first = false;
+            for (const char ch : alt) {
+              if (ch == '*') pattern += "[^/]*";
+              else if (ch == '?') pattern += "[^/]";
+              else escapeLiteral(ch, pattern);
+            }
+            if (comma == std::string::npos) break;
+            start = comma + 1;
+          }
+          pattern.push_back(')');
+          i = close;
+        } else if (c == '}') {
+          throw std::invalid_argument("glob contains unmatched closing brace");
+        } else {
+          escapeLiteral(c, pattern);
+        }
+      }
+      pattern.push_back('$');
+      re2::RE2::Options opt;
+      opt.set_case_sensitive(false);
+      opt.set_log_errors(false);
+      opt.set_max_mem(1 << 20);
+      auto re = std::make_unique<re2::RE2>(pattern, opt);
+      if (!re->ok()) throw std::invalid_argument("Invalid glob pattern");
+      return re;
+    }
   }
 
   bool enabled(bool agentEnabled, const ApiConfig &api, bool freeChat, bool attachedOnly)
@@ -113,10 +211,15 @@ namespace chat_tools {
   {
     return {{"type", "function"}, {"function", {
       {"name", "grep"},
-      {"description", "Search configured project source files for literal text (case insensitive). Returns snippets with line numbers."},
+      {"description", "Search configured project source files for literal text (default, case-insensitive) or RE2 regular expressions. Supports case sensitivity, whole-word matching, configurable context lines, path prefix filters, and case-insensitive file globs. Returns snippets with line numbers."},
       {"parameters", {{"type", "object"}, {"properties", {
-        {"pattern", {{"type", "string"}, {"description", "Literal text, 2 to 64 bytes; not a regular expression"}}},
-        {"path_filter", {{"type", "string"}, {"description", "Optional path prefix, up to " + std::to_string(kMaxPathFilterBytes) + " UTF-8 bytes, e.g. src/; empty means no filter. Only configured project files are searched"}}}
+        {"pattern", {{"type", "string"}, {"description", "Literal text or RE2 regular expression, 2 to 64 bytes"}}},
+        {"path_filter", {{"type", "string"}, {"description", "Optional path prefix, up to " + std::to_string(kMaxPathFilterBytes) + " UTF-8 bytes, e.g. src/; empty means no filter. Only configured project files are searched"}}},
+        {"glob", {{"type", "string"}, {"description", "Optional case-insensitive file glob filter, e.g. '*.cpp', 'src/**/*.ts', or '*.{cpp,h}', up to 256 bytes"}}},
+        {"regex", {{"type", "boolean"}, {"description", "Default false: literal text search; true: RE2 linear-time regular expression"}}},
+        {"case_sensitive", {{"type", "boolean"}, {"description", "Default false: case-insensitive; true: case-sensitive"}}},
+        {"whole_word", {{"type", "boolean"}, {"description", "Default false; true: match whole words only"}}},
+        {"context_lines", {{"type", "integer"}, {"minimum", 0}, {"maximum", 10}, {"description", "Surrounding context lines per match (0 to 10), default 2"}}}
       }}, {"required", json::array({"pattern"})}, {"additionalProperties", false}}}
     }}};
   }
@@ -130,6 +233,22 @@ namespace chat_tools {
         {"start_line", {{"type", "integer"}, {"minimum", 1}, {"description", "First line (1-based), default 1"}}},
         {"end_line", {{"type", "integer"}, {"minimum", 1}, {"description", "Last line (inclusive), default start_line + 199"}}}
       }}, {"required", json::array({"path"})}, {"additionalProperties", false}}}
+    }}};
+  }
+
+  json readFilesDefinition() {
+    return {{"type", "function"}, {"function", {
+      {"name", "read_files"},
+      {"description", "Batch-read 1 to 5 configured project text file line ranges (including disjoint ranges of the same file) in one call. Returns numbered lines sharing a single 8 KiB output budget with explicit per-item and overall truncation."},
+      {"parameters", {{"type", "object"}, {"properties", {
+        {"files", {{"type", "array"}, {"minItems", 1}, {"maxItems", 5},
+          {"description", "List of 1 to 5 file/line-range read requests"},
+          {"items", {{"type", "object"}, {"properties", {
+            {"path", {{"type", "string"}, {"description", "Source path returned by a search or listing tool, or an unambiguous relative path"}}},
+            {"start_line", {{"type", "integer"}, {"minimum", 1}, {"description", "First line (1-based), default 1"}}},
+            {"end_line", {{"type", "integer"}, {"minimum", 1}, {"description", "Last line (inclusive), default start_line + 199"}}}
+          }}, {"required", json::array({"path"})}, {"additionalProperties", false}}}}}
+      }}, {"required", json::array({"files"})}, {"additionalProperties", false}}}
     }}};
   }
 
@@ -437,35 +556,29 @@ namespace chat_tools {
     }
   }
 
-  json executeReadFile(const json &call, const ToolContext &ctx)
-  {
-    LOG_MSG_DEBUG << "executeReadFile: " << call.dump();
-    LOG_MSG_INFO << "[tool] read_file called";
-    try {
-      const auto &function = call.at("function");
-      if (function.at("name") != "read_file") throw std::invalid_argument("Unknown tool");
-      const auto arguments = function.at("arguments").get<std::string>();
-      if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
-      const auto args = json::parse(arguments);
-      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
-      for (const auto &[key, value] : args.items())
-        if (key != "path" && key != "start_line" && key != "end_line") throw std::invalid_argument("Unknown read_file argument: " + key);
-      auto path = args.at("path").get<std::string>();
-      if (path.empty() || path.size() > 1024 || path.find('\0') != std::string::npos) throw std::invalid_argument("Invalid file path");
+  namespace {
+    std::string resolveAllowedFile(std::string path, const std::vector<std::string> &allowedFiles) {
+      if (path.empty() || path.size() > 1024 || path.find('\0') != std::string::npos)
+        throw std::invalid_argument("Invalid file path");
       std::replace(path.begin(), path.end(), '\\', '/');
       for (const auto &part : std::filesystem::path(path))
         if (part == "..") throw std::invalid_argument("File path must not contain parent traversal");
       const auto requested = std::filesystem::path(path).lexically_normal();
       const auto name = requested.generic_string();
       std::string selected;
-      for (const auto &file : ctx.allowedFiles) {
+      for (const auto &file : allowedFiles) {
         const auto normalized = std::filesystem::path(file).lexically_normal().generic_string();
         if (normalized == name || (!requested.is_absolute() && normalized.ends_with("/" + name))) {
-          if (!selected.empty() && selected != file) throw std::invalid_argument("Ambiguous file path; use the full source path");
+          if (!selected.empty() && selected != file)
+            throw std::invalid_argument("Ambiguous file path; use the full source path");
           selected = file;
         }
       }
       if (selected.empty()) throw std::invalid_argument("File is not among the configured project sources");
+      return selected;
+    }
+
+    std::pair<size_t, size_t> parseLineRange(const json &args) {
       const auto lineNumber = [&](const char *key, size_t fallback) -> size_t {
         const auto value = args.find(key);
         if (value == args.end()) return fallback;
@@ -476,7 +589,10 @@ namespace chat_tools {
       const auto first = lineNumber("start_line", 1);
       const auto requestedLast = lineNumber("end_line", first + 199);
       if (requestedLast < first) throw std::invalid_argument("end_line must be at least start_line");
-      const auto last = (std::min)(requestedLast, first + 199);
+      return {first, (std::min)(requestedLast, first + 199)};
+    }
+
+    std::string readTextFileChecked(const std::string &selected) {
       constexpr size_t maxFileBytes = 8 * 1024 * 1024;
       std::ifstream file(selected, std::ios::binary);
       if (!file) throw std::runtime_error("Unable to read the source file");
@@ -486,8 +602,12 @@ namespace chat_tools {
       if (content.size() > maxFileBytes) throw std::invalid_argument("read_file supports files up to 8 MiB");
       if (file.bad()) throw std::runtime_error("Failed reading the source file");
       if (content.find('\0') != std::string::npos) throw std::invalid_argument("read_file supports text files only");
+      return content;
+    }
+
+    json formatFileRange(const std::string &selected, const std::string &content, size_t first, size_t last, size_t maxJsonBytes) {
       json result = {{"source", selected}, {"start_line", first}, {"end_line", 0}, {"content", ""}, {"truncated", false}};
-      if (result.dump().size() > kMaxResultBytes - 128) throw std::invalid_argument("Source path exceeds the result size limit");
+      if (result.dump().size() > maxJsonBytes - 128) throw std::invalid_argument("Source path exceeds the result size limit");
       if (content.empty()) result["start_line"] = 0;
       size_t pos = 0, line = 1;
       while (line < first && pos < content.size()) {
@@ -506,7 +626,7 @@ namespace chat_tools {
         auto numbered = std::to_string(line) + ": " + valid + "\n";
         result["content"] = snippet + numbered;
         result["end_line"] = line;
-        if (result.dump().size() > kMaxResultBytes - 128) {
+        if (result.dump().size() > maxJsonBytes - 128) {
           result["truncated"] = true;
           if (!snippet.empty()) {
             result["content"] = snippet;
@@ -521,7 +641,7 @@ namespace chat_tools {
               while (length && (static_cast<unsigned char>(numbered[length]) & 0xc0) == 0x80) --length;
               numbered.resize(length);
               result["content"] = numbered;
-            } while (result.dump().size() > kMaxResultBytes);
+            } while (result.dump().size() > maxJsonBytes);
           }
           break;
         }
@@ -533,7 +653,185 @@ namespace chat_tools {
         result["truncated"] = true;
         result["next_start_line"] = line;
       }
+      return result;
+    }
+
+    bool dropTrailingLines(json &item, size_t targetDropBytes) {
+      if (!item.is_object() || item.contains("error") || !item.contains("content") || !item["content"].is_string())
+        return false;
+      auto content = item["content"].get<std::string>();
+      size_t endLine = item.value("end_line", size_t(0));
+      size_t dropped = 0;
+      bool changed = false;
+      while (dropped < targetDropBytes && content.size() > 1) {
+        const size_t withoutTrailingNl = content.back() == '\n' ? content.size() - 1 : content.size();
+        const size_t prevNl = content.rfind('\n', withoutTrailingNl == 0 ? 0 : withoutTrailingNl - 1);
+        if (prevNl == std::string::npos || prevNl + 1 >= content.size() || endLine <= item.value("start_line", size_t(1)))
+          break;
+        dropped += content.size() - (prevNl + 1);
+        content.resize(prevNl + 1);
+        --endLine;
+        changed = true;
+      }
+      if (!changed) return false;
+      item["content"] = std::move(content);
+      item["end_line"] = endLine;
+      item["next_start_line"] = endLine + 1;
+      item["truncated"] = true;
+      return true;
+    }
+  }
+
+  json executeReadFile(const json &call, const ToolContext &ctx)
+  {
+    LOG_MSG_DEBUG << "executeReadFile: " << call.dump();
+    LOG_MSG_INFO << "[tool] read_file called";
+    try {
+      const auto &function = call.at("function");
+      if (function.at("name") != "read_file") throw std::invalid_argument("Unknown tool");
+      const auto arguments = function.at("arguments").get<std::string>();
+      if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
+      const auto args = json::parse(arguments);
+      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
+      for (const auto &[key, value] : args.items())
+        if (key != "path" && key != "start_line" && key != "end_line") throw std::invalid_argument("Unknown read_file argument: " + key);
+      const auto selected = resolveAllowedFile(args.at("path").get<std::string>(), ctx.allowedFiles);
+      const auto [first, last] = parseLineRange(args);
+      const auto content = readTextFileChecked(selected);
+      auto result = formatFileRange(selected, content, first, last, kMaxResultBytes);
       if (std::find(ctx.usedSources.begin(), ctx.usedSources.end(), selected) == ctx.usedSources.end()) ctx.usedSources.push_back(selected);
+      return result;
+    } catch (const std::exception &e) {
+      return {{"error", preview(e.what(), 512)}};
+    }
+  }
+
+  json executeReadFiles(const json &call, const ToolContext &ctx)
+  {
+    LOG_MSG_DEBUG << "executeReadFiles: " << call.dump();
+    LOG_MSG_INFO << "[tool] read_files called";
+    try {
+      const auto &function = call.at("function");
+      if (function.at("name") != "read_files") throw std::invalid_argument("Unknown tool");
+      const auto arguments = function.at("arguments").get<std::string>();
+      if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
+      const auto args = json::parse(arguments);
+      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
+      for (const auto &[key, value] : args.items())
+        if (key != "files") throw std::invalid_argument("Unknown read_files argument: " + preview(key, 128));
+      if (!args.contains("files") || !args["files"].is_array())
+        throw std::invalid_argument("files must be an array of 1 to 5 read requests");
+      const auto &requests = args["files"];
+      if (requests.empty() || requests.size() > 5)
+        throw std::invalid_argument("files must contain between 1 and 5 read requests");
+
+      struct ParsedReq {
+        std::string path;
+        size_t first;
+        size_t last;
+      };
+      std::vector<ParsedReq> parsed;
+      parsed.reserve(requests.size());
+      for (const auto &item : requests) {
+        if (!item.is_object()) throw std::invalid_argument("Each entry in files must be an object");
+        for (const auto &[key, value] : item.items())
+          if (key != "path" && key != "start_line" && key != "end_line")
+            throw std::invalid_argument("Unknown read_files item argument: " + preview(key, 128));
+        if (!item.contains("path") || !item["path"].is_string())
+          throw std::invalid_argument("Each read_files entry requires a string path");
+        const auto [first, last] = parseLineRange(item);
+        parsed.push_back({item["path"].get<std::string>(), first, last});
+      }
+
+      std::unordered_map<std::string, std::string> fileCache;
+      json formatted = json::array();
+      size_t successCount = 0;
+      size_t errorCount = 0;
+      for (const auto &req : parsed) {
+        try {
+          const auto selected = resolveAllowedFile(req.path, ctx.allowedFiles);
+          auto cached = fileCache.find(selected);
+          if (cached == fileCache.end()) {
+            cached = fileCache.emplace(selected, readTextFileChecked(selected)).first;
+          }
+          formatted.push_back(formatFileRange(selected, cached->second, req.first, req.last, kMaxResultBytes));
+          ++successCount;
+        } catch (const std::exception &e) {
+          formatted.push_back({{"path", req.path}, {"error", preview(e.what(), 512)}});
+          ++errorCount;
+        }
+      }
+
+      if (successCount == 0) {
+        if (formatted.size() == 1) return {{"error", formatted[0]["error"]}};
+        return {{"error", "All read_files requests failed"}, {"results", formatted}};
+      }
+
+      json result = {
+        {"results", std::move(formatted)},
+        {"count", parsed.size()},
+        {"requested_count", parsed.size()},
+        {"truncated", false}
+      };
+      if (errorCount > 0) result["partial_errors"] = true;
+
+      size_t omitted = 0;
+      for (size_t serializedSize = result.dump().size(); serializedSize > kMaxResultBytes; serializedSize = result.dump().size()) {
+        auto &items = result["results"];
+        const size_t excess = serializedSize - kMaxResultBytes;
+        size_t bestIdx = items.size();
+        size_t bestLen = 0;
+        for (size_t i = 0; i < items.size(); ++i) {
+          if (items[i].contains("error") || !items[i].contains("content")) continue;
+          const auto &c = items[i]["content"].get_ref<const std::string &>();
+          const auto nl = c.find('\n');
+          if (nl != std::string::npos && nl + 1 < c.size() && c.size() > bestLen) {
+            bestLen = c.size();
+            bestIdx = i;
+          }
+        }
+        if (bestIdx < items.size() && dropTrailingLines(items[bestIdx], (std::max)(size_t(1), excess / 2))) {
+          result["truncated"] = true;
+          continue;
+        }
+        // No multi-line content left to trim; shorten any oversized single line first.
+        bestIdx = items.size();
+        bestLen = 0;
+        for (size_t i = 0; i < items.size(); ++i) {
+          if (items[i].contains("error") || !items[i].contains("content")) continue;
+          const auto &c = items[i]["content"].get_ref<const std::string &>();
+          if (c.size() > 128 && c.size() > bestLen) {
+            bestLen = c.size();
+            bestIdx = i;
+          }
+        }
+        if (bestIdx < items.size()) {
+          auto c = items[bestIdx]["content"].get<std::string>();
+          size_t length = c.size() / 2;
+          while (length && (static_cast<unsigned char>(c[length]) & 0xc0) == 0x80) --length;
+          c.resize(length);
+          items[bestIdx]["content"] = std::move(c);
+          items[bestIdx]["line_truncated"] = true;
+          items[bestIdx]["truncated"] = true;
+          items[bestIdx]["next_start_line"] = items[bestIdx].value("end_line", size_t(0)) + 1;
+          result["truncated"] = true;
+          continue;
+        }
+        if (items.empty()) return {{"error", "read_files output exceeds the result size limit"}};
+        items.erase(items.end() - 1);
+        ++omitted;
+        result["count"] = items.size();
+        result["omitted_count"] = omitted;
+        result["truncated"] = true;
+      }
+
+      for (const auto &item : result["results"]) {
+        if (!item.contains("error") && item.contains("source")) {
+          const auto &src = item["source"].get_ref<const std::string &>();
+          if (std::find(ctx.usedSources.begin(), ctx.usedSources.end(), src) == ctx.usedSources.end())
+            ctx.usedSources.push_back(src);
+        }
+      }
       return result;
     } catch (const std::exception &e) {
       return {{"error", preview(e.what(), 512)}};
@@ -554,8 +852,14 @@ namespace chat_tools {
         throw std::invalid_argument("arguments must be an object");
 
       for (auto it = args.begin(); it != args.end(); ++it) {
-        if (it.key() != "path_filter" && it.key() != "extension" && it.key() != "sort_by" && it.key() != "order" && it.key() != "limit")
-          throw std::invalid_argument("unknown argument: " + preview(it.key(), 128));
+        if (it.key() != "path_filter" && it.key() != "extension" && it.key() != "sort_by" && it.key() != "order" && it.key() != "limit") {
+          std::string suggestion{ " | Did you mean path_filter, extension, sort_by, order or limit?" };
+          if (utils::containsAny(it.key(), { "search", "filter", "pattern"})) suggestion = " | Did you mean path_filter?";
+          else if (utils::containsAny(it.key(), { "sort" })) suggestion = " | Did you mean sort_by?";
+          else if (utils::containsAny(it.key(), { "ordering" })) suggestion = " | Did you mean order?";
+          else if (utils::containsAny(it.key(), { "maximum", "max", "count", "size" })) suggestion = " | Did you mean limit?";
+          throw std::invalid_argument("unknown argument: " + preview(it.key(), 128) + suggestion);
+        }
       }
 
       const auto filter = pathFilter(args);
@@ -670,36 +974,80 @@ namespace chat_tools {
 
   json executeGrep(const json &call, const ToolContext &ctx, const Search &search)
   {
+    return executeGrepWithOptions(call, ctx, SearchWithOptions([&](const GrepQuery &query, const std::vector<std::string> &paths) {
+      return search(query.pattern, paths);
+    }));
+  }
+
+  json executeGrepWithOptions(const json &call, const ToolContext &ctx, const SearchWithOptions &search)
+  {
     LOG_MSG_DEBUG << "executeGrep: " << call.dump();
     LOG_MSG_INFO << "[tool] grep called";
     try {
       const auto &function = call.at("function");
-      if (function.at("name") != "grep") throw std::invalid_argument("Unknown tool; available tools are grep, read_file, list_files and search_context");
+      if (function.at("name") != "grep") throw std::invalid_argument("Unknown tool");
       const auto arguments = function.at("arguments").get<std::string>();
       if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
       const auto args = json::parse(arguments);
       if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
       for (const auto &[key, value] : args.items())
-        if (key != "pattern" && key != "path_filter") throw std::invalid_argument("Unknown grep argument: " + key);
+        if (key != "pattern" && key != "path_filter" && key != "glob" && key != "regex" &&
+            key != "case_sensitive" && key != "whole_word" && key != "context_lines")
+          throw std::invalid_argument("Unknown grep argument: " + preview(key, 128));
       const auto pattern = args.at("pattern").get<std::string>();
       if (pattern.size() < 2 || pattern.size() > 64 || pattern.find_first_not_of(" \t\r\n") == std::string::npos ||
           pattern.find('\0') != std::string::npos || pattern.find_first_of("\r\n") != std::string::npos)
-        throw std::invalid_argument("pattern must be single-line literal text, 2 to 64 bytes");
+        throw std::invalid_argument("pattern must be single-line text, 2 to 64 bytes");
+      const auto boolArg = [&](const char *key) -> bool {
+        const auto it = args.find(key);
+        if (it == args.end()) return false;
+        if (!it->is_boolean()) throw std::invalid_argument(std::string(key) + " must be a boolean");
+        return it->get<bool>();
+      };
+      const bool useRegex = boolArg("regex");
+      const bool caseSensitive = boolArg("case_sensitive");
+      const bool wholeWord = boolArg("whole_word");
+      size_t contextLines = 2;
+      if (args.contains("context_lines")) {
+        const auto &val = args["context_lines"];
+        if (!val.is_number_integer() || val < 0 || val > 10)
+          throw std::invalid_argument("context_lines must be an integer between 0 and 10");
+        contextLines = val.get<size_t>();
+      }
+      if (useRegex) {
+        re2::RE2::Options opt;
+        opt.set_log_errors(false);
+        opt.set_max_mem(4 << 20);
+        opt.set_case_sensitive(caseSensitive);
+        opt.set_one_line(true);
+        re2::RE2 re(pattern, opt);
+        if (!re.ok()) throw std::invalid_argument("Invalid regular expression: " + re.error());
+        if (wholeWord) {
+          re2::RE2 wordRe("(?:\\b(?:" + pattern + ")\\b)", opt);
+          if (!wordRe.ok()) throw std::invalid_argument("Invalid whole-word regular expression: " + wordRe.error());
+        }
+      }
       const auto filter = pathFilter(args);
+      std::string globText;
+      const auto globRe = compileGlob(args, globText);
       std::vector<std::string> paths;
       std::set<std::string> selected;
       for (const auto &file : ctx.allowedFiles) {
         const auto path = std::filesystem::path(file).lexically_normal().generic_string();
         const bool relative = !std::filesystem::path(filter).is_absolute();
-        if ((filter.empty() || path.starts_with(filter) || (relative && path.find("/" + filter) != std::string::npos)) && selected.insert(path).second)
+        const bool prefixOk = filter.empty() || path.starts_with(filter) || (relative && path.find("/" + filter) != std::string::npos);
+        const bool globOk = !globRe || re2::RE2::PartialMatch(path, *globRe);
+        if (prefixOk && globOk && selected.insert(path).second)
           paths.push_back(file);
       }
       // Reserve the final outcome field before enforcing the serialized byte limit.
       json result = {{"matches", json::array()}, {"truncated", false}, {"path_filter", filter}, {"outcome", "incomplete_search"},
         {"matched_files", paths.size()}, {"searched_files", 0}, {"unreadable_files", 0}, {"search_limited", false}};
+      if (!globText.empty()) result["glob"] = globText;
       // SourceProcessor interprets an empty list as all sources; never pass it through.
       if (paths.empty()) { result["outcome"] = "no_files_matched_filter"; return result; }
-      const auto found = search(pattern, paths);
+      const GrepQuery query{pattern, useRegex, caseSensitive, wholeWord, contextLines};
+      const auto found = search(query, paths);
       result["searched_files"] = found.searchedFiles;
       result["unreadable_files"] = found.failedFiles;
       result["search_limited"] = found.limitReached;
@@ -827,6 +1175,7 @@ namespace chat_tools {
           summary = std::to_string(output.at("matches").size()) + " excerpts returned (" + output.at("mode").get<std::string>() + ")";
           if (output.at("matches").empty()) status = "info";
         } else if (name == "read_file") summary = "returned lines " + std::to_string(output.at("start_line").get<size_t>()) + "-" + std::to_string(output.at("end_line").get<size_t>());
+        else if (name == "read_files") summary = std::to_string(output.value("count", size_t(0))) + "/" + std::to_string(output.value("requested_count", size_t(0))) + " files returned";
         else if (name == "project_info" || name == "project_settings") summary = "loaded summary returned";
         else summary = "inspection returned";
         if (output.value("truncated", false)) { summary += " (truncated)"; if (status != "error") status = "warning"; }
@@ -847,12 +1196,13 @@ namespace chat_tools {
           }
         } else if (name == "list_files") compactResult = std::to_string(output.at("count").get<size_t>()) + " files";
         else if (name == "search_context") compactResult = std::to_string(output.at("matches").size()) + " excerpts";
+        else if (name == "read_files") compactResult = std::to_string(output.value("count", size_t(0))) + "/" + std::to_string(output.value("requested_count", size_t(0))) + " files";
         auto compact = compactPrefix + compactAction(name, args, displayRoot, &output);
         if (!compactResult.empty()) compact += dash + compactResult;
         if (output.value("truncated", false)) compact += " (truncated)";
         event["summary"] = compact;
         if (name == "grep" && !output.contains("error")) {
-          for (const auto *key : {"outcome", "matched_files", "searched_files", "unreadable_files", "search_limited", "path_filter"})
+          for (const auto *key : {"outcome", "matched_files", "searched_files", "unreadable_files", "search_limited", "path_filter", "glob"})
             if (output.contains(key)) event[key] = output[key];
         }
         if (onStatus) onStatus(event);

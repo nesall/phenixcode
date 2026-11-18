@@ -278,7 +278,7 @@ public:
     return config_.contains("logging") ? config_["logging"].value("log_to_console", true) : true;
   }
   std::string loggingMinDebugLevel() const {
-    return config_.contains("logging") ? config_["logging"].value("min_debug_level", "info") : std::string("info");
+    return config_.contains("logging") ? config_["logging"].value("min_log_level", "info") : std::string("info");
   }
 
   bool mcpEnabled() const {

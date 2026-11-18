@@ -214,10 +214,58 @@ int main(int argc, char **argv) {
     check(!execute("git_log").contains("error") && !execute("git_show", {{"path", files[0]}, {"revision", "HEAD"}}).contains("error") &&
       !execute("git_diff", {{"staged", true}}).contains("error"), "history, historical blobs and staged diffs do not inspect or expand clean filter drivers");
     check(execute("git_diff").contains("error"), "working-tree diff still enforces bounded clean filter suppression");
+    check(execute("git_blame", {{"path", files[0]}}).contains("error"), "working-tree blame still enforces bounded clean filter suppression");
     files = {(root / "empty" / "unborn.cpp").generic_string()};
     result = execute("git_diff", {{"staged", true}});
     check(!result.contains("error") && text(result).find("unborn_content") != std::string::npos, "staged diff supports an unborn branch");
     check(execute("git_log").contains("error"), "history on an unborn branch reports an error");
+
+    // git_blame and git_log upgrades.
+    files = originalFiles;
+    check(chat_tools::gitBlameDefinition()["function"]["parameters"]["additionalProperties"] == false &&
+      chat_tools::gitBlameDefinition()["function"]["parameters"]["required"] == json::array({"path"}),
+      "git_blame schema requires path and rejects unrecognized keys");
+    used.clear();
+    result = execute("git_blame", {{"path", "src/main.cpp"}});
+    check(!result.contains("error") && result["start_line"] == 1 && result["end_line"] == 4 &&
+      text(result).find("original_content") != std::string::npos && text(result).find("unstaged_change") != std::string::npos &&
+      used == std::vector<std::string>{files[0]},
+      "git_blame annotates working-tree lines and tracks delivered source");
+    result = execute("git_blame", {{"path", "src/main.cpp"}, {"start_line", 2}, {"end_line", 2}});
+    check(!result.contains("error") && result["start_line"] == 2 && result["end_line"] == 2 &&
+      text(result).find("committed_change") != std::string::npos && text(result).find("original_content") == std::string::npos,
+      "git_blame restricts output to requested line range");
+    result = execute("git_blame", {{"path", "src/main.cpp"}, {"revision", "initial-tag"}});
+    check(!result.contains("error") && result["revision"].get<std::string>().size() == 40 &&
+      text(result).find("original_content") != std::string::npos && text(result).find("committed_change") == std::string::npos,
+      "git_blame supports historical revisions");
+    result = execute("git_blame", {{"path", "src/big.cpp"}, {"start_line", 1}, {"end_line", 200}});
+    check(!result.contains("error") && result["truncated"] == true && result["end_line"] < 200,
+      "large git_blame output respects 8 KiB budget and updates end_line on truncation");
+    for (const auto &badBlame : {
+        call("git_blame", json::object()),
+        call("git_blame", {{"path", "src/main.cpp"}, {"start_line", 99}}),
+        call("git_blame", {{"path", "src/main.cpp"}, {"start_line", 3}, {"end_line", 1}}),
+        call("git_blame", {{"path", "src/blob.cpp"}}),
+        call("git_blame", {{"path", "excluded.env"}}),
+        call("git_blame", {{"path", "src/main.cpp"}, {"revision", "--help"}}),
+        call("git_blame", {{"path", "src/main.cpp"}, {"extra", true}})})
+      check(chat_tools::executeGit(badBlame, context).contains("error"), "invalid git_blame inputs return structured errors");
+
+    result = execute("git_log", {{"author", "Fixture"}});
+    check(!result.contains("error") && text(result).find("second source commit") != std::string::npos, "git_log author filter matches literal author");
+    check(text(execute("git_log", {{"author", "NoSuchAuthor"}})).empty(), "git_log author filter excludes non-matching authors");
+    check(text(execute("git_log", {{"author", "Fix[ture"}})).empty(), "git_log author filter treats regex metacharacters literally");
+    check(!text(execute("git_log", {{"since", "1970-01-01"}, {"until", "2099-01-01"}})).empty(), "git_log date range includes matching commits");
+    check(text(execute("git_log", {{"since", "2099-01-01"}})).empty(), "git_log future since returns no commits");
+    result = execute("git_log", {{"search", "committed_change"}});
+    check(!result.contains("error") && text(result).find("second source commit") != std::string::npos &&
+      text(result).find("initial source commit") == std::string::npos, "git_log -S pickaxe finds commits changing literal string occurrences");
+    result = execute("git_log", {{"search", "committed_[a-z]+"}, {"search_regex", true}});
+    check(!result.contains("error") && text(result).find("second source commit") != std::string::npos,
+      "git_log -G pickaxe finds commits matching diff regex without running external diff helpers");
+    check(chat_tools::executeGit(call("git_log", {{"search_regex", true}}), context).contains("error"),
+      "git_log rejects search_regex without search");
 #ifndef _WIN32
     // Auto-reaping produces ECHILD: a missing wait status must never become success.
     const auto previous = std::signal(SIGCHLD, SIG_IGN);

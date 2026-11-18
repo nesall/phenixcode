@@ -32,6 +32,7 @@ namespace chat_tools {
   bool enabled(bool agentEnabled, const ApiConfig &api, bool freeChat, bool attachedOnly);
   nlohmann::json grepDefinition();
   nlohmann::json readFileDefinition();
+  nlohmann::json readFilesDefinition();
   nlohmann::json listFilesDefinition();
   nlohmann::json searchContextDefinition();
   nlohmann::json projectInfoDefinition();
@@ -39,6 +40,7 @@ namespace chat_tools {
   nlohmann::json gitDiffDefinition();
   nlohmann::json gitLogDefinition();
   nlohmann::json gitShowDefinition();
+  nlohmann::json gitBlameDefinition();
   nlohmann::json executeGit(const nlohmann::json &call, const ToolContext &ctx, GitRepositoryCache *cache = nullptr);
   nlohmann::json executeProjectInfo(const nlohmann::json &call, const Settings &settings,
     const ToolContext &ctx, size_t indexedChunks, const std::vector<std::string> &availableTools);
@@ -49,14 +51,24 @@ namespace chat_tools {
     size_t failedFiles = 0;
     bool limitReached = false;
   };
+  struct GrepQuery {
+    std::string pattern;
+    bool useRegex = false;
+    bool caseSensitive = false;
+    bool wholeWord = false;
+    size_t contextLines = 2;
+  };
   using Search = std::function<GrepSearchResult(const std::string &, const std::vector<std::string> &)>;
+  using SearchWithOptions = std::function<GrepSearchResult(const GrepQuery &, const std::vector<std::string> &)>;
   struct ContextSearchResult {
     std::vector<SearchResult> matches;
     bool textFallback = false;
   };
   using ContextSearch = std::function<ContextSearchResult(const std::string &)>;
   nlohmann::json executeGrep(const nlohmann::json &call, const ToolContext &ctx, const Search &search);
+  nlohmann::json executeGrepWithOptions(const nlohmann::json &call, const ToolContext &ctx, const SearchWithOptions &search);
   nlohmann::json executeReadFile(const nlohmann::json &call, const ToolContext &ctx);
+  nlohmann::json executeReadFiles(const nlohmann::json &call, const ToolContext &ctx);
   using FileMetadataReader = std::function<std::vector<FileMetadata>()>;
   nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx, const FileMetadataReader &metadata = {});
   nlohmann::json executeSearchContext(const nlohmann::json &call, const ToolContext &ctx, const ContextSearch &search);

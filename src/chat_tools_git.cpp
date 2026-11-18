@@ -375,27 +375,42 @@ namespace chat_tools {
     }
     json patchContext() {
       return {{"type", "integer"}, {"minimum", 0}, {"maximum", 20}, {"default", 3},
-        {"description", "Surrounding lines per patch hunk, default 3. Only applies to patches, not historical file contents."}};
+        {"description", "Patch hunk context lines (0-20, default 3)"}};
     }
     json definition(const char *name, const char *description, json properties, json required = json::array()) {
-      properties["path"] = {{"type", "string"}, {"description", "Optional configured source file path (not a directory). Omit for the scoped repository; required to select among multiple repositories. Use list_files to discover paths."}};
+      properties["path"] = {{"type", "string"}, {"description", "Optional configured file path (required if multiple repos)"}};
       return {{"type", "function"}, {"function", {{"name", name}, {"description", description},
         {"parameters", {{"type", "object"}, {"properties", properties}, {"required", required}, {"additionalProperties", false}}}}}};
     }
   }
 
   json gitDiffDefinition() {
-    return definition("git_diff", "Read unstaged or staged changes. With base, compare its merge base with HEAD against HEAD (committed branch changes only). Configured untracked filenames are reported separately for read_file; their contents are not in the patch. Only configured sources, up to 8 KiB with truncation.",
-      {{"context", patchContext()}, {"staged", {{"type", "boolean"}, {"description", "Default false: unstaged changes; true: staged changes. Cannot be true with base."}}},
-        {"base", {{"type", "string"}, {"description", "Optional local base commit, branch or tag (e.g. main). Compare merge-base(base, HEAD) to HEAD; excludes uncommitted changes."}}}});
+    return definition("git_diff", "Scoped unstaged, staged, or branch merge-base diff (plus untracked filenames), up to 8 KiB.",
+      {{"context", patchContext()}, {"staged", {{"type", "boolean"}, {"description", "Staged changes (default false; cannot combine with base)"}}},
+        {"base", {{"type", "string"}, {"description", "Local base revision/branch for merge-base..HEAD diff"}}}});
   }
   json gitLogDefinition() {
-    return definition("git_log", "Read recent local commits touching configured source files. Optional path narrows to one file. Returns commit IDs, authors, dates and messages, up to 8 KiB. Does not fetch remote history or follow renames.",
-      {{"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 20}, {"description", "Maximum commits to return, default 5"}}}});
+    return definition("git_log", "Recent local commits touching configured files (no rename following), up to 8 KiB.",
+      {{"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 20}, {"description", "Max commits (1-20, default 5)"}}},
+       {"author", {{"type", "string"}, {"description", "Author substring filter"}}},
+       {"since", {{"type", "string"}, {"description", "Lower date bound (e.g. '2026-01-01')"}}},
+       {"until", {{"type", "string"}, {"description", "Upper date bound"}}},
+       {"search", {{"type", "string"}, {"description", "Pickaxe diff string (-S, or -G with search_regex=true)"}}},
+       {"search_regex", {{"type", "boolean"}, {"description", "Use -G regex pickaxe (requires search)"}}}});
   }
   json gitShowDefinition() {
-    return definition("git_show", "Inspect a local commit's metadata and patch restricted to configured sources. If path is supplied, return that allowed file's contents at the revision instead. Excluded and no-longer-configured files are unavailable. Up to 8 KiB with explicit truncation.",
-      {{"context", patchContext()}, {"revision", {{"type", "string"}, {"description", "Commit ID from git_log, branch, tag, or HEAD ancestry such as HEAD~1"}}}}, json::array({"revision"}));
+    return definition("git_show", "Scoped commit patch, or allowed file contents at revision when path is set (up to 8 KiB).",
+      {{"context", patchContext()}, {"revision", {{"type", "string"}, {"description", "Commit ID, branch, tag, or HEAD~N"}}}}, json::array({"revision"}));
+  }
+  json gitBlameDefinition() {
+    return {{"type", "function"}, {"function", {{"name", "git_blame"},
+      {"description", "Line-by-line blame for a configured source file (up to 200 lines, 8 KiB)."},
+      {"parameters", {{"type", "object"}, {"properties", {
+        {"path", {{"type", "string"}, {"description", "Configured source file path"}}},
+        {"start_line", {{"type", "integer"}, {"minimum", 1}, {"description", "1-based start line (default 1)"}}},
+        {"end_line", {{"type", "integer"}, {"minimum", 1}, {"description", "1-based inclusive end line (default start_line + 199)"}}},
+        {"revision", {{"type", "string"}, {"description", "Optional commit, branch, tag, or HEAD~N"}}}
+      }}, {"required", json::array({"path"})}, {"additionalProperties", false}}}}}};
   }
   json executeGit(const json &call, const ToolContext &ctx, GitRepositoryCache *cache) {
     LOG_MSG_DEBUG << "executeGit:" << call.dump();
@@ -406,7 +421,7 @@ namespace chat_tools {
       if (!function.contains("name") || !function["name"].is_string()) throw std::invalid_argument("Tool function requires a string name");
       if (!function.contains("arguments") || !function["arguments"].is_string()) throw std::invalid_argument("Tool arguments must be a JSON string");
       const auto name = function.at("name").get<std::string>();
-      if (name != "git_diff" && name != "git_log" && name != "git_show") {
+      if (name != "git_diff" && name != "git_log" && name != "git_show" && name != "git_blame") {
         LOG_MSG_WARN << "Unknown Git tool: " << name;
         throw std::invalid_argument("Unknown Git tool");
       }
@@ -416,10 +431,14 @@ namespace chat_tools {
       const auto args = json::parse(raw, nullptr, false);
       if (!args.is_object()) throw std::invalid_argument("Tool arguments must be a valid JSON object");
       for (const auto &[key, value] : args.items())
-        if (key != "path" && !(name == "git_diff" && (key == "staged" || key == "base")) && !(name == "git_log" && key == "limit") && !(name == "git_show" && key == "revision") &&
-            !((name == "git_diff" || name == "git_show") && key == "context"))
+        if (key != "path" &&
+            !(name == "git_diff" && (key == "staged" || key == "base" || key == "context")) &&
+            !(name == "git_log" && (key == "limit" || key == "author" || key == "since" || key == "until" || key == "search" || key == "search_regex")) &&
+            !(name == "git_show" && (key == "revision" || key == "context")) &&
+            !(name == "git_blame" && (key == "start_line" || key == "end_line" || key == "revision")))
           throw std::invalid_argument("Unknown argument: " + key.substr(0, 128));
       const auto path = textArgument(args, "path", kMaxPathFilterBytes);
+      if (name == "git_blame" && path.empty()) throw std::invalid_argument("path is required");
       if (args.contains("staged") && !args["staged"].is_boolean()) throw std::invalid_argument("staged must be a boolean");
       if (args.contains("limit") && (!args["limit"].is_number_integer() || args["limit"] < 1 || args["limit"] > 20))
         throw std::invalid_argument("limit must be an integer from 1 to 20");
@@ -432,6 +451,27 @@ namespace chat_tools {
       if (!base.empty() && args.value("staged", false)) throw std::invalid_argument("base cannot be combined with staged: true");
       const auto revision = textArgument(args, "revision", 128);
       if (name == "git_show" && revision.empty()) throw std::invalid_argument("revision is required");
+      const auto author = textArgument(args, "author", 128);
+      const auto since = textArgument(args, "since", 64);
+      const auto until = textArgument(args, "until", 64);
+      const auto search = textArgument(args, "search", 128);
+      if (args.contains("search_regex") && !args["search_regex"].is_boolean()) throw std::invalid_argument("search_regex must be a boolean");
+      const bool searchRegex = args.value("search_regex", false);
+      if (searchRegex && search.empty()) throw std::invalid_argument("search_regex requires search");
+      size_t blameFirst = 1, blameLast = 200;
+      if (name == "git_blame") {
+        const auto lineNumber = [&](const char *key, size_t fallback) -> size_t {
+          const auto value = args.find(key);
+          if (value == args.end()) return fallback;
+          if (!value->is_number_integer() || *value < 1 || *value > 10000000)
+            throw std::invalid_argument("Line numbers must be integers between 1 and 10000000");
+          return value->get<size_t>();
+        };
+        blameFirst = lineNumber("start_line", 1);
+        const auto requestedLast = lineNumber("end_line", blameFirst + 199);
+        if (requestedLast < blameFirst) throw std::invalid_argument("end_line must be at least start_line");
+        blameLast = (std::min)(requestedLast, blameFirst + 199);
+      }
       GitRepositoryCache localCache;
       const auto repo = repository(ctx, path, cache ? *cache : localCache, preparationDeadline);
       const auto root = runGit(repo.root, {"rev-parse", "--show-toplevel"}, preparationDeadline, {}, "preparation");
@@ -452,13 +492,24 @@ namespace chat_tools {
         } else if (args.value("staged", false)) command.push_back("--cached");
         else configuration = disableFilters(repo, preparationDeadline);
       } else if (name == "git_log") {
-        command = {"log", "--no-notes", "--no-show-signature", "--no-decorate", "--format=commit %H%nAuthor: %an%nDate: %aI%n%n%B", "-n", std::to_string(args.value("limit", 5))};
+        command = {"log", "--no-notes", "--no-show-signature", "--no-decorate", "--no-ext-diff", "--no-textconv", "--no-renames",
+          "--ignore-submodules=all", "--format=commit %H%nAuthor: %an%nDate: %aI%n%n%B", "-n", std::to_string(args.value("limit", 5))};
+        if (!author.empty()) { command.push_back("--fixed-strings"); command.push_back("--author=" + author); }
+        if (!since.empty()) command.push_back("--since=" + since);
+        if (!until.empty()) command.push_back("--until=" + until);
+        if (!search.empty()) command.push_back((searchRegex ? "-G" : "-S") + search);
+      } else if (name == "git_blame") {
+        if (!revision.empty()) hash = commit(repo, revision, preparationDeadline);
+        else configuration = disableFilters(repo, preparationDeadline);
+        command = {"blame", "--no-textconv", "--abbrev=10", "--date=short", "-L", std::to_string(blameFirst) + "," + std::to_string(blameLast)};
+        if (!hash.empty()) command.push_back(hash);
+        command.push_back("--"); command.push_back(repo.selectedPath);
       } else {
         hash = commit(repo, revision, preparationDeadline);
         if (!path.empty()) command = {"show", "--no-ext-diff", "--no-textconv", hash + ":" + repo.selectedPath};
         else command = {"show", "--no-notes", "--no-show-signature", "--no-ext-diff", "--no-textconv", "--no-renames", "--ignore-submodules=all", "--no-color", "--format=fuller", "--unified=" + std::to_string(contextLines), hash};
       }
-      if (name != "git_show" || path.empty()) {
+      if (name != "git_blame" && (name != "git_show" || path.empty())) {
         command.push_back("--"); command.insert(command.end(), repo.files.begin(), repo.files.end());
       }
       json untracked = json::array();
@@ -484,12 +535,23 @@ namespace chat_tools {
       }
       checkDeadline(preparationDeadline);
       const auto output = runGit(repo.root, command, std::chrono::steady_clock::now() + std::chrono::seconds(10), configuration);
-      if (output.code && !output.truncated) throw std::runtime_error("Git inspection failed; the repository may have no commits or the file may not exist at that revision");
+      if (output.code && !output.truncated) {
+        if (name == "git_blame") {
+          if (output.output.find("has only") != std::string::npos) throw std::invalid_argument("start_line exceeds the file length");
+          throw std::runtime_error("Git blame failed; the file may be untracked or absent at that revision");
+        }
+        throw std::runtime_error("Git inspection failed; the repository may have no commits or the file may not exist at that revision");
+      }
       if (output.output.find('\0') != std::string::npos) throw std::invalid_argument("Git tools support text output only");
       json result = {{"repository", pathText(repo.root.filename())}, {"scope", "configured_local_files"}};
       if (!hash.empty()) result["revision"] = hash;
       if (!repo.source.empty()) result["path"] = repo.source;
       if (name == "git_diff" || (name == "git_show" && path.empty())) result["context"] = contextLines;
+      if (name == "git_blame") {
+        const size_t lineCount = static_cast<size_t>(std::count(output.output.begin(), output.output.end(), '\n'));
+        result["start_line"] = lineCount ? blameFirst : 0;
+        result["end_line"] = lineCount ? (blameFirst + lineCount - 1) : 0;
+      }
       if (name == "git_diff") {
         result["mode"] = !base.empty() ? "branch" : args.value("staged", false) ? "staged" : "unstaged";
         result["untracked_files"] = std::move(untracked);
@@ -497,6 +559,11 @@ namespace chat_tools {
         if (!base.empty()) { result["base"] = base; result["base_commit"] = baseCommit; result["merge_base"] = mergeBase; result["head"] = headCommit; }
       }
       result = boundedResult(std::move(result), output.output, output.truncated || untrackedTruncated);
+      if (name == "git_blame" && !result.contains("error") && result["truncated"].get<bool>()) {
+        const auto &bounded = result["content"].get_ref<const std::string &>();
+        const size_t boundedLines = static_cast<size_t>(std::count(bounded.begin(), bounded.end(), '\n'));
+        result["end_line"] = boundedLines ? (blameFirst + boundedLines - 1) : blameFirst;
+      }
       if (!result.contains("error") && !repo.source.empty() && name != "git_log" && !result["content"].get_ref<const std::string &>().empty() &&
           std::find(ctx.usedSources.begin(), ctx.usedSources.end(), repo.source) == ctx.usedSources.end()) ctx.usedSources.push_back(repo.source);
       return result;
