@@ -325,7 +325,7 @@ int App::run(int argc, char *argv[])
           case EC::NotFound: return "not_found";
           case EC::IoError: return "io_error";
           case EC::CryptoError: return "crypto_error";
-          case EC::None: break;
+          case EC::NoError: break;
         }
         return "error";
       };
