@@ -1,5 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
+set "START_TIME=%TIME%"
 
 rem --- Parse version.cmake ---
 for /f "tokens=1,2 delims=()" %%A in ('findstr /r "^set(EMBEDDER_VERSION_" version.cmake') do (
@@ -53,5 +54,7 @@ powershell -NoProfile -Command "Compress-Archive -Path '%NAME%' -DestinationPath
 
 rmdir /s /q "%NAME%"
 echo Package '%NAME%.zip' ready.
+
+powershell -NoProfile -Command "$start = [TimeSpan]::Parse('%START_TIME%'); $elapsed = (Get-Date).TimeOfDay - $start; if ($elapsed.Ticks -lt 0) { $elapsed = $elapsed.Add([TimeSpan]::FromDays(1)) }; Write-Host ('Total duration: {0:00}:{1:00} (mm:ss)' -f [math]::Floor($elapsed.TotalMinutes), $elapsed.Seconds)"
 
 endlocal

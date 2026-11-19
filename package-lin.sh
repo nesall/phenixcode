@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+START_TIME=$SECONDS
+trap 'ELAPSED=$((SECONDS - START_TIME)); printf "Total duration: %02d:%02d (mm:ss)\n" "$((ELAPSED / 60))" "$((ELAPSED % 60))"' EXIT
 
 # Resolve all build and package paths relative to this script.
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
