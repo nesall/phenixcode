@@ -87,3 +87,4 @@ benchmarks/results/
 combined_src.txt
 models/
 .phenixcode/
+__pycache__/
