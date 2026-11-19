@@ -40,13 +40,19 @@ int main(int argc, char *argv[]) {
   try {
     const fs::path repoRoot = argc > 1 ? fs::path(argv[1]) : fs::current_path();
 
-    // 1. Explicit language extension routing (.h defaults to C++; .c unsupported for now).
+    // 1. Explicit language extension routing (.h defaults to C++; .svelte stays Unsupported).
     check(symbol_service::detectLanguage("src/main.cpp") == symbol_service::Language::Cpp, ".cpp routes to Cpp");
     check(symbol_service::detectLanguage("INCLUDE/UTILS.H") == symbol_service::Language::Cpp, ".h defaults to Cpp case-insensitively");
     check(symbol_service::detectLanguage("header.hpp") == symbol_service::Language::Cpp, ".hpp routes to Cpp");
     check(symbol_service::detectLanguage("unit.cc") == symbol_service::Language::Cpp, ".cc routes to Cpp");
-    check(symbol_service::detectLanguage("sqlite3.c") == symbol_service::Language::Unsupported, ".c stays Unsupported until C grammar arrives");
-    check(symbol_service::detectLanguage("script.py") == symbol_service::Language::Unsupported, ".py stays Unsupported");
+    check(symbol_service::detectLanguage("sqlite3.c") == symbol_service::Language::C, ".c routes to C");
+    check(symbol_service::detectLanguage("script.py") == symbol_service::Language::Python, ".py routes to Python");
+    check(symbol_service::detectLanguage("stubs.pyi") == symbol_service::Language::Python, ".pyi routes to Python");
+    check(symbol_service::detectLanguage("app.js") == symbol_service::Language::JavaScript, ".js routes to JavaScript");
+    check(symbol_service::detectLanguage("view.jsx") == symbol_service::Language::JavaScript, ".jsx routes to JavaScript");
+    check(symbol_service::detectLanguage("mod.ts") == symbol_service::Language::TypeScript, ".ts routes to TypeScript");
+    check(symbol_service::detectLanguage("App.tsx") == symbol_service::Language::Tsx, ".tsx routes to Tsx");
+    check(symbol_service::detectLanguage("Chat.svelte") == symbol_service::Language::Unsupported, ".svelte remains Unsupported");
     check(symbol_service::detectLanguage("README.md") == symbol_service::Language::Unsupported, ".md stays Unsupported");
 
     symbol_service::SymbolService service(2);
@@ -190,6 +196,107 @@ int main(int argc, char *argv[]) {
       const auto o2 = service.outlineForContent("fresh.cpp", symbol_service::Language::Cpp, v2, &hit);
       check(!hit && findByName(o2, "firstName").empty() && findByName(o2, "otherName").size() == 1,
             "SHA-256 verification invalidates cache on same-size content changes without relying on mtime");
+    }
+
+    // 7. C, Python (.py/.pyi), JavaScript/JSX, TypeScript, and TSX grammars.
+    {
+      const std::string cSrc =
+        "typedef unsigned long u32;\n"
+        "struct Packet { int kind; };\n"
+        "int init_pkt(struct Packet *p);\n"
+        "int init_pkt(struct Packet *p) { return p ? p->kind : -1; }\n";
+      const auto cOut = service.outlineForContent("net.c", symbol_service::Language::C, cSrc);
+      const auto cPkt = findByName(cOut, "Packet");
+      const auto cFn = findByName(cOut, "init_pkt");
+      const auto cTd = findByName(cOut, "u32");
+      check(cTd.size() == 1 && cTd[0]->kind == symbol_service::SymbolKind::TypeAlias &&
+            cPkt.size() == 1 && cPkt[0]->kind == symbol_service::SymbolKind::Struct &&
+            cFn.size() == 2 &&
+            cFn[0]->role == symbol_service::SymbolRole::Declaration &&
+            cFn[1]->role == symbol_service::SymbolRole::Definition,
+            "C parser extracts typedef, struct, prototype declaration, and definition");
+
+      const std::string pySrc =
+        "@lru_cache\n"
+        "async def fetch_data(key: str) -> bytes:\n"
+        "    return key.encode()\n"
+        "\n"
+        "class Worker:\n"
+        "    @staticmethod\n"
+        "    def run(x: int) -> int:\n"
+        "        return x + 1\n";
+      const auto pyOut = service.outlineForContent("worker.py", symbol_service::Language::Python, pySrc);
+      const auto pyFetch = findByName(pyOut, "fetch_data");
+      const auto pyRun = findByName(pyOut, "run");
+      check(pyFetch.size() == 1 &&
+            pyFetch[0]->kind == symbol_service::SymbolKind::Function &&
+            pyFetch[0]->role == symbol_service::SymbolRole::Definition &&
+            pySrc.substr(pyFetch[0]->start_byte, pyFetch[0]->end_byte - pyFetch[0]->start_byte).rfind("@lru_cache", 0) == 0,
+            "decorated Python function starts at decorator and is extracted cleanly");
+      check(pyRun.size() == 1 && pyRun[0]->qualified_name == "Worker.run" &&
+            pyRun[0]->kind == symbol_service::SymbolKind::Method,
+            "Python class method qualifies as Class.method");
+
+      const std::string pyiSrc =
+        "def fetch_data(key: str) -> bytes: ...\n"
+        "class Worker:\n"
+        "    def run(self, x: int) -> int: ...\n";
+      const auto pyiOut = service.outlineForContent("worker.pyi", symbol_service::Language::Python, pyiSrc);
+      const auto pyiFetch = findByName(pyiOut, "fetch_data");
+      check(pyiFetch.size() == 1 && pyiFetch[0]->role == symbol_service::SymbolRole::Declaration,
+            "Python .pyi ellipsis stub extracts as Declaration");
+
+      const std::string jsxSrc =
+        "export class Store {\n"
+        "  getItems() { return []; }\n"
+        "}\n"
+        "export const Badge = ({ label }) => <span>{label}</span>;\n";
+      const auto jsOut = service.outlineForContent("badge.jsx", symbol_service::Language::JavaScript, jsxSrc);
+      const auto jsStore = findByName(jsOut, "Store");
+      const auto jsGet = findByName(jsOut, "getItems");
+      const auto jsBadge = findByName(jsOut, "Badge");
+      check(jsStore.size() == 1 && jsStore[0]->kind == symbol_service::SymbolKind::Class &&
+            jsGet.size() == 1 && jsGet[0]->qualified_name == "Store.getItems" &&
+            jsBadge.size() == 1 && jsBadge[0]->kind == symbol_service::SymbolKind::Function,
+            "JavaScript/JSX extracts classes, methods, and exported JSX arrow components");
+
+      const std::string tsSrc =
+        "export interface ApiClient { id: string; }\n"
+        "export type RouteId = string;\n"
+        "export enum Mode { Fast, Safe }\n"
+        "export function combine(x: number): number;\n"
+        "export function combine(x: number | string) { return x; }\n"
+        "export const createHandler = (port: number): string => {\n"
+        "  return `:${port}`;\n"
+        "};\n";
+      const auto tsOut = service.outlineForContent("api.ts", symbol_service::Language::TypeScript, tsSrc);
+      const auto tsIface = findByName(tsOut, "ApiClient");
+      const auto tsType = findByName(tsOut, "RouteId");
+      const auto tsEnum = findByName(tsOut, "Mode");
+      const auto tsComb = findByName(tsOut, "combine");
+      const auto tsArrow = findByName(tsOut, "createHandler");
+      check(tsIface.size() == 1 && tsIface[0]->kind == symbol_service::SymbolKind::Interface &&
+            tsIface[0]->role == symbol_service::SymbolRole::Declaration &&
+            tsType.size() == 1 && tsType[0]->kind == symbol_service::SymbolKind::TypeAlias &&
+            tsEnum.size() == 1 && tsEnum[0]->kind == symbol_service::SymbolKind::Enum &&
+            tsComb.size() == 2 &&
+            tsComb[0]->role == symbol_service::SymbolRole::Declaration &&
+            tsComb[1]->role == symbol_service::SymbolRole::Definition &&
+            tsArrow.size() == 1 && tsArrow[0]->kind == symbol_service::SymbolKind::Function &&
+            tsArrow[0]->role == symbol_service::SymbolRole::Definition &&
+            tsSrc.substr(tsArrow[0]->start_byte, tsArrow[0]->end_byte - tsArrow[0]->start_byte).rfind("export const createHandler", 0) == 0,
+            "TypeScript extracts interface, type alias, enum, overloads, and exported arrow function");
+
+      const std::string tsxSrc =
+        "interface Props { title: string; }\n"
+        "export const Header = ({ title }: Props) => <h1>{title}</h1>;\n";
+      const auto tsxOut = service.outlineForContent("Header.tsx", symbol_service::Language::Tsx, tsxSrc);
+      const auto tsxProps = findByName(tsxOut, "Props");
+      const auto tsxHeader = findByName(tsxOut, "Header");
+      check(tsxProps.size() == 1 && tsxProps[0]->kind == symbol_service::SymbolKind::Interface &&
+            tsxHeader.size() == 1 && tsxHeader[0]->kind == symbol_service::SymbolKind::Function &&
+            tsxHeader[0]->role == symbol_service::SymbolRole::Definition,
+            "TSX parser handles JSX tags and TypeScript interface annotations");
     }
 
     std::cout << checks << " symbol service checks passed.\n";

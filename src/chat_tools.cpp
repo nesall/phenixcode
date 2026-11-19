@@ -4,6 +4,7 @@
 #include "cutils.h"
 #include <utils_log/logger.hpp>
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <set>
 #include <stdexcept>
@@ -94,6 +95,11 @@ namespace chat_tools {
         auto label = "Read symbol " + preview(text("symbol"), 48) + middle + shortPath(text("path"), root);
         if (output && !output->contains("error") && !output->value("ambiguous", false) && output->contains("start_line"))
           label += ":" + std::to_string(output->value("start_line", size_t(0))) + "-" + std::to_string(output->value("end_line", size_t(0)));
+        return label;
+      }
+      if (name == "find_symbol") {
+        auto label = "Find symbol " + preview(text("name"), 48);
+        if (!text("path_filter").empty()) label += middle + preview(text("path_filter"), 32);
         return label;
       }
       if (name == "project_info") return "Project info";
@@ -213,6 +219,24 @@ namespace chat_tools {
       if (!re->ok()) throw std::invalid_argument("Invalid glob pattern");
       return re;
     }
+
+    std::vector<std::string> filterAllowedFiles(const std::vector<std::string> &allowedFiles,
+                                                const std::string &filter,
+                                                const std::unique_ptr<re2::RE2> &globRe) {
+      std::vector<std::string> paths;
+      std::set<std::string> selected;
+      const bool relative = !std::filesystem::path(filter).is_absolute();
+      for (const auto &file : allowedFiles) {
+        const auto path = std::filesystem::path(file).lexically_normal().generic_string();
+        const bool prefixOk = filter.empty() || path.starts_with(filter) ||
+          (relative && path.find("/" + filter) != std::string::npos);
+        const bool globOk = !globRe || re2::RE2::PartialMatch(path, *globRe);
+        if (prefixOk && globOk && selected.insert(path).second) {
+          paths.push_back(file);
+        }
+      }
+      return paths;
+    }
   }
 
   bool enabled(bool agentEnabled, const ApiConfig &api, bool freeChat, bool attachedOnly)
@@ -224,27 +248,27 @@ namespace chat_tools {
   {
     json props;
     props["pattern"] = {{"type", "string"}, {"minLength", 2}, {"maxLength", kMaxGrepPatternBytes},
-      {"description", "Literal text or RE2 regex (2-256 bytes)"}};
-    props["path_filter"] = {{"type", "string"}, {"description", "Optional path prefix, e.g. src/"}};
+      {"description", "Text or RE2 regex"}};
+    props["path_filter"] = {{"type", "string"}};
     props["glob"] = {{"type", "string"}, {"maxLength", 256},
-      {"description", "Optional file glob, e.g. '*.cpp', 'src/**/*.{cpp,h}'"}};
-    props["regex"] = {{"type", "boolean"}, {"description", "Use RE2 regex (default false)"}};
-    props["case_sensitive"] = {{"type", "boolean"}, {"description", "Case-sensitive match (default false)"}};
-    props["whole_word"] = {{"type", "boolean"}, {"description", "Whole-word match (default false)"}};
-    props["context_lines"] = {{"type", "integer"}, {"minimum", 0}, {"maximum", 10}, {"description", "Context lines (0-10), default 2"}};
+      {"description", "File glob, e.g. '*.cpp'"}};
+    props["regex"] = {{"type", "boolean"}};
+    props["case_sensitive"] = {{"type", "boolean"}};
+    props["whole_word"] = {{"type", "boolean"}};
+    props["context_lines"] = {{"type", "integer"}, {"minimum", 0}, {"maximum", 10}};
     json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"pattern"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "grep"},
-      {"description", "Search allowed files for literal text (default, case-insensitive) or RE2 regex with context lines, path_filter, and globs."},
+      {"description", "Search allowed files for literal text or RE2 regex with filters and context lines (0-10)."},
       {"parameters", std::move(params)}
     }}};
   }
 
   json readFileDefinition() {
     json props;
-    props["path"] = {{"type", "string"}, {"description", "Allowed source path"}};
-    props["start_line"] = {{"type", "integer"}, {"minimum", 1}, {"description", "1-based start line"}};
-    props["end_line"] = {{"type", "integer"}, {"minimum", 1}, {"description", "1-based inclusive end line"}};
+    props["path"] = {{"type", "string"}};
+    props["start_line"] = {{"type", "integer"}, {"minimum", 1}};
+    props["end_line"] = {{"type", "integer"}, {"minimum", 1}};
     json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"path"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "read_file"},
@@ -255,28 +279,27 @@ namespace chat_tools {
 
   json readFilesDefinition() {
     json itemProps;
-    itemProps["path"] = {{"type", "string"}, {"description", "Allowed source path"}};
+    itemProps["path"] = {{"type", "string"}};
     itemProps["start_line"] = {{"type", "integer"}, {"minimum", 1}};
     itemProps["end_line"] = {{"type", "integer"}, {"minimum", 1}};
     json itemSchema = {{"type", "object"}, {"properties", std::move(itemProps)}, {"required", json::array({"path"})}, {"additionalProperties", false}};
-    json filesSchema = {{"type", "array"}, {"minItems", 1}, {"maxItems", 5},
-      {"description", "1 to 5 file/line-range read requests"}, {"items", std::move(itemSchema)}};
+    json filesSchema = {{"type", "array"}, {"minItems", 1}, {"maxItems", 5}, {"items", std::move(itemSchema)}};
     json props = {{"files", std::move(filesSchema)}};
     json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"files"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "read_files"},
-      {"description", "Batch-read 1 to 5 line ranges from allowed files sharing an 8 KiB budget."},
+      {"description", "Batch-read 1 to 5 line ranges from allowed files (8 KiB total)."},
       {"parameters", std::move(params)}
     }}};
   }
 
   json symbolOutlineDefinition() {
     static const json kinds = json::array({
-      "namespace", "class", "struct", "union", "enum", "concept", "type_alias", "function", "method", "constructor", "destructor"
+      "namespace", "class", "struct", "union", "enum", "interface", "concept", "type_alias", "function", "method", "constructor", "destructor"
     });
     static const json roles = json::array({"all", "definition", "declaration"});
     json props;
-    props["path"] = {{"type", "string"}, {"description", "Allowed source path"}};
+    props["path"] = {{"type", "string"}};
     props["kind"] = {{"type", "string"}, {"enum", kinds}};
     props["role"] = {{"type", "string"}, {"enum", roles}};
     props["limit"] = {{"type", "integer"}, {"minimum", 1}, {"maximum", 200}};
@@ -284,7 +307,7 @@ namespace chat_tools {
     json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"path"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "symbol_outline"},
-      {"description", "List C++ symbol declarations and definitions in an allowed file (.h defaults to C++) with selectors."},
+      {"description", "List symbol declarations and definitions in a supported file (C, C++, Py, JS, TS/TSX) with selectors."},
       {"parameters", std::move(params)}
     }}};
   }
@@ -292,59 +315,64 @@ namespace chat_tools {
   json readSymbolDefinition() {
     static const json roles = json::array({"any", "definition", "declaration"});
     json props;
-    props["path"] = {{"type", "string"}, {"description", "Allowed source path"}};
-    props["symbol"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 256}, {"description", "Name, Class::method, or selector"}};
+    props["path"] = {{"type", "string"}};
+    props["symbol"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 256}, {"description", "Name, Class::m, Class.m, or selector"}};
     props["role"] = {{"type", "string"}, {"enum", roles}};
     json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"path", "symbol"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "read_symbol"},
-      {"description", "Read a C++ symbol or selector from an allowed file; filter role or inspect overload candidates."},
+      {"description", "Read a symbol or selector from a supported file."},
+      {"parameters", std::move(params)}
+    }}};
+  }
+
+  json findSymbolDefinition() {
+    static const json kinds = json::array({
+      "namespace", "class", "struct", "union", "enum", "interface", "concept", "type_alias", "function", "method", "constructor", "destructor"
+    });
+    static const json roles = json::array({"all", "definition", "declaration"});
+    static const json matches = json::array({"exact", "prefix"});
+    json props;
+    props["name"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 256}, {"description", "Symbol, Class::m, or Class.m"}};
+    props["match"] = {{"type", "string"}, {"enum", matches}};
+    props["role"] = {{"type", "string"}, {"enum", roles}};
+    props["kind"] = {{"type", "string"}, {"enum", kinds}};
+    props["path_filter"] = {{"type", "string"}};
+    props["glob"] = {{"type", "string"}};
+    props["limit"] = {{"type", "integer"}, {"minimum", 1}, {"maximum", 50}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"name"})}, {"additionalProperties", false}};
+    return {{"type", "function"}, {"function", {
+      {"name", "find_symbol"},
+      {"description", "Find symbols across allowed project files."},
       {"parameters", std::move(params)}
     }}};
   }
 
   nlohmann::json listFilesDefinition()
   {
-    return {
-      { "type", "function" },
-      { "function",{
-        { "name", "list_files" },
-        { "description",
-         "List allowed project files. Filter by path_filter or extension, or sort by path, indexed size, or lines "
-         "(index snapshots may be stale; unindexed sort last). Max 200 files, 8 KiB." },
-        { "parameters",{
-          { "type", "object" },
-          { "properties",{
-            { "path_filter",{
-              { "type", "string" },
-              { "description", "Optional path prefix, e.g. 'src'" }
-            } },
-            { "extension",{
-              { "type", "string" },
-              { "description", "Optional extension filter, e.g. '.cpp'" }
-            } },
-            { "sort_by", {{"type", "string"}, {"enum", json::array({"path", "size", "lines"})},
-              {"description", "Sort field; size/lines add file_metadata"}} },
-            { "order", {{"type", "string"}, {"enum", json::array({"asc", "desc"})},
-              {"description", "Sort direction, default asc"}} },
-            { "limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 200},
-              {"description", "Max files (1-200), default 200"}} }
-          } },
-          { "required", json::array() },
-          { "additionalProperties", false }
-        } }
-      } }
-    };
+    json props;
+    props["path_filter"] = {{"type", "string"}};
+    props["extension"] = {{"type", "string"}};
+    props["sort_by"] = {{"type", "string"}, {"enum", json::array({"path", "size", "lines"})}};
+    props["order"] = {{"type", "string"}, {"enum", json::array({"asc", "desc"})}};
+    props["limit"] = {{"type", "integer"}, {"minimum", 1}, {"maximum", 200}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array()}, {"additionalProperties", false}};
+    return {{"type", "function"}, {"function", {
+      {"name", "list_files"},
+      {"description", "List allowed files; filter by path_filter or extension, or sort by path, indexed size, or lines (max 200, 8 KiB)."},
+      {"parameters", std::move(params)}
+    }}};
   }
 
   json searchContextDefinition()
   {
+    json props;
+    props["query"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 512}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"query"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "search_context"},
-      {"description", "Hybrid semantic + text search over indexed project context (falls back to text if index/embeddings unavailable). Max 8 excerpts, 8 KiB."},
-      {"parameters", {{"type", "object"}, {"properties", {
-        {"query", {{"type", "string"}, {"description", "Search question (1-512 UTF-8 bytes)"}, {"minLength", 1}, {"maxLength", 512}}}
-      }}, {"required", json::array({"query"})}, {"additionalProperties", false}}}
+      {"description", "Hybrid semantic + text search over indexed context (falls back to text). Max 8 excerpts, 8 KiB."},
+      {"parameters", std::move(params)}
     }}};
   }
   namespace {
@@ -895,7 +923,7 @@ namespace chat_tools {
       const auto lang = symbol_service::detectLanguage(selected);
       if (lang == symbol_service::Language::Unsupported) {
         throw std::invalid_argument(
-          "Unsupported file type for C++ symbol extraction (.h defaults to C++; .c and non-C++ files are unsupported)");
+          "Unsupported file type for symbol extraction (supported: C, C++, Python, JavaScript/JSX, TypeScript, TSX; .h defaults to C++; .svelte is unsupported)");
       }
       contentOut = readTextFileChecked(selected);
       const std::string key = normalizedSourceKey(selected);
@@ -920,14 +948,15 @@ namespace chat_tools {
       };
     }
 
-    json formatSymbolSlice(const std::string &selected, const symbol_service::SymbolInfo &sym,
+    json formatSymbolSlice(const std::string &selected, symbol_service::Language lang,
+                           const symbol_service::SymbolInfo &sym,
                            const std::string &content, size_t maxJsonBytes) {
       if (sym.start_byte > sym.end_byte || sym.end_byte > content.size()) {
         throw std::runtime_error("Validated symbol byte range exceeds snapshot bounds");
       }
       json result = {
         {"source", selected},
-        {"language", "cpp"},
+        {"language", std::string(symbol_service::languageName(lang))},
         {"selector", sym.selector},
         {"name", std::string{ utils::sanitizeUtf8(sym.name) }},
         {"qualified_name", std::string{ utils::sanitizeUtf8(sym.qualified_name) }},
@@ -1012,13 +1041,29 @@ namespace chat_tools {
 
       if (auto hits = collect([&](const auto &s) { return s.selector == query; }); !hits.empty()) return hits;
       if (auto hits = collect([&](const auto &s) { return s.qualified_name == query; }); !hits.empty()) return hits;
-      if (query.find("::") != std::string::npos) {
-        const std::string suffix = "::" + query;
-        if (auto hits = collect([&](const auto &s) { return s.qualified_name.ends_with(suffix); }); !hits.empty()) return hits;
+      if (query.find("::") != std::string::npos || query.find('.') != std::string::npos) {
+        const std::string cppSuffix = "::" + query;
+        const std::string dotSuffix = "." + query;
+        if (auto hits = collect([&](const auto &s) {
+          return s.qualified_name.ends_with(cppSuffix) || s.qualified_name.ends_with(dotSuffix);
+        }); !hits.empty()) return hits;
       } else {
         if (auto hits = collect([&](const auto &s) { return s.name == query; }); !hits.empty()) return hits;
       }
       return {};
+    }
+
+    bool matchesFindQuery(const symbol_service::SymbolInfo &sym, const std::string &query, bool prefix) {
+      const bool qualified = query.find("::") != std::string::npos || query.find('.') != std::string::npos;
+      if (!prefix) {
+        if (!qualified) return sym.name == query;
+        return sym.selector == query || sym.qualified_name == query ||
+          sym.qualified_name.ends_with("::" + query) || sym.qualified_name.ends_with("." + query);
+      }
+      if (!qualified) return sym.name.starts_with(query);
+      return sym.qualified_name.starts_with(query) || sym.selector.starts_with(query) ||
+        sym.qualified_name.find("::" + query) != std::string::npos ||
+        sym.qualified_name.find("." + query) != std::string::npos;
     }
   }
 
@@ -1083,7 +1128,7 @@ namespace chat_tools {
 
       json result = {
         {"source", selected},
-        {"language", "cpp"},
+        {"language", std::string(symbol_service::languageName(outline.language))},
         {"symbol_count", 0},
         {"total_symbols", filtered.size()},
         {"truncated", false},
@@ -1174,7 +1219,7 @@ namespace chat_tools {
       if (matches.size() > 1) {
         json result = {
           {"source", selected},
-          {"language", "cpp"},
+          {"language", std::string(symbol_service::languageName(outline.language))},
           {"ambiguous", true},
           {"message", "Multiple symbols matched; pass one of the candidate selectors or filter by role"},
           {"candidate_count", 0},
@@ -1196,9 +1241,192 @@ namespace chat_tools {
         return result;
       }
 
-      auto result = formatSymbolSlice(selected, *matches.front(), content, kMaxResultBytes);
+      auto result = formatSymbolSlice(selected, outline.language, *matches.front(), content, kMaxResultBytes);
       if (std::find(ctx.usedSources.begin(), ctx.usedSources.end(), selected) == ctx.usedSources.end())
         ctx.usedSources.push_back(selected);
+      return result;
+    } catch (const std::exception &e) {
+      return {{"error", preview(e.what(), 512)}};
+    }
+  }
+
+  json executeFindSymbol(const json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols) {
+    LOG_MSG_DEBUG << "executeFindSymbol: " << call.dump();
+    LOG_MSG_INFO << "[tool] find_symbol called";
+    try {
+      const auto &function = call.at("function");
+      if (function.at("name") != "find_symbol") throw std::invalid_argument("Unknown tool");
+      const auto arguments = function.at("arguments").get<std::string>();
+      if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
+      const auto args = json::parse(arguments);
+      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
+      for (const auto &[key, value] : args.items()) {
+        if (key != "name" && key != "match" && key != "role" && key != "kind" &&
+            key != "path_filter" && key != "glob" && key != "limit")
+          throw std::invalid_argument("Unknown find_symbol argument: " + preview(key, 128));
+      }
+      if (!args.contains("name") || !args["name"].is_string())
+        throw std::invalid_argument("name must be a string");
+      const auto query = args["name"].get<std::string>();
+      if (query.empty() || query.size() > 256 || query.find('\0') != std::string::npos ||
+          query.find_first_of("\r\n") != std::string::npos ||
+          query.find_first_not_of(" \t") == std::string::npos)
+        throw std::invalid_argument("name must be single-line nonblank text, 1 to 256 bytes");
+
+      std::string matchMode = "exact";
+      if (args.contains("match")) {
+        if (!args["match"].is_string()) throw std::invalid_argument("match must be a string");
+        matchMode = args["match"].get<std::string>();
+        if (matchMode != "exact" && matchMode != "prefix")
+          throw std::invalid_argument("match must be exact or prefix");
+      }
+      const bool prefixMatch = matchMode == "prefix";
+
+      std::optional<symbol_service::SymbolRole> roleFilter;
+      if (args.contains("role")) {
+        if (!args["role"].is_string()) throw std::invalid_argument("role must be a string");
+        const auto &r = args["role"].get_ref<const std::string &>();
+        if (r == "definition") roleFilter = symbol_service::SymbolRole::Definition;
+        else if (r == "declaration") roleFilter = symbol_service::SymbolRole::Declaration;
+        else if (r != "all") throw std::invalid_argument("role must be all, definition, or declaration");
+      }
+
+      std::optional<symbol_service::SymbolKind> kindFilter;
+      if (args.contains("kind")) {
+        if (!args["kind"].is_string()) throw std::invalid_argument("kind must be a string");
+        kindFilter = symbol_service::parseKind(args["kind"].get_ref<const std::string &>());
+        if (!kindFilter) throw std::invalid_argument("Unknown symbol kind");
+      }
+
+      size_t limit = 20;
+      if (args.contains("limit")) {
+        if (!args["limit"].is_number_integer() || args["limit"] < 1 || args["limit"] > 50)
+          throw std::invalid_argument("limit must be an integer between 1 and 50");
+        limit = args["limit"].get<size_t>();
+      }
+
+      const auto filter = pathFilter(args);
+      std::string globText;
+      const auto globRe = compileGlob(args, globText);
+      const auto filteredFiles = filterAllowedFiles(ctx.allowedFiles, filter, globRe);
+
+      struct SupportedEntry {
+        std::string source;
+        std::string key;
+        symbol_service::Language language;
+      };
+      std::vector<SupportedEntry> supportedFiles;
+      supportedFiles.reserve(filteredFiles.size());
+      for (const auto &file : filteredFiles) {
+        const auto lang = symbol_service::detectLanguage(file);
+        if (lang != symbol_service::Language::Unsupported) {
+          supportedFiles.push_back({file, normalizedSourceKey(file), lang});
+        }
+      }
+
+      json result = {
+        {"query", query},
+        {"match", matchMode},
+        {"outcome", "incomplete_search"},
+        {"path_filter", filter},
+        {"supported_files", supportedFiles.size()},
+        {"searched_files", 0},
+        {"unreadable_files", 0},
+        {"incomplete", false},
+        {"search_limited", false},
+        {"match_count", 0},
+        {"total_matches", 0},
+        {"truncated", false},
+        {"matches", json::array()}
+      };
+      if (!globText.empty()) result["glob"] = globText;
+
+      if (filteredFiles.empty()) {
+        result["outcome"] = "no_files_matched_filter";
+        return result;
+      }
+      if (supportedFiles.empty()) {
+        result["outcome"] = "no_supported_files";
+        return result;
+      }
+
+      symbol_service::SymbolService localSymbols;
+      symbol_service::SymbolService *activeSymbols = symbols ? symbols : &localSymbols;
+
+      struct MatchEntry {
+        std::string source;
+        std::string key;
+        symbol_service::Language language;
+        bool exactName;
+        symbol_service::SymbolInfo sym;
+      };
+      std::vector<MatchEntry> collected;
+      size_t searchedFiles = 0;
+      size_t unreadableFiles = 0;
+      bool searchLimited = false;
+      const auto startedAt = std::chrono::steady_clock::now();
+      constexpr auto kScanBudget = std::chrono::milliseconds(5000);
+
+      for (const auto &entry : supportedFiles) {
+        if (searchedFiles > 0 && (std::chrono::steady_clock::now() - startedAt) >= kScanBudget) {
+          searchLimited = true;
+          break;
+        }
+        try {
+          const auto content = readTextFileChecked(entry.source);
+          const auto outline = activeSymbols->outlineForContent(entry.key, entry.language, content);
+          ++searchedFiles;
+          for (const auto &sym : outline.symbols) {
+            if (kindFilter && sym.kind != *kindFilter) continue;
+            if (roleFilter && sym.role != *roleFilter) continue;
+            if (!matchesFindQuery(sym, query, prefixMatch)) continue;
+            const bool isExact = sym.name == query || sym.qualified_name == query || sym.selector == query;
+            collected.push_back({entry.source, entry.key, outline.language, isExact, sym});
+          }
+        } catch (const std::exception &) {
+          ++unreadableFiles;
+        }
+      }
+
+      std::stable_sort(collected.begin(), collected.end(), [](const MatchEntry &a, const MatchEntry &b) {
+        const bool aDef = a.sym.role == symbol_service::SymbolRole::Definition;
+        const bool bDef = b.sym.role == symbol_service::SymbolRole::Definition;
+        if (aDef != bDef) return aDef;
+        if (a.exactName != b.exactName) return a.exactName;
+        if (a.key != b.key) return a.key < b.key;
+        if (a.sym.start_line != b.sym.start_line) return a.sym.start_line < b.sym.start_line;
+        return a.sym.start_byte < b.sym.start_byte;
+      });
+
+      const bool incomplete = (searchedFiles + unreadableFiles < supportedFiles.size()) || unreadableFiles > 0 || searchLimited;
+      result["searched_files"] = searchedFiles;
+      result["unreadable_files"] = unreadableFiles;
+      result["search_limited"] = searchLimited;
+      result["incomplete"] = incomplete;
+      result["outcome"] = incomplete ? "incomplete_search" : "complete";
+      result["total_matches"] = collected.size();
+
+      auto &arr = result["matches"];
+      for (size_t i = 0; i < collected.size(); ++i) {
+        if (arr.size() >= limit) {
+          result["truncated"] = true;
+          break;
+        }
+        auto item = symbolEntryJson(collected[i].sym);
+        item["source"] = collected[i].source;
+        item["language"] = std::string(symbol_service::languageName(collected[i].language));
+        arr.push_back(std::move(item));
+        result["match_count"] = arr.size();
+        if (result.dump().size() > kMaxResultBytes) {
+          arr.erase(arr.end() - 1);
+          result["match_count"] = arr.size();
+          result["truncated"] = true;
+          break;
+        }
+        if (std::find(ctx.usedSources.begin(), ctx.usedSources.end(), collected[i].source) == ctx.usedSources.end())
+          ctx.usedSources.push_back(collected[i].source);
+      }
+
       return result;
     } catch (const std::exception &e) {
       return {{"error", preview(e.what(), 512)}};
@@ -1402,16 +1630,7 @@ namespace chat_tools {
       const auto filter = pathFilter(args);
       std::string globText;
       const auto globRe = compileGlob(args, globText);
-      std::vector<std::string> paths;
-      std::set<std::string> selected;
-      for (const auto &file : ctx.allowedFiles) {
-        const auto path = std::filesystem::path(file).lexically_normal().generic_string();
-        const bool relative = !std::filesystem::path(filter).is_absolute();
-        const bool prefixOk = filter.empty() || path.starts_with(filter) || (relative && path.find("/" + filter) != std::string::npos);
-        const bool globOk = !globRe || re2::RE2::PartialMatch(path, *globRe);
-        if (prefixOk && globOk && selected.insert(path).second)
-          paths.push_back(file);
-      }
+      const auto paths = filterAllowedFiles(ctx.allowedFiles, filter, globRe);
       // Reserve the final outcome field before enforcing the serialized byte limit.
       json result = {{"matches", json::array()}, {"truncated", false}, {"path_filter", filter}, {"outcome", "incomplete_search"},
         {"matched_files", paths.size()}, {"searched_files", 0}, {"unreadable_files", 0}, {"search_limited", false}};
@@ -1558,6 +1777,16 @@ namespace chat_tools {
           } else {
             summary = "returned lines " + std::to_string(output.at("start_line").get<size_t>()) + "-" + std::to_string(output.at("end_line").get<size_t>());
           }
+        } else if (name == "find_symbol") {
+          summary = std::to_string(output.value("match_count", size_t(0))) + " matches; searched " +
+            std::to_string(output.value("searched_files", size_t(0))) + "/" +
+            std::to_string(output.value("supported_files", size_t(0))) + " files";
+          if (output.value("incomplete", false)) {
+            summary += " (incomplete)";
+            status = "warning";
+          } else if (output.value("match_count", size_t(0)) == 0) {
+            status = "info";
+          }
         }
         else if (name == "project_info" || name == "project_settings") summary = "loaded summary returned";
         else summary = "inspection returned";
@@ -1582,6 +1811,12 @@ namespace chat_tools {
         else if (name == "read_files") compactResult = std::to_string(output.value("count", size_t(0))) + "/" + std::to_string(output.value("requested_count", size_t(0))) + " files";
         else if (name == "symbol_outline") compactResult = std::to_string(output.value("symbol_count", size_t(0))) + " symbols";
         else if (name == "read_symbol" && output.value("ambiguous", false)) compactResult = std::to_string(output.value("candidate_count", size_t(0))) + " candidates";
+        else if (name == "find_symbol") {
+          compactResult = std::to_string(output.value("match_count", size_t(0))) + " matches" + middle +
+            std::to_string(output.value("searched_files", size_t(0))) + "/" +
+            std::to_string(output.value("supported_files", size_t(0))) + " files";
+          if (output.value("incomplete", false)) compactResult += " (incomplete)";
+        }
         auto compact = compactPrefix + compactAction(name, args, displayRoot, &output);
         if (!compactResult.empty()) compact += dash + compactResult;
         if (output.value("truncated", false)) compact += " (truncated)";

@@ -214,8 +214,9 @@ Agent tools let the model investigate beyond the initial retrieved context. They
 | `grep` | Search source text for a literal pattern or RE2 regular expression, with `case_sensitive`, `whole_word`, `context_lines` (0–10), `path_filter`, and `glob` filters, returning matching snippets. |
 | `read_file` | Read selected line ranges from an allowed source file. |
 | `read_files` | Batch-read 1 to 5 line ranges from allowed source files (including disjoint ranges of the same file) sharing an 8 KiB output budget. |
-| `symbol_outline` | Extract structured C++ symbol declarations and definitions (`.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh`, `.hxx`, `.ipp`, `.tpp`, and `.h` defaulting to C++; `.c` unsupported) with line ranges, roles, signatures, and selectors for `read_symbol`. |
-| `read_symbol` | Read the exact source range of a named C++ symbol, qualified name, or `symbol_outline` selector in an allowed file, filtering `declaration` vs `definition` with `role` and returning disambiguation candidates when overloaded or ambiguous. |
+| `symbol_outline` | Extract structured symbol declarations and definitions for C (`.c`), C++ (`.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh`, `.hxx`, `.ipp`, `.tpp`, and `.h` defaulting to C++), Python (`.py`, `.pyi`), JavaScript/JSX (`.js`, `.jsx`, `.mjs`, `.cjs`), TypeScript (`.ts`, `.mts`, `.cts`), and TSX (`.tsx`) — `.svelte` unsupported — with line ranges, roles, signatures, and selectors for `read_symbol`. |
+| `read_symbol` | Read the exact source range of a named symbol, qualified name (`Class::method` or `Class.method`), or `symbol_outline` / `find_symbol` selector in an allowed file, filtering `declaration` vs `definition` with `role` and returning disambiguation candidates when overloaded or ambiguous. |
+| `find_symbol` | Search supported files in the request allowlist from cold or warm cache (exact or `prefix` match, optional `role`, `kind`, `path_filter`, `glob`, and `limit`), ranking definitions before declarations and explicitly reporting incomplete scans or unreadable files. |
 | `list_files` | Discover source paths, filter by path or extension, or rank files by indexed byte size or line count with `sort_by`, `order`, and `limit`. |
 | `search_context` | Retrieve relevant indexed excerpts using natural-language hybrid search, with text fallback when query embeddings are unavailable. |
 | `project_info` | Inspect project identity, configured sources, current local source count, indexed chunk count, and available tools. Index freshness is reported as unknown. |
@@ -284,7 +285,7 @@ Use `Content-Type: application/json` and
 An absent Origin is allowed for native clients; a present Origin must match the
 listener's localhost or 127.0.0.1 HTTP origin.
 
-Tools: `project_info`, `search_context`, `list_files`, `read_file`, `read_files`, `symbol_outline`, `read_symbol`, `grep`,
+Tools: `project_info`, `search_context`, `list_files`, `read_file`, `read_files`, `symbol_outline`, `read_symbol`, `find_symbol`, `grep`,
 `git_diff`, `git_log`, `git_show`, and `git_blame`. These reuse Chat's execution and current
 local source allowlist, exclusions, result limits, and Git restrictions.
 URL sources and `project_settings` are not exposed. Indexed content and file

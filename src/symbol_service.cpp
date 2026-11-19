@@ -13,7 +13,14 @@
 #include <unordered_map>
 #include <vector>
 
-extern "C" const TSLanguage *tree_sitter_cpp(void);
+extern "C" {
+  const TSLanguage *tree_sitter_c(void);
+  const TSLanguage *tree_sitter_cpp(void);
+  const TSLanguage *tree_sitter_python(void);
+  const TSLanguage *tree_sitter_javascript(void);
+  const TSLanguage *tree_sitter_typescript(void);
+  const TSLanguage *tree_sitter_tsx(void);
+}
 
 namespace symbol_service {
 
@@ -98,38 +105,42 @@ namespace symbol_service {
       TreeHandle &operator=(const TreeHandle &) = delete;
     };
 
-    void ensureCppLanguage(TSParser *parser) {
-      const TSLanguage *lang = tree_sitter_cpp();
-      if (!lang) throw std::runtime_error("Bundled tree-sitter-cpp language returned null");
-      const uint32_t abi = ts_language_abi_version(lang);
-      if (abi < TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION || abi > TREE_SITTER_LANGUAGE_VERSION) {
-        throw std::runtime_error("Incompatible tree-sitter-cpp ABI version: " + std::to_string(abi));
+    const TSLanguage *tsLanguageFor(Language lang) {
+      switch (lang) {
+        case Language::C: return tree_sitter_c();
+        case Language::Cpp: return tree_sitter_cpp();
+        case Language::Python: return tree_sitter_python();
+        case Language::JavaScript: return tree_sitter_javascript();
+        case Language::TypeScript: return tree_sitter_typescript();
+        case Language::Tsx: return tree_sitter_tsx();
+        case Language::Unsupported: return nullptr;
       }
-      if (!ts_parser_set_language(parser, lang)) {
-        throw std::runtime_error("ts_parser_set_language(tree_sitter_cpp()) failed");
+      return nullptr;
+    }
+
+    void ensureLanguage(TSParser *parser, Language lang) {
+      const TSLanguage *tsLang = tsLanguageFor(lang);
+      if (!tsLang) {
+        throw std::invalid_argument("Unsupported language for symbol extraction");
+      }
+      const uint32_t abi = ts_language_abi_version(tsLang);
+      if (abi < TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION || abi > TREE_SITTER_LANGUAGE_VERSION) {
+        throw std::runtime_error("Incompatible Tree-sitter ABI version for " +
+          std::string(languageName(lang)) + ": " + std::to_string(abi));
+      }
+      if (!ts_parser_set_language(parser, tsLang)) {
+        throw std::runtime_error("ts_parser_set_language() failed for " + std::string(languageName(lang)));
       }
     }
 
-    class CppExtractor {
-    public:
-      explicit CppExtractor(std::string_view source) : src_(source) {}
-
-      std::vector<SymbolInfo> extract(TSNode root) {
-        ScopeCtx ctx;
-        visitBlockChildren(root, ctx);
-        assignUniqueSelectors();
-        return std::move(symbols_);
-      }
-
-    private:
-      struct ScopeCtx {
-        std::vector<std::string> containers;
-        bool inClass = false;
-        std::string currentClass;
-      };
-
+    class ExtractorBase {
+    protected:
       std::string_view src_;
+      std::string separator_;
       std::vector<SymbolInfo> symbols_;
+
+      explicit ExtractorBase(std::string_view source, std::string separator)
+        : src_(source), separator_(std::move(separator)) {}
 
       std::string_view nodeText(TSNode node) const {
         if (ts_node_is_null(node)) return {};
@@ -145,6 +156,16 @@ namespace symbol_service {
 
       static TSNode effectiveRange(TSNode inner, TSNode rangeOwner) {
         return ts_node_is_null(rangeOwner) ? inner : rangeOwner;
+      }
+
+      std::string joinScope(const std::vector<std::string> &parts) const {
+        std::string out;
+        for (const auto &part : parts) {
+          if (part.empty()) continue;
+          if (!out.empty()) out += separator_;
+          out += part;
+        }
+        return out;
       }
 
       static void fillSpan(TSNode rangeNode, size_t maxBytes, SymbolInfo &sym) {
@@ -167,11 +188,11 @@ namespace symbol_service {
         }
       }
 
-      std::string sliceUntilByte(TSNode startNode, uint32_t endByte) const {
+      std::string sliceUntilByte(TSNode startNode, uint32_t endByte, char trimTrail = ';') const {
         const uint32_t startByte = ts_node_start_byte(startNode);
         if (startByte >= endByte || endByte > src_.size()) return {};
         std::string_view raw = src_.substr(startByte, endByte - startByte);
-        while (!raw.empty() && (raw.back() == ';' || std::isspace(static_cast<unsigned char>(raw.back())))) {
+        while (!raw.empty() && (raw.back() == trimTrail || std::isspace(static_cast<unsigned char>(raw.back())))) {
           raw.remove_suffix(1);
         }
         return collapseWhitespace(raw);
@@ -184,6 +205,42 @@ namespace symbol_service {
         }
         return collapseWhitespace(raw);
       }
+
+      void emitSymbol(SymbolInfo sym, TSNode rangeNode) {
+        if (sym.name.empty()) return;
+        fillSpan(rangeNode, src_.size(), sym);
+        sym.qualified_name = sym.container.empty() ? sym.name : (sym.container + separator_ + sym.name);
+        symbols_.push_back(std::move(sym));
+      }
+
+      void assignUniqueSelectors() {
+        std::unordered_map<std::string, size_t> seen;
+        seen.reserve(symbols_.size());
+        for (auto &sym : symbols_) {
+          std::string base = sym.qualified_name + "@" + std::to_string(sym.start_line) + ":" + std::to_string(sym.start_col);
+          const size_t ordinal = ++seen[base];
+          sym.selector = ordinal == 1 ? std::move(base) : (base + "#" + std::to_string(ordinal));
+        }
+      }
+    };
+
+    class CppExtractor : public ExtractorBase {
+    public:
+      explicit CppExtractor(std::string_view source) : ExtractorBase(source, "::") {}
+
+      std::vector<SymbolInfo> extract(TSNode root) {
+        ScopeCtx ctx;
+        visitBlockChildren(root, ctx);
+        assignUniqueSelectors();
+        return std::move(symbols_);
+      }
+
+    private:
+      struct ScopeCtx {
+        std::vector<std::string> containers;
+        bool inClass = false;
+        std::string currentClass;
+      };
 
       std::string normalizeScopeSegment(TSNode scopeNode) const {
         if (isType(scopeNode, "template_type")) {
@@ -286,13 +343,6 @@ namespace symbol_service {
           return {};
         }
         return {};
-      }
-
-      void emitSymbol(SymbolInfo sym, TSNode rangeNode) {
-        if (sym.name.empty()) return;
-        fillSpan(rangeNode, src_.size(), sym);
-        sym.qualified_name = sym.container.empty() ? sym.name : (sym.container + "::" + sym.name);
-        symbols_.push_back(std::move(sym));
       }
 
       void visitBlockChildren(TSNode containerNode, const ScopeCtx &ctx) {
@@ -618,13 +668,397 @@ namespace symbol_service {
         }
       }
 
-      void assignUniqueSelectors() {
-        std::unordered_map<std::string, size_t> seen;
-        seen.reserve(symbols_.size());
-        for (auto &sym : symbols_) {
-          std::string base = sym.qualified_name + "@" + std::to_string(sym.start_line) + ":" + std::to_string(sym.start_col);
-          const size_t ordinal = ++seen[base];
-          sym.selector = ordinal == 1 ? std::move(base) : (base + "#" + std::to_string(ordinal));
+      std::string joinContainers(const std::vector<std::string> &parts) const {
+        return joinScope(parts);
+      }
+    };
+
+    class PythonExtractor : public ExtractorBase {
+    public:
+      PythonExtractor(std::string_view source, bool isStubFile)
+        : ExtractorBase(source, "."), isStubFile_(isStubFile) {}
+
+      std::vector<SymbolInfo> extract(TSNode root) {
+        visitBlock(root, {}, false);
+        assignUniqueSelectors();
+        return std::move(symbols_);
+      }
+
+    private:
+      bool isStubFile_ = false;
+
+      static bool isEllipsisBody(TSNode body) {
+        if (ts_node_is_null(body)) return false;
+        uint32_t nonComment = 0;
+        TSNode single{};
+        const uint32_t n = ts_node_named_child_count(body);
+        for (uint32_t i = 0; i < n; ++i) {
+          TSNode child = ts_node_named_child(body, i);
+          if (isType(child, "comment")) continue;
+          ++nonComment;
+          single = child;
+        }
+        if (nonComment != 1 || !isType(single, "expression_statement")) return false;
+        const uint32_t sn = ts_node_named_child_count(single);
+        for (uint32_t i = 0; i < sn; ++i) {
+          if (isType(ts_node_named_child(single, i), "ellipsis")) return true;
+        }
+        return false;
+      }
+
+      void visitBlock(TSNode blockNode, const std::vector<std::string> &containers, bool inClass, TSNode rangeOwner = {}) {
+        const uint32_t n = ts_node_named_child_count(blockNode);
+        for (uint32_t i = 0; i < n; ++i) {
+          visitItem(ts_node_named_child(blockNode, i), rangeOwner, containers, inClass);
+        }
+      }
+
+      void visitItem(TSNode node, TSNode rangeOwner, const std::vector<std::string> &containers, bool inClass) {
+        if (ts_node_is_null(node) || !ts_node_is_named(node)) return;
+        const char *t = ts_node_type(node);
+
+        if (std::strcmp(t, "decorated_definition") == 0) {
+          TSNode outer = effectiveRange(node, rangeOwner);
+          TSNode def = ts_node_child_by_field_name(node, "definition", 10);
+          if (!ts_node_is_null(def)) visitItem(def, outer, containers, inClass);
+          return;
+        }
+
+        if (std::strcmp(t, "class_definition") == 0) {
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          TSNode body = ts_node_child_by_field_name(node, "body", 4);
+          const std::string className = collapseWhitespace(nodeText(nameNode));
+          if (className.empty()) return;
+          TSNode spanNode = effectiveRange(node, rangeOwner);
+          SymbolInfo sym;
+          sym.name = className;
+          sym.container = joinScope(containers);
+          sym.kind = SymbolKind::Class;
+          sym.role = SymbolRole::Definition;
+          sym.signature = !ts_node_is_null(body)
+            ? sliceUntilByte(spanNode, ts_node_start_byte(body), ':')
+            : collapseWhitespace(nodeText(spanNode));
+          emitSymbol(std::move(sym), spanNode);
+
+          if (!ts_node_is_null(body)) {
+            auto childContainers = containers;
+            childContainers.push_back(className);
+            visitBlock(body, childContainers, true);
+          }
+          return;
+        }
+
+        if (std::strcmp(t, "function_definition") == 0) {
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          TSNode body = ts_node_child_by_field_name(node, "body", 4);
+          const std::string fnName = collapseWhitespace(nodeText(nameNode));
+          if (fnName.empty()) return;
+          TSNode spanNode = effectiveRange(node, rangeOwner);
+          const bool declOnly = isStubFile_ && isEllipsisBody(body);
+          SymbolInfo sym;
+          sym.name = fnName;
+          sym.container = joinScope(containers);
+          sym.kind = inClass ? SymbolKind::Method : SymbolKind::Function;
+          sym.role = declOnly ? SymbolRole::Declaration : SymbolRole::Definition;
+          sym.signature = !ts_node_is_null(body)
+            ? sliceUntilByte(spanNode, ts_node_start_byte(body), ':')
+            : collapseWhitespace(nodeText(spanNode));
+          emitSymbol(std::move(sym), spanNode);
+          return;
+        }
+
+        // Recurse into top-level / class-level conditionals (e.g., if TYPE_CHECKING:),
+        // never into function bodies.
+        if (std::strcmp(t, "if_statement") == 0 ||
+            std::strcmp(t, "elif_clause") == 0 ||
+            std::strcmp(t, "else_clause") == 0 ||
+            std::strcmp(t, "try_statement") == 0 ||
+            std::strcmp(t, "except_clause") == 0 ||
+            std::strcmp(t, "block") == 0) {
+          const uint32_t n = ts_node_named_child_count(node);
+          for (uint32_t i = 0; i < n; ++i) {
+            TSNode child = ts_node_named_child(node, i);
+            const char *ct = ts_node_type(child);
+            if (std::strcmp(ct, "block") == 0 ||
+                std::strcmp(ct, "elif_clause") == 0 ||
+                std::strcmp(ct, "else_clause") == 0 ||
+                std::strcmp(ct, "except_clause") == 0) {
+              visitBlock(child, containers, inClass);
+            }
+          }
+        }
+      }
+    };
+
+    class JsTsExtractor : public ExtractorBase {
+    public:
+      explicit JsTsExtractor(std::string_view source) : ExtractorBase(source, ".") {}
+
+      std::vector<SymbolInfo> extract(TSNode root) {
+        visitContainer(root, {}, false, false);
+        assignUniqueSelectors();
+        return std::move(symbols_);
+      }
+
+    private:
+      static bool isFunctionValue(TSNode node) {
+        if (ts_node_is_null(node)) return false;
+        const char *t = ts_node_type(node);
+        return std::strcmp(t, "arrow_function") == 0 ||
+               std::strcmp(t, "function_expression") == 0 ||
+               std::strcmp(t, "function") == 0 ||
+               std::strcmp(t, "generator_function") == 0;
+      }
+
+      std::string sliceCallableHeader(TSNode spanNode, TSNode fnNode) const {
+        TSNode body = ts_node_child_by_field_name(fnNode, "body", 4);
+        if (!ts_node_is_null(body)) {
+          return sliceUntilByte(spanNode, ts_node_start_byte(body));
+        }
+        return cleanDeclarationSignature(spanNode);
+      }
+
+      static std::vector<TSNode> collectNamedFields(TSNode parent, const char *typeFilter) {
+        std::vector<TSNode> out;
+        const uint32_t n = ts_node_named_child_count(parent);
+        for (uint32_t i = 0; i < n; ++i) {
+          TSNode child = ts_node_named_child(parent, i);
+          if (isType(child, typeFilter)) out.push_back(child);
+        }
+        return out;
+      }
+
+      // Compute byte span covering any leading sibling decorator(s) before a member in class_body.
+      void emitWithSpanBounds(SymbolInfo sym, TSNode endNode, TSNode startOverride) {
+        if (sym.name.empty()) return;
+        fillSpan(endNode, src_.size(), sym);
+        if (!ts_node_is_null(startOverride)) {
+          const uint32_t sb = ts_node_start_byte(startOverride);
+          if (sb < sym.start_byte) {
+            const TSPoint sp = ts_node_start_point(startOverride);
+            sym.start_byte = sb;
+            sym.start_line = static_cast<size_t>(sp.row) + 1;
+            sym.start_col = static_cast<size_t>(sp.column) + 1;
+          }
+        }
+        sym.qualified_name = sym.container.empty() ? sym.name : (sym.container + separator_ + sym.name);
+        symbols_.push_back(std::move(sym));
+      }
+
+      void visitContainer(TSNode containerNode, const std::vector<std::string> &containers, bool inClass, bool inAmbient) {
+        TSNode pendingDecorator{};
+        const uint32_t n = ts_node_named_child_count(containerNode);
+        for (uint32_t i = 0; i < n; ++i) {
+          TSNode child = ts_node_named_child(containerNode, i);
+          if (isType(child, "decorator")) {
+            if (ts_node_is_null(pendingDecorator)) pendingDecorator = child;
+            continue;
+          }
+          visitItem(child, pendingDecorator, containers, inClass, inAmbient);
+          pendingDecorator = {};
+        }
+      }
+
+      void visitItem(TSNode node, TSNode rangeOwner, const std::vector<std::string> &containers, bool inClass, bool inAmbient) {
+        if (ts_node_is_null(node) || !ts_node_is_named(node)) return;
+        const char *t = ts_node_type(node);
+
+        if (std::strcmp(t, "export_statement") == 0) {
+          TSNode outer = effectiveRange(node, rangeOwner);
+          TSNode decl = ts_node_child_by_field_name(node, "declaration", 11);
+          if (!ts_node_is_null(decl)) {
+            visitItem(decl, outer, containers, inClass, inAmbient);
+            return;
+          }
+          TSNode val = ts_node_child_by_field_name(node, "value", 5);
+          if (isFunctionValue(val)) {
+            TSNode nameNode = ts_node_child_by_field_name(val, "name", 4);
+            std::string fnName = collapseWhitespace(nodeText(nameNode));
+            if (fnName.empty()) fnName = "default";
+            SymbolInfo sym;
+            sym.name = std::move(fnName);
+            sym.container = joinScope(containers);
+            sym.kind = SymbolKind::Function;
+            sym.role = SymbolRole::Definition;
+            sym.signature = sliceCallableHeader(outer, val);
+            emitSymbol(std::move(sym), outer);
+          }
+          return;
+        }
+
+        if (std::strcmp(t, "ambient_declaration") == 0) {
+          TSNode outer = effectiveRange(node, rangeOwner);
+          const uint32_t n = ts_node_named_child_count(node);
+          for (uint32_t i = 0; i < n; ++i) {
+            visitItem(ts_node_named_child(node, i), outer, containers, inClass, true);
+          }
+          return;
+        }
+
+        if (std::strcmp(t, "internal_module") == 0 || std::strcmp(t, "module") == 0) {
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          TSNode body = ts_node_child_by_field_name(node, "body", 4);
+          const std::string nsName = collapseWhitespace(nodeText(nameNode));
+          if (nsName.empty()) return;
+          TSNode spanNode = effectiveRange(node, rangeOwner);
+          SymbolInfo sym;
+          sym.name = nsName;
+          sym.container = joinScope(containers);
+          sym.kind = SymbolKind::Namespace;
+          sym.role = (!inAmbient && !ts_node_is_null(body)) ? SymbolRole::Definition : SymbolRole::Declaration;
+          sym.signature = !ts_node_is_null(body)
+            ? sliceUntilByte(spanNode, ts_node_start_byte(body))
+            : cleanDeclarationSignature(spanNode);
+          emitSymbol(std::move(sym), spanNode);
+          if (!ts_node_is_null(body)) {
+            auto next = containers;
+            next.push_back(nsName);
+            visitContainer(body, next, false, inAmbient);
+          }
+          return;
+        }
+
+        if (std::strcmp(t, "class_declaration") == 0 ||
+            std::strcmp(t, "abstract_class_declaration") == 0 ||
+            std::strcmp(t, "interface_declaration") == 0) {
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          TSNode body = ts_node_child_by_field_name(node, "body", 4);
+          const std::string typeName = collapseWhitespace(nodeText(nameNode));
+          if (typeName.empty()) return;
+          TSNode spanNode = effectiveRange(node, rangeOwner);
+          const bool isIface = std::strcmp(t, "interface_declaration") == 0;
+          SymbolInfo sym;
+          sym.name = typeName;
+          sym.container = joinScope(containers);
+          sym.kind = isIface ? SymbolKind::Interface : SymbolKind::Class;
+          sym.role = (!inAmbient && !isIface && !ts_node_is_null(body))
+            ? SymbolRole::Definition
+            : SymbolRole::Declaration;
+          sym.signature = !ts_node_is_null(body)
+            ? sliceUntilByte(spanNode, ts_node_start_byte(body))
+            : cleanDeclarationSignature(spanNode);
+          emitSymbol(std::move(sym), spanNode);
+          if (!ts_node_is_null(body)) {
+            auto next = containers;
+            next.push_back(typeName);
+            visitContainer(body, next, true, inAmbient || isIface);
+          }
+          return;
+        }
+
+        if (std::strcmp(t, "type_alias_declaration") == 0) {
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          const std::string aliasName = collapseWhitespace(nodeText(nameNode));
+          if (aliasName.empty()) return;
+          TSNode spanNode = effectiveRange(node, rangeOwner);
+          SymbolInfo sym;
+          sym.name = aliasName;
+          sym.container = joinScope(containers);
+          sym.kind = SymbolKind::TypeAlias;
+          sym.role = SymbolRole::Definition;
+          sym.signature = cleanDeclarationSignature(spanNode);
+          emitSymbol(std::move(sym), spanNode);
+          return;
+        }
+
+        if (std::strcmp(t, "enum_declaration") == 0) {
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          TSNode body = ts_node_child_by_field_name(node, "body", 4);
+          const std::string enumName = collapseWhitespace(nodeText(nameNode));
+          if (enumName.empty()) return;
+          TSNode spanNode = effectiveRange(node, rangeOwner);
+          SymbolInfo sym;
+          sym.name = enumName;
+          sym.container = joinScope(containers);
+          sym.kind = SymbolKind::Enum;
+          sym.role = (!inAmbient && !ts_node_is_null(body)) ? SymbolRole::Definition : SymbolRole::Declaration;
+          sym.signature = !ts_node_is_null(body)
+            ? sliceUntilByte(spanNode, ts_node_start_byte(body))
+            : cleanDeclarationSignature(spanNode);
+          emitSymbol(std::move(sym), spanNode);
+          return;
+        }
+
+        if (std::strcmp(t, "function_declaration") == 0 ||
+            std::strcmp(t, "generator_function_declaration") == 0 ||
+            std::strcmp(t, "function_signature") == 0) {
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          const std::string fnName = collapseWhitespace(nodeText(nameNode));
+          if (fnName.empty()) return;
+          TSNode body = ts_node_child_by_field_name(node, "body", 4);
+          const bool hasBody = !ts_node_is_null(body) && std::strcmp(t, "function_signature") != 0;
+          TSNode spanNode = effectiveRange(node, rangeOwner);
+          SymbolInfo sym;
+          sym.name = fnName;
+          sym.container = joinScope(containers);
+          sym.kind = SymbolKind::Function;
+          sym.role = (!inAmbient && hasBody) ? SymbolRole::Definition : SymbolRole::Declaration;
+          sym.signature = hasBody
+            ? sliceUntilByte(spanNode, ts_node_start_byte(body))
+            : cleanDeclarationSignature(spanNode);
+          emitSymbol(std::move(sym), spanNode);
+          return;
+        }
+
+        if (std::strcmp(t, "method_definition") == 0 ||
+            std::strcmp(t, "method_signature") == 0 ||
+            std::strcmp(t, "abstract_method_signature") == 0) {
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          const std::string methodName = collapseWhitespace(nodeText(nameNode));
+          if (methodName.empty()) return;
+          TSNode body = ts_node_child_by_field_name(node, "body", 4);
+          const bool isSig = std::strcmp(t, "method_definition") != 0 || ts_node_is_null(body);
+          SymbolInfo sym;
+          sym.name = methodName;
+          sym.container = joinScope(containers);
+          sym.kind = (methodName == "constructor") ? SymbolKind::Constructor : SymbolKind::Method;
+          sym.role = (!inAmbient && !isSig) ? SymbolRole::Definition : SymbolRole::Declaration;
+          TSNode sigStart = ts_node_is_null(rangeOwner) ? node : rangeOwner;
+          sym.signature = !isSig
+            ? sliceUntilByte(sigStart, ts_node_start_byte(body))
+            : cleanDeclarationSignature(sigStart);
+          emitWithSpanBounds(std::move(sym), node, rangeOwner);
+          return;
+        }
+
+        if (inClass && (std::strcmp(t, "public_field_definition") == 0 || std::strcmp(t, "field_definition") == 0)) {
+          TSNode val = ts_node_child_by_field_name(node, "value", 5);
+          if (!isFunctionValue(val)) return;
+          TSNode nameNode = ts_node_child_by_field_name(node, "name", 4);
+          if (ts_node_is_null(nameNode)) nameNode = ts_node_child_by_field_name(node, "property", 8);
+          const std::string propName = collapseWhitespace(nodeText(nameNode));
+          if (propName.empty()) return;
+          TSNode sigStart = ts_node_is_null(rangeOwner) ? node : rangeOwner;
+          SymbolInfo sym;
+          sym.name = propName;
+          sym.container = joinScope(containers);
+          sym.kind = SymbolKind::Method;
+          sym.role = SymbolRole::Definition;
+          sym.signature = sliceCallableHeader(sigStart, val);
+          emitWithSpanBounds(std::move(sym), node, rangeOwner);
+          return;
+        }
+
+        if (std::strcmp(t, "lexical_declaration") == 0 || std::strcmp(t, "variable_declaration") == 0) {
+          const auto decls = collectNamedFields(node, "variable_declarator");
+          if (decls.empty()) return;
+          const bool singleDecl = decls.size() == 1;
+          for (TSNode d : decls) {
+            TSNode val = ts_node_child_by_field_name(d, "value", 5);
+            if (!isFunctionValue(val)) continue;
+            TSNode nameNode = ts_node_child_by_field_name(d, "name", 4);
+            const std::string varName = collapseWhitespace(nodeText(nameNode));
+            if (varName.empty()) continue;
+            TSNode spanNode = singleDecl ? effectiveRange(node, rangeOwner) : d;
+            SymbolInfo sym;
+            sym.name = varName;
+            sym.container = joinScope(containers);
+            sym.kind = inClass ? SymbolKind::Method : SymbolKind::Function;
+            sym.role = SymbolRole::Definition;
+            sym.signature = sliceCallableHeader(spanNode, val);
+            emitSymbol(std::move(sym), spanNode);
+          }
+          return;
         }
       }
     };
@@ -637,17 +1071,27 @@ namespace symbol_service {
     const auto dot = filename.rfind('.');
     if (dot == std::string_view::npos) return Language::Unsupported;
     const std::string ext = toLowerAscii(filename.substr(dot));
+    if (ext == ".c") return Language::C;
     if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" ||
         ext == ".hpp" || ext == ".hh" || ext == ".hxx" ||
         ext == ".ipp" || ext == ".tpp" || ext == ".h") {
       return Language::Cpp;
     }
+    if (ext == ".py" || ext == ".pyi") return Language::Python;
+    if (ext == ".js" || ext == ".jsx" || ext == ".mjs" || ext == ".cjs") return Language::JavaScript;
+    if (ext == ".ts" || ext == ".mts" || ext == ".cts") return Language::TypeScript;
+    if (ext == ".tsx") return Language::Tsx;
     return Language::Unsupported;
   }
 
   std::string_view languageName(Language lang) {
     switch (lang) {
+      case Language::C: return "c";
       case Language::Cpp: return "cpp";
+      case Language::Python: return "python";
+      case Language::JavaScript: return "javascript";
+      case Language::TypeScript: return "typescript";
+      case Language::Tsx: return "tsx";
       case Language::Unsupported: return "unsupported";
     }
     return "unsupported";
@@ -659,6 +1103,7 @@ namespace symbol_service {
       case SymbolKind::Class: return "class";
       case SymbolKind::Struct: return "struct";
       case SymbolKind::Union: return "union";
+      case SymbolKind::Interface: return "interface";
       case SymbolKind::Enum: return "enum";
       case SymbolKind::Concept: return "concept";
       case SymbolKind::TypeAlias: return "type_alias";
@@ -676,6 +1121,7 @@ namespace symbol_service {
       {"class", SymbolKind::Class},
       {"struct", SymbolKind::Struct},
       {"union", SymbolKind::Union},
+      {"interface", SymbolKind::Interface},
       {"enum", SymbolKind::Enum},
       {"concept", SymbolKind::Concept},
       {"type_alias", SymbolKind::TypeAlias},
@@ -774,11 +1220,14 @@ namespace symbol_service {
   SymbolService::SymbolService(size_t maxCacheEntries)
     : maxCacheEntries_((std::max)(size_t(1), maxCacheEntries)) {
     ParserHandle parser;
-    ensureCppLanguage(parser.raw);
+    for (const Language lang : {Language::C, Language::Cpp, Language::Python,
+                                Language::JavaScript, Language::TypeScript, Language::Tsx}) {
+      ensureLanguage(parser.raw, lang);
+    }
   }
 
   FileOutline SymbolService::outlineForContent(std::string_view cacheKey, Language lang, std::string_view content, bool *cacheHit) {
-    if (lang != Language::Cpp) {
+    if (lang == Language::Unsupported) {
       throw std::invalid_argument("Unsupported language for symbol extraction");
     }
     const std::string digest = sha256Hex(content);
@@ -798,10 +1247,10 @@ namespace symbol_service {
 
     if (cacheHit) *cacheHit = false;
     ParserHandle parser;
-    ensureCppLanguage(parser.raw);
+    ensureLanguage(parser.raw, lang);
     TreeHandle tree(ts_parser_parse_string(parser.raw, nullptr, content.data(), static_cast<uint32_t>(content.size())));
     if (!tree.raw) {
-      throw std::runtime_error("Tree-sitter failed to parse C++ source");
+      throw std::runtime_error("Tree-sitter failed to parse " + std::string(languageName(lang)) + " source");
     }
 
     FileOutline outline;
@@ -809,8 +1258,30 @@ namespace symbol_service {
     outline.language = lang;
     outline.content_sha256 = digest;
     outline.byte_size = content.size();
-    CppExtractor extractor(content);
-    outline.symbols = extractor.extract(ts_tree_root_node(tree.raw));
+    const TSNode root = ts_tree_root_node(tree.raw);
+    switch (lang) {
+      case Language::C:
+      case Language::Cpp: {
+        CppExtractor extractor(content);
+        outline.symbols = extractor.extract(root);
+        break;
+      }
+      case Language::Python: {
+        const std::string lowerKey = toLowerAscii(key);
+        PythonExtractor extractor(content, lowerKey.ends_with(".pyi"));
+        outline.symbols = extractor.extract(root);
+        break;
+      }
+      case Language::JavaScript:
+      case Language::TypeScript:
+      case Language::Tsx: {
+        JsTsExtractor extractor(content);
+        outline.symbols = extractor.extract(root);
+        break;
+      }
+      case Language::Unsupported:
+        break;
+    }
 
     {
       std::lock_guard<std::mutex> lock(mutex_);

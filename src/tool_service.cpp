@@ -16,7 +16,7 @@ using json = nlohmann::json;
 namespace chat_tools {
 
   json definitions(bool includeSettings) {
-    auto tools = json::array({ grepDefinition(), readFileDefinition(), readFilesDefinition(), symbolOutlineDefinition(), readSymbolDefinition(), listFilesDefinition(), searchContextDefinition(), projectInfoDefinition() });
+    auto tools = json::array({ grepDefinition(), readFileDefinition(), readFilesDefinition(), symbolOutlineDefinition(), readSymbolDefinition(), findSymbolDefinition(), listFilesDefinition(), searchContextDefinition(), projectInfoDefinition() });
     if (includeSettings) tools.push_back(projectSettingsDefinition());
     for (auto tool : { gitDiffDefinition(), gitLogDefinition(), gitShowDefinition(), gitBlameDefinition() }) tools.push_back(std::move(tool));
     return tools;
@@ -50,6 +50,8 @@ namespace chat_tools {
       return chat_tools::executeSymbolOutline(call, { allowedFiles_, usedSources_ }, &app_.symbolService());
     if (funcName == "read_symbol")
       return chat_tools::executeReadSymbol(call, { allowedFiles_, usedSources_ }, &app_.symbolService());
+    if (funcName == "find_symbol")
+      return chat_tools::executeFindSymbol(call, { allowedFiles_, usedSources_ }, &app_.symbolService());
     if (funcName == "grep")
       return chat_tools::executeGrepWithOptions(call, { allowedFiles_, usedSources_ },
         [&](const chat_tools::GrepQuery &query, const std::vector<std::string> &paths) {

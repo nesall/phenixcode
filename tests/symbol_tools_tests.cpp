@@ -40,11 +40,16 @@ int main(int argc, char *argv[]) {
       "symbol_outline schema rejects unknown arguments");
     check(chat_tools::readSymbolDefinition()["function"]["parameters"]["additionalProperties"] == false,
       "read_symbol schema rejects unknown arguments");
+    check(chat_tools::findSymbolDefinition()["function"]["parameters"]["additionalProperties"] == false,
+      "find_symbol schema rejects unknown arguments");
 
     Fixture fixture;
     const auto symHeader = (fixture.directory / "sym_api.h").generic_string();
     const auto symImpl = (fixture.directory / "sym_api.cpp").generic_string();
     const auto symCFile = (fixture.directory / "legacy.c").generic_string();
+    const auto symPyFile = (fixture.directory / "worker.py").generic_string();
+    const auto symTsFile = (fixture.directory / "api.ts").generic_string();
+    const auto symSvelteFile = (fixture.directory / "Widget.svelte").generic_string();
     const auto symBig = (fixture.directory / "many_syms.cpp").generic_string();
     {
       std::ofstream f(symHeader);
@@ -67,7 +72,22 @@ int main(int argc, char *argv[]) {
       for (int i = 0; i < 250; ++i) f << "  int v" << i << " = " << i << ";\n";
       f << "}\n";
     }
-    { std::ofstream f(symCFile); f << "int c_func() { return 0; }\n"; }
+    { std::ofstream f(symCFile); f << "int c_func(int x);\nint c_func(int x) { return x + 1; }\n"; }
+    {
+      std::ofstream f(symPyFile);
+      f << "@cached\n"
+           "def py_greet(name: str) -> str:\n"
+           "    return name\n"
+           "class Worker:\n"
+           "    def run(self) -> int:\n"
+           "        return 42\n";
+    }
+    {
+      std::ofstream f(symTsFile);
+      f << "export interface ClientCfg { host: string; }\n"
+           "export const createHandler = (port: number) => `${port}`;\n";
+    }
+    { std::ofstream f(symSvelteFile); f << "<script>export let title = 'x';</script><h1>{title}</h1>\n"; }
     {
       std::ofstream f(symBig);
       for (int i = 0; i < 120; ++i) f << "void generatedSymbolNumber_" << i << "_with_long_suffix_padding() {}\n";
@@ -75,7 +95,7 @@ int main(int argc, char *argv[]) {
 
     symbol_service::SymbolService symService;
     std::vector<std::string> symUsed;
-    const std::vector<std::string> symAllowed{symHeader, symImpl, symCFile, symBig};
+    const std::vector<std::string> symAllowed{symHeader, symImpl, symCFile, symPyFile, symTsFile, symSvelteFile, symBig};
 
     // 1. .h defaults to C++ and symbol_outline shows declarations + tracks usedSources.
     auto hdrOutline = chat_tools::executeSymbolOutline(
@@ -98,10 +118,15 @@ int main(int argc, char *argv[]) {
       narrowedUsed.empty(),
       "allowlist blocks read_symbol on cached file outside current request scope");
 
-    // 3. .c stays unsupported until tree-sitter-c arrives.
+    // 3. .c routes to C, while .svelte remains unsupported.
+    auto cOutline = chat_tools::executeSymbolOutline(
+      call("so_c", {{"path", "legacy.c"}}, "symbol_outline"), {symAllowed, narrowedUsed}, &symService);
+    check(!cOutline.contains("error") && cOutline["language"] == "c" && cOutline["symbol_count"] == 2,
+      ".c outlines via tree-sitter-c with language=c");
     check(chat_tools::executeSymbolOutline(
-      call("so_c", {{"path", "legacy.c"}}, "symbol_outline"), {symAllowed, narrowedUsed}, &symService).contains("error"),
-      ".c returns unsupported language error in C++-only milestone");
+      call("so_svelte", {{"path", "Widget.svelte"}}, "symbol_outline"), {symAllowed, narrowedUsed}, &symService).contains("error"),
+      ".svelte remains unsupported for symbol_outline");
+    narrowedUsed.clear();
 
     // 4. Declaration vs definition filtering.
     check(chat_tools::executeReadSymbol(
@@ -220,6 +245,110 @@ int main(int argc, char *argv[]) {
           events[1]["summary"].get<std::string>().find("Outline include/chat_tools.h") != std::string::npos &&
           events[3]["summary"].get<std::string>().find("Read symbol executeGrepWithOptions") != std::string::npos,
       "chat_tools::run formats compact summaries and completion events for symbol tools");
+
+    // 9. Project-wide find_symbol: cold cache, multi-language, filters, incomplete reporting, and repo lookup.
+    {
+      symbol_service::SymbolService coldService;
+      std::vector<std::string> findUsed;
+
+      auto pyOutline = chat_tools::executeSymbolOutline(
+        call("so_py", {{"path", "worker.py"}}, "symbol_outline"), {symAllowed, findUsed}, &coldService);
+      check(!pyOutline.contains("error") && pyOutline["language"] == "python" && pyOutline["symbol_count"] == 3,
+        "symbol_outline reports language=python on .py file");
+
+      auto pyRun = chat_tools::executeReadSymbol(
+        call("rs_pyrun", {{"path", "worker.py"}, {"symbol", "Worker.run"}}, "read_symbol"), {symAllowed, findUsed}, &coldService);
+      check(!pyRun.contains("error") && pyRun["language"] == "python" &&
+            pyRun["content"].get<std::string>().find("return 42") != std::string::npos,
+        "read_symbol supports dotted Python qualified name Worker.run");
+
+      symbol_service::SymbolService reallyColdService;
+      findUsed.clear();
+      auto findCompute = chat_tools::executeFindSymbol(
+        call("fs_compute", {{"name", "compute"}}, "find_symbol"), {symAllowed, findUsed}, &reallyColdService);
+      check(!findCompute.contains("error") && findCompute["outcome"] == "complete" &&
+            findCompute["incomplete"] == false &&
+            findCompute["supported_files"] == 6 && findCompute["searched_files"] == 6 &&
+            findCompute["match_count"] == 4 &&
+            findCompute["matches"][0]["role"] == "definition" &&
+            findCompute["matches"][1]["role"] == "definition" &&
+            findCompute["matches"][2]["role"] == "declaration" &&
+            reallyColdService.cachedFileCount() == 6,
+        "find_symbol scans supported files on cold cache (excluding .svelte) and ranks definitions before declarations");
+
+      auto findPrefixPy = chat_tools::executeFindSymbol(
+        call("fs_py_prefix", {{"name", "py_"}, {"match", "prefix"}, {"glob", "*.py"}}, "find_symbol"),
+        {symAllowed, findUsed}, &reallyColdService);
+      check(!findPrefixPy.contains("error") && findPrefixPy["match_count"] == 1 &&
+            findPrefixPy["matches"][0]["name"] == "py_greet" &&
+            findPrefixPy["matches"][0]["language"] == "python",
+        "find_symbol supports prefix match and glob filtering");
+
+      auto findIfaceTs = chat_tools::executeFindSymbol(
+        call("fs_ts_iface", {{"name", "Client"}, {"match", "prefix"}, {"kind", "interface"}}, "find_symbol"),
+        {symAllowed, findUsed}, &reallyColdService);
+      check(!findIfaceTs.contains("error") && findIfaceTs["match_count"] == 1 &&
+            findIfaceTs["matches"][0]["name"] == "ClientCfg" &&
+            findIfaceTs["matches"][0]["language"] == "typescript",
+        "find_symbol filters by kind=interface in TypeScript files");
+
+      auto findTsArrow = chat_tools::executeFindSymbol(
+        call("fs_ts_arrow", {{"name", "createHandler"}, {"role", "definition"}}, "find_symbol"),
+        {symAllowed, findUsed}, &reallyColdService);
+      check(!findTsArrow.contains("error") && findTsArrow["match_count"] == 1,
+        "find_symbol locates exported TypeScript arrow function");
+      auto readTsArrow = chat_tools::executeReadSymbol(
+        call("rs_ts_arrow", {{"path", findTsArrow["matches"][0]["source"]},
+                             {"symbol", findTsArrow["matches"][0]["selector"]}}, "read_symbol"),
+        {symAllowed, findUsed}, &reallyColdService);
+      check(!readTsArrow.contains("error") && readTsArrow["language"] == "typescript" &&
+            readTsArrow["content"].get<std::string>().find("createHandler") != std::string::npos,
+        "read_symbol accepts selector produced by find_symbol");
+
+      const std::string missingCpp = (fixture.directory / "deleted_after_index.cpp").generic_string();
+      std::vector<std::string> partialScope{missingCpp, symTsFile};
+      std::vector<std::string> partialUsed;
+      auto partialFind = chat_tools::executeFindSymbol(
+        call("fs_inc", {{"name", "createHandler"}}, "find_symbol"),
+        {partialScope, partialUsed}, &reallyColdService);
+      check(!partialFind.contains("error") && partialFind["incomplete"] == true &&
+            partialFind["outcome"] == "incomplete_search" &&
+            partialFind["unreadable_files"] == 1 && partialFind["searched_files"] == 1 &&
+            partialFind["match_count"] == 1,
+        "find_symbol reports incomplete=true and unreadable_files when any supported file cannot be read");
+
+      std::vector<std::string> repoFindUsed;
+      auto repoFind = chat_tools::executeFindSymbol(
+        call("fs_repo_grep", {{"name", "executeGrepWithOptions"}}, "find_symbol"),
+        {repoScope, repoFindUsed}, &reallyColdService);
+      check(!repoFind.contains("error") && repoFind["incomplete"] == false &&
+            repoFind["match_count"] == 2 &&
+            repoFind["matches"][0]["source"] == repoCpp && repoFind["matches"][0]["role"] == "definition" &&
+            repoFind["matches"][1]["source"] == repoH && repoFind["matches"][1]["role"] == "declaration",
+        "find_symbol ranks src/chat_tools.cpp definition before include/chat_tools.h declaration");
+
+      auto repoNoExt = chat_tools::executeFindSymbol(
+        call("fs_noext", {{"name", "anything"}, {"glob", "*.svelte"}}, "find_symbol"),
+        {symAllowed, repoFindUsed}, &reallyColdService);
+      check(!repoNoExt.contains("error") && repoNoExt["outcome"] == "no_supported_files" &&
+            repoNoExt["incomplete"] == false,
+        "find_symbol reports no_supported_files cleanly when filter leaves only unsupported files");
+
+      size_t fsRounds = 0;
+      std::vector<json> fsEvents;
+      const json fsCall = {{"role", "assistant"}, {"tool_calls", json::array({
+        call("f1", {{"name", "executeGrepWithOptions"}, {"role", "definition"}}, "find_symbol")
+      })}};
+      auto fsOutcome = chat_tools::run(messages, [&](const json &) -> chat_tools::Turn {
+        if (++fsRounds == 1) return {"", fsCall};
+        return {"Done", {{"role", "assistant"}, {"content", "Done"}}};
+      }, [&](const json &request) {
+        return chat_tools::executeFindSymbol(request, {repoScope, repoFindUsed}, &reallyColdService);
+      }, [] { return true; }, 5, [&](const json &ev) { fsEvents.push_back(ev); }, repoRoot.generic_string());
+      check(fsOutcome.text == "Done" && fsEvents.size() == 2 &&
+            fsEvents[1]["summary"].get<std::string>().find("Find symbol executeGrepWithOptions") != std::string::npos,
+        "chat_tools::run formats compact summaries for find_symbol");
+    }
 
     std::cout << checks << " symbol tool checks passed.\n";
     return 0;

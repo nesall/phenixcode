@@ -203,7 +203,7 @@ def main():
                 check(rpc(verb="GET")[0] == 405, "GET unsupported")
                 tools = rpc("tools/list")[1]["result"]["tools"]
                 names = {t["name"] for t in tools}
-                check(names == {"grep", "read_file", "read_files", "symbol_outline", "read_symbol", "list_files", "search_context", "project_info",
+                check(names == {"grep", "read_file", "read_files", "symbol_outline", "read_symbol", "find_symbol", "list_files", "search_context", "project_info",
                                 "git_diff", "git_log", "git_show", "git_blame"}, "catalog independent of Chat flags")
                 grep_tool = next(t for t in tools if t["name"] == "grep")
                 grep_props = grep_tool["inputSchema"]["properties"]
@@ -237,6 +237,12 @@ def main():
                       "MCP grep pattern length error includes observed byte count")
                 rf = call("read_files", {"files": [{"path": "source.cpp", "start_line": 1, "end_line": 1}, {"path": "source.cpp", "start_line": 2, "end_line": 2}]})["structuredContent"]
                 check(rf["count"] == 2 and "MCP_NEEDLE" in rf["results"][0]["content"], "read_files")
+                fs = call("find_symbol", {"name": "pick"})["structuredContent"]
+                check(fs["outcome"] == "complete" and not fs["incomplete"] and
+                      fs["supported_files"] == 2 and fs["searched_files"] == 2 and
+                      fs["match_count"] == 3 and fs["matches"][0]["role"] == "definition" and
+                      fs["matches"][2]["role"] == "declaration",
+                      "MCP find_symbol searches allowed files on cold cache and ranks definitions before declarations")
                 so = call("symbol_outline", {"path": "source.cpp"})["structuredContent"]
                 check(so["language"] == "cpp" and so["symbol_count"] == 4 and
                       so["symbols"][1]["role"] == "declaration" and so["symbols"][2]["role"] == "definition",

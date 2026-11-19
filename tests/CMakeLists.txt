@@ -78,6 +78,14 @@ find_path(TREE_SITTER_SOURCE_DIR lib/include/tree_sitter/api.h
   HINTS ../build_rel/_deps/tree_sitter-src ../build_dbg/_deps/tree_sitter-src REQUIRED)
 find_path(TREE_SITTER_CPP_SOURCE_DIR src/parser.c
   HINTS ../build_rel/_deps/tree_sitter_cpp-src ../build_dbg/_deps/tree_sitter_cpp-src REQUIRED)
+find_path(TREE_SITTER_C_SOURCE_DIR src/parser.c
+  HINTS ../build_rel/_deps/tree_sitter_c-src ../build_dbg/_deps/tree_sitter_c-src REQUIRED)
+find_path(TREE_SITTER_PYTHON_SOURCE_DIR src/parser.c
+  HINTS ../build_rel/_deps/tree_sitter_python-src ../build_dbg/_deps/tree_sitter_python-src REQUIRED)
+find_path(TREE_SITTER_JAVASCRIPT_SOURCE_DIR src/parser.c
+  HINTS ../build_rel/_deps/tree_sitter_javascript-src ../build_dbg/_deps/tree_sitter_javascript-src REQUIRED)
+find_path(TREE_SITTER_TYPESCRIPT_SOURCE_DIR typescript/src/parser.c
+  HINTS ../build_rel/_deps/tree_sitter_typescript-src ../build_dbg/_deps/tree_sitter_typescript-src REQUIRED)
 
 add_library(test_tree_sitter STATIC "${TREE_SITTER_SOURCE_DIR}/lib/src/lib.c")
 target_include_directories(test_tree_sitter
@@ -90,10 +98,57 @@ add_library(test_tree_sitter_cpp STATIC
 target_include_directories(test_tree_sitter_cpp
   PRIVATE "${TREE_SITTER_CPP_SOURCE_DIR}/src" "${TREE_SITTER_SOURCE_DIR}/lib/include")
 
+set(TEST_TS_C_SOURCES "${TREE_SITTER_C_SOURCE_DIR}/src/parser.c")
+if(EXISTS "${TREE_SITTER_C_SOURCE_DIR}/src/scanner.c")
+  list(APPEND TEST_TS_C_SOURCES "${TREE_SITTER_C_SOURCE_DIR}/src/scanner.c")
+endif()
+add_library(test_tree_sitter_c STATIC ${TEST_TS_C_SOURCES})
+target_include_directories(test_tree_sitter_c
+  PRIVATE "${TREE_SITTER_C_SOURCE_DIR}/src" "${TREE_SITTER_SOURCE_DIR}/lib/include")
+
+add_library(test_tree_sitter_python STATIC
+  "${TREE_SITTER_PYTHON_SOURCE_DIR}/src/parser.c"
+  "${TREE_SITTER_PYTHON_SOURCE_DIR}/src/scanner.c")
+target_include_directories(test_tree_sitter_python
+  PRIVATE "${TREE_SITTER_PYTHON_SOURCE_DIR}/src" "${TREE_SITTER_SOURCE_DIR}/lib/include")
+
+add_library(test_tree_sitter_javascript STATIC
+  "${TREE_SITTER_JAVASCRIPT_SOURCE_DIR}/src/parser.c"
+  "${TREE_SITTER_JAVASCRIPT_SOURCE_DIR}/src/scanner.c")
+target_include_directories(test_tree_sitter_javascript
+  PRIVATE "${TREE_SITTER_JAVASCRIPT_SOURCE_DIR}/src" "${TREE_SITTER_SOURCE_DIR}/lib/include")
+
+add_library(test_tree_sitter_typescript STATIC
+  "${TREE_SITTER_TYPESCRIPT_SOURCE_DIR}/typescript/src/parser.c"
+  "${TREE_SITTER_TYPESCRIPT_SOURCE_DIR}/typescript/src/scanner.c")
+target_include_directories(test_tree_sitter_typescript
+  PRIVATE
+    "${TREE_SITTER_TYPESCRIPT_SOURCE_DIR}/typescript/src"
+    "${TREE_SITTER_TYPESCRIPT_SOURCE_DIR}/common"
+    "${TREE_SITTER_SOURCE_DIR}/lib/include")
+
+add_library(test_tree_sitter_tsx STATIC
+  "${TREE_SITTER_TYPESCRIPT_SOURCE_DIR}/tsx/src/parser.c"
+  "${TREE_SITTER_TYPESCRIPT_SOURCE_DIR}/tsx/src/scanner.c")
+target_include_directories(test_tree_sitter_tsx
+  PRIVATE
+    "${TREE_SITTER_TYPESCRIPT_SOURCE_DIR}/tsx/src"
+    "${TREE_SITTER_TYPESCRIPT_SOURCE_DIR}/common"
+    "${TREE_SITTER_SOURCE_DIR}/lib/include")
+
+set(TEST_TREE_SITTER_LIBS
+  test_tree_sitter
+  test_tree_sitter_cpp
+  test_tree_sitter_c
+  test_tree_sitter_python
+  test_tree_sitter_javascript
+  test_tree_sitter_typescript
+  test_tree_sitter_tsx)
+
 add_executable(symbol_service_tests symbol_service_tests.cpp ../src/symbol_service.cpp)
 target_compile_features(symbol_service_tests PRIVATE cxx_std_20)
 target_include_directories(symbol_service_tests PRIVATE ../include)
-target_link_libraries(symbol_service_tests PRIVATE test_tree_sitter test_tree_sitter_cpp)
+target_link_libraries(symbol_service_tests PRIVATE ${TEST_TREE_SITTER_LIBS})
 add_test(NAME symbol_service_tests COMMAND symbol_service_tests "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set_tests_properties(symbol_service_tests PROPERTIES TIMEOUT 30)
 
@@ -101,7 +156,7 @@ add_executable(symbol_tools_tests symbol_tools_tests.cpp ../src/chat_tools.cpp .
   ../src/symbol_service.cpp ../src/settings.cpp ../src/cutils.cpp)
 target_compile_features(symbol_tools_tests PRIVATE cxx_std_20)
 target_include_directories(symbol_tools_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}")
-target_link_libraries(symbol_tools_tests PRIVATE re2::re2 test_tree_sitter test_tree_sitter_cpp)
+target_link_libraries(symbol_tools_tests PRIVATE re2::re2 ${TEST_TREE_SITTER_LIBS})
 add_test(NAME symbol_tools_tests COMMAND symbol_tools_tests "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set_tests_properties(symbol_tools_tests PROPERTIES TIMEOUT 30)
 
@@ -109,7 +164,7 @@ add_executable(chat_tools_tests chat_tools_tests.cpp ../src/chat_tools.cpp ../sr
   ../src/symbol_service.cpp ../src/sourceproc.cpp ../src/settings.cpp ../src/cutils.cpp ../src/chunker.cpp ../src/tokenizer.cpp)
 target_compile_features(chat_tools_tests PRIVATE cxx_std_20)
 target_include_directories(chat_tools_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}" "${HTTPLIB_INCLUDE_DIR}")
-target_link_libraries(chat_tools_tests PRIVATE re2::re2 test_tree_sitter test_tree_sitter_cpp)
+target_link_libraries(chat_tools_tests PRIVATE re2::re2 ${TEST_TREE_SITTER_LIBS})
 if(WIN32)
   target_link_libraries(chat_tools_tests PRIVATE ws2_32 crypt32)
 endif()

@@ -13,7 +13,12 @@ namespace symbol_service {
 
   enum class Language {
     Unsupported,
-    Cpp
+    C,
+    Cpp,
+    Python,
+    JavaScript,
+    TypeScript,
+    Tsx
   };
 
   enum class SymbolKind {
@@ -21,6 +26,7 @@ namespace symbol_service {
     Class,
     Struct,
     Union,
+    Interface,
     Enum,
     Concept,
     TypeAlias,
@@ -59,8 +65,8 @@ namespace symbol_service {
     std::vector<SymbolInfo> symbols;
   };
 
-  // Explicit extension mapping. Ambiguous .h headers default to C++.
-  // .c and non-C++ extensions remain Unsupported until their grammars are bundled.
+  // Explicit extension mapping across bundled parsers (C, C++, Python, JavaScript/JSX,
+  // TypeScript, and TSX). Ambiguous .h headers default to C++; .c routes to C.
   Language detectLanguage(std::string_view path);
   std::string_view languageName(Language lang);
   std::string_view kindName(SymbolKind kind);

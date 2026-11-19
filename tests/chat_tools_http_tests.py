@@ -104,10 +104,13 @@ def main():
                         {"files": [{"path": str(source), "start_line": 1, "end_line": 1}, {"path": str(source), "start_line": 2, "end_line": 2}]})}}]
                 if self.path == "/symbols":
                     if step == 0:
-                        calls = [{"id": "sym_0", "type": "function", "function": {"name": "symbol_outline", "arguments": json.dumps({"path": str(source)})}}]
+                        calls = [{"id": "sym_find", "type": "function", "function": {"name": "find_symbol", "arguments": json.dumps({"name": "Needle"})}}]
                     elif step == 1:
-                        calls = [{"id": "sym_1", "type": "function", "function": {"name": "read_symbol", "arguments": json.dumps({"path": str(source), "symbol": "Needle", "role": "definition"})}}]
+                        found = json.loads(body["messages"][-1]["content"])
+                        calls = [{"id": "sym_0", "type": "function", "function": {"name": "symbol_outline", "arguments": json.dumps({"path": found["matches"][0]["source"]})}}]
                     elif step == 2:
+                        calls = [{"id": "sym_1", "type": "function", "function": {"name": "read_symbol", "arguments": json.dumps({"path": str(source), "symbol": "Needle", "role": "definition"})}}]
+                    elif step == 3:
                         ambig_msg = json.loads(body["messages"][-1]["content"])
                         sel = ambig_msg["candidates"][1]["selector"]
                         calls = [{"id": "sym_2", "type": "function", "function": {"name": "read_symbol", "arguments": json.dumps({"path": str(source), "symbol": sel})}}]
@@ -320,16 +323,21 @@ def main():
                 check(any(event.get("tool") == "read_files" and "2/2 files returned" in event.get("content", "") for event in events),
                       "read_files progress reaches typed SSE metadata")
                 events = chat("symbols")
-                check(len(requests["/symbols"]) == 4, "symbol_outline + read_symbol ambiguity + selector complete multi-step chat workflow")
-                outline_res = json.loads(requests["/symbols"][1]["messages"][-1]["content"])
+                check(len(requests["/symbols"]) == 5, "find_symbol + symbol_outline + read_symbol ambiguity + selector complete multi-step chat workflow")
+                find_res = json.loads(requests["/symbols"][1]["messages"][-1]["content"])
+                check(find_res["outcome"] == "complete" and not find_res["incomplete"] and
+                      find_res["match_count"] == 3 and find_res["matches"][0]["role"] == "definition",
+                      "chat find_symbol discovers definitions and declarations on cold cache")
+                outline_res = json.loads(requests["/symbols"][2]["messages"][-1]["content"])
                 check(outline_res["symbol_count"] == 3 and outline_res["symbols"][0]["role"] == "declaration" and
                       outline_res["symbols"][1]["role"] == "definition", "chat symbol_outline reports declaration vs definition")
-                ambig_res = json.loads(requests["/symbols"][2]["messages"][-1]["content"])
+                ambig_res = json.loads(requests["/symbols"][3]["messages"][-1]["content"])
                 check(ambig_res["ambiguous"] and ambig_res["candidate_count"] == 2, "chat read_symbol role=definition returns overloaded candidates")
-                sym_read_res = json.loads(requests["/symbols"][3]["messages"][-1]["content"])
+                sym_read_res = json.loads(requests["/symbols"][4]["messages"][-1]["content"])
                 check(sym_read_res["content"] == "2: void Needle(double d) {}\n" and sym_read_res["role"] == "definition",
                       "chat read_symbol slices exact same-line definition via selector")
-                check(any(event.get("tool") == "symbol_outline" and "3 symbols returned" in event.get("content", "") for event in events) and
+                check(any(event.get("tool") == "find_symbol" and "3 matches" in event.get("content", "") for event in events) and
+                      any(event.get("tool") == "symbol_outline" and "3 symbols returned" in event.get("content", "") for event in events) and
                       any(event.get("tool") == "read_symbol" and "returned lines 2-2" in event.get("content", "") for event in events),
                       "symbol tools progress reaches typed SSE metadata")
                 events = chat("context-text")

@@ -104,6 +104,42 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tree_sitter_cpp)
 
+FetchContent_Declare(
+  tree_sitter_c
+  GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-c.git
+  GIT_TAG v0.24.2
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR __fetch_only
+)
+FetchContent_MakeAvailable(tree_sitter_c)
+
+FetchContent_Declare(
+  tree_sitter_python
+  GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-python.git
+  GIT_TAG v0.25.0
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR __fetch_only
+)
+FetchContent_MakeAvailable(tree_sitter_python)
+
+FetchContent_Declare(
+  tree_sitter_javascript
+  GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-javascript.git
+  GIT_TAG v0.25.0
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR __fetch_only
+)
+FetchContent_MakeAvailable(tree_sitter_javascript)
+
+FetchContent_Declare(
+  tree_sitter_typescript
+  GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-typescript.git
+  GIT_TAG v0.23.2
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR __fetch_only
+)
+FetchContent_MakeAvailable(tree_sitter_typescript)
+
 add_library(tree_sitter_lib STATIC
   ${tree_sitter_SOURCE_DIR}/lib/src/lib.c
 )
@@ -118,6 +154,53 @@ add_library(tree_sitter_cpp_lib STATIC
 )
 target_include_directories(tree_sitter_cpp_lib
   PRIVATE ${tree_sitter_cpp_SOURCE_DIR}/src ${tree_sitter_SOURCE_DIR}/lib/include
+)
+
+set(TS_C_SOURCES ${tree_sitter_c_SOURCE_DIR}/src/parser.c)
+if(EXISTS "${tree_sitter_c_SOURCE_DIR}/src/scanner.c")
+  list(APPEND TS_C_SOURCES ${tree_sitter_c_SOURCE_DIR}/src/scanner.c)
+endif()
+add_library(tree_sitter_c_lib STATIC ${TS_C_SOURCES})
+target_include_directories(tree_sitter_c_lib
+  PRIVATE ${tree_sitter_c_SOURCE_DIR}/src ${tree_sitter_SOURCE_DIR}/lib/include
+)
+
+add_library(tree_sitter_python_lib STATIC
+  ${tree_sitter_python_SOURCE_DIR}/src/parser.c
+  ${tree_sitter_python_SOURCE_DIR}/src/scanner.c
+)
+target_include_directories(tree_sitter_python_lib
+  PRIVATE ${tree_sitter_python_SOURCE_DIR}/src ${tree_sitter_SOURCE_DIR}/lib/include
+)
+
+add_library(tree_sitter_javascript_lib STATIC
+  ${tree_sitter_javascript_SOURCE_DIR}/src/parser.c
+  ${tree_sitter_javascript_SOURCE_DIR}/src/scanner.c
+)
+target_include_directories(tree_sitter_javascript_lib
+  PRIVATE ${tree_sitter_javascript_SOURCE_DIR}/src ${tree_sitter_SOURCE_DIR}/lib/include
+)
+
+add_library(tree_sitter_typescript_lib STATIC
+  ${tree_sitter_typescript_SOURCE_DIR}/typescript/src/parser.c
+  ${tree_sitter_typescript_SOURCE_DIR}/typescript/src/scanner.c
+)
+target_include_directories(tree_sitter_typescript_lib
+  PRIVATE
+    ${tree_sitter_typescript_SOURCE_DIR}/typescript/src
+    ${tree_sitter_typescript_SOURCE_DIR}/common
+    ${tree_sitter_SOURCE_DIR}/lib/include
+)
+
+add_library(tree_sitter_tsx_lib STATIC
+  ${tree_sitter_typescript_SOURCE_DIR}/tsx/src/parser.c
+  ${tree_sitter_typescript_SOURCE_DIR}/tsx/src/scanner.c
+)
+target_include_directories(tree_sitter_tsx_lib
+  PRIVATE
+    ${tree_sitter_typescript_SOURCE_DIR}/tsx/src
+    ${tree_sitter_typescript_SOURCE_DIR}/common
+    ${tree_sitter_SOURCE_DIR}/lib/include
 )
 
 # Create SQLite3 library
@@ -204,6 +287,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   re2::re2
   tree_sitter_lib
   tree_sitter_cpp_lib
+  tree_sitter_c_lib
+  tree_sitter_python_lib
+  tree_sitter_javascript_lib
+  tree_sitter_typescript_lib
+  tree_sitter_tsx_lib
 )
 
 # Include directories
