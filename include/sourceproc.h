@@ -18,6 +18,7 @@ public:
     size_t contextLines = 3;
     size_t maxMatchesPerFile = 50;
     size_t maxTotalResults = 200;
+    size_t maxPatternBytes = 64;
     bool useRegex = false;
     bool caseSensitive = false;
     bool wholeWord = false;

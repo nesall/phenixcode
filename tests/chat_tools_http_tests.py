@@ -28,7 +28,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="phenixcode-tools-http-") as directory:
         root = Path(directory)
         source = root / "source.cpp"
-        source.write_text("// RETRIEVED_CONTEXT_SENTINEL\nvoid Needle() {}\n", encoding="utf-8")
+        source.write_text("// RETRIEVED_CONTEXT_SENTINEL\nvoid Needle(int x); void Needle() {} void Needle(double d) {}\n", encoding="utf-8")
         large = root / "large.cpp"
         large.write_text("evidence words " * 3000, encoding="utf-8")
         git = shutil.which("git")
@@ -102,6 +102,15 @@ def main():
                 if self.path == "/read-files" and step == 0:
                     calls = [{"id": "rf_0", "type": "function", "function": {"name": "read_files", "arguments": json.dumps(
                         {"files": [{"path": str(source), "start_line": 1, "end_line": 1}, {"path": str(source), "start_line": 2, "end_line": 2}]})}}]
+                if self.path == "/symbols":
+                    if step == 0:
+                        calls = [{"id": "sym_0", "type": "function", "function": {"name": "symbol_outline", "arguments": json.dumps({"path": str(source)})}}]
+                    elif step == 1:
+                        calls = [{"id": "sym_1", "type": "function", "function": {"name": "read_symbol", "arguments": json.dumps({"path": str(source), "symbol": "Needle", "role": "definition"})}}]
+                    elif step == 2:
+                        ambig_msg = json.loads(body["messages"][-1]["content"])
+                        sel = ambig_msg["candidates"][1]["selector"]
+                        calls = [{"id": "sym_2", "type": "function", "function": {"name": "read_symbol", "arguments": json.dumps({"path": str(source), "symbol": sel})}}]
                 if self.path.startswith("/git-") and step == 0:
                     name = "git_diff" if self.path in ("/git-branch", "/git-context") else "git_log" if self.path == "/git-log-search" else self.path[1:].replace("-", "_")
                     args = {"path": str(source)} if name == "git_diff" else {"limit": 1} if name == "git_log" else {"path": str(source), "start_line": 1, "end_line": 4} if name == "git_blame" else {"revision": "HEAD", "path": str(source)}
@@ -157,7 +166,7 @@ def main():
         provider_url = f"http://127.0.0.1:{provider.server_port}"
         modes = ["stream", "plain", "error", "bad-json", "truncated", "no-usage", "budget", "steps", "listing", "ranked-listing", "ranked-unindexed",
                  "context-text", "context-hybrid", "context-fallback", "project", "git-diff", "git-log", "git-show", "git-branch", "git-context",
-                 "git-blame", "git-log-search", "grep-re2", "read-files", "batch", "no-reasoning-usage", "empty"]
+                 "git-blame", "git-log-search", "grep-re2", "read-files", "symbols", "batch", "no-reasoning-usage", "empty"]
         catalog = {"agent_enabled": True, "embedding_providers": [{"id": "embed", "api_url": provider_url + "/embedding", "model": "mock",
                     "query_format": "query: {}", "document_format": "document: {}"}],
                    "generation_providers": [{"id": mode, "model": mode, "api_url": provider_url + "/" + mode,
@@ -310,6 +319,19 @@ def main():
                       "read_files batch reads disjoint ranges through HTTP dispatcher")
                 check(any(event.get("tool") == "read_files" and "2/2 files returned" in event.get("content", "") for event in events),
                       "read_files progress reaches typed SSE metadata")
+                events = chat("symbols")
+                check(len(requests["/symbols"]) == 4, "symbol_outline + read_symbol ambiguity + selector complete multi-step chat workflow")
+                outline_res = json.loads(requests["/symbols"][1]["messages"][-1]["content"])
+                check(outline_res["symbol_count"] == 3 and outline_res["symbols"][0]["role"] == "declaration" and
+                      outline_res["symbols"][1]["role"] == "definition", "chat symbol_outline reports declaration vs definition")
+                ambig_res = json.loads(requests["/symbols"][2]["messages"][-1]["content"])
+                check(ambig_res["ambiguous"] and ambig_res["candidate_count"] == 2, "chat read_symbol role=definition returns overloaded candidates")
+                sym_read_res = json.loads(requests["/symbols"][3]["messages"][-1]["content"])
+                check(sym_read_res["content"] == "2: void Needle(double d) {}\n" and sym_read_res["role"] == "definition",
+                      "chat read_symbol slices exact same-line definition via selector")
+                check(any(event.get("tool") == "symbol_outline" and "3 symbols returned" in event.get("content", "") for event in events) and
+                      any(event.get("tool") == "read_symbol" and "returned lines 2-2" in event.get("content", "") for event in events),
+                      "symbol tools progress reaches typed SSE metadata")
                 events = chat("context-text")
                 text_result = json.loads(requests["/context-text"][1]["messages"][-1]["content"])
                 check(text_result["mode"] == "text" and any("Needle" in hit["content"] for hit in text_result["matches"]),

@@ -10,12 +10,14 @@
 
 struct ApiConfig;
 class Settings;
+namespace symbol_service { class SymbolService; }
 
 namespace chat_tools {
   inline constexpr size_t kMaxAgentSteps = 15;
   inline constexpr size_t kMaxCallsPerStep = 8;
   inline constexpr size_t kMaxResultBytes = 8192;
   inline constexpr size_t kMaxPathFilterBytes = 1024;
+  inline constexpr size_t kMaxGrepPatternBytes = 256;
 
   struct ToolContext {
     const std::vector<std::string> &allowedFiles;
@@ -33,6 +35,8 @@ namespace chat_tools {
   nlohmann::json grepDefinition();
   nlohmann::json readFileDefinition();
   nlohmann::json readFilesDefinition();
+  nlohmann::json symbolOutlineDefinition();
+  nlohmann::json readSymbolDefinition();
   nlohmann::json listFilesDefinition();
   nlohmann::json searchContextDefinition();
   nlohmann::json projectInfoDefinition();
@@ -69,6 +73,8 @@ namespace chat_tools {
   nlohmann::json executeGrepWithOptions(const nlohmann::json &call, const ToolContext &ctx, const SearchWithOptions &search);
   nlohmann::json executeReadFile(const nlohmann::json &call, const ToolContext &ctx);
   nlohmann::json executeReadFiles(const nlohmann::json &call, const ToolContext &ctx);
+  nlohmann::json executeSymbolOutline(const nlohmann::json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols = nullptr);
+  nlohmann::json executeReadSymbol(const nlohmann::json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols = nullptr);
   using FileMetadataReader = std::function<std::vector<FileMetadata>()>;
   nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx, const FileMetadataReader &metadata = {});
   nlohmann::json executeSearchContext(const nlohmann::json &call, const ToolContext &ctx, const ContextSearch &search);

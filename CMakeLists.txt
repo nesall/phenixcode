@@ -86,6 +86,40 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(re2)
 
+FetchContent_Declare(
+  tree_sitter
+  GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter.git
+  GIT_TAG v0.25.10
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR __fetch_only
+)
+FetchContent_MakeAvailable(tree_sitter)
+
+FetchContent_Declare(
+  tree_sitter_cpp
+  GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-cpp.git
+  GIT_TAG v0.23.4
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR __fetch_only
+)
+FetchContent_MakeAvailable(tree_sitter_cpp)
+
+add_library(tree_sitter_lib STATIC
+  ${tree_sitter_SOURCE_DIR}/lib/src/lib.c
+)
+target_include_directories(tree_sitter_lib
+  PUBLIC ${tree_sitter_SOURCE_DIR}/lib/include
+  PRIVATE ${tree_sitter_SOURCE_DIR}/lib/src
+)
+
+add_library(tree_sitter_cpp_lib STATIC
+  ${tree_sitter_cpp_SOURCE_DIR}/src/parser.c
+  ${tree_sitter_cpp_SOURCE_DIR}/src/scanner.c
+)
+target_include_directories(tree_sitter_cpp_lib
+  PRIVATE ${tree_sitter_cpp_SOURCE_DIR}/src ${tree_sitter_SOURCE_DIR}/lib/include
+)
+
 # Create SQLite3 library
 add_library(sqlite3_lib ${sqlite3_SOURCE_DIR}/sqlite3.c)
 target_include_directories(sqlite3_lib PUBLIC ${sqlite3_SOURCE_DIR})
@@ -126,6 +160,7 @@ add_executable(${PROJECT_NAME}
   include/mcp_protocol.h
   include/mcp_server.h
   include/tool_service.h
+  include/symbol_service.h
   include/3rdparty/nlohmann/nlohmann_json.natvis
   src/main.cpp
   src/tokenizer.cpp
@@ -139,6 +174,7 @@ add_executable(${PROJECT_NAME}
   src/mcp_server.cpp
   src/chat_tools.cpp
   src/chat_tools_git.cpp
+  src/symbol_service.cpp
   src/database.cpp
   src/sourceproc.cpp
   src/context_builder.cpp
@@ -166,6 +202,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   jwt-cpp::jwt-cpp
   classifier::classifier_core
   re2::re2
+  tree_sitter_lib
+  tree_sitter_cpp_lib
 )
 
 # Include directories

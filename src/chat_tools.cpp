@@ -1,4 +1,5 @@
 #include "chat_tools.h"
+#include "symbol_service.h"
 #include "settings.h"
 #include "cutils.h"
 #include <utils_log/logger.hpp>
@@ -82,6 +83,18 @@ namespace chat_tools {
       if (name == "read_files") {
         const size_t n = args.contains("files") && args["files"].is_array() ? args["files"].size() : size_t(0);
         return "Read " + std::to_string(n) + (n == 1 ? " file" : " files");
+      }
+      if (name == "symbol_outline") {
+        auto label = "Outline " + shortPath(text("path"), root);
+        if (!text("kind").empty()) label += middle + preview(text("kind"), 24);
+        if (!text("role").empty() && text("role") != "all") label += middle + preview(text("role"), 24);
+        return label;
+      }
+      if (name == "read_symbol") {
+        auto label = "Read symbol " + preview(text("symbol"), 48) + middle + shortPath(text("path"), root);
+        if (output && !output->contains("error") && !output->value("ambiguous", false) && output->contains("start_line"))
+          label += ":" + std::to_string(output->value("start_line", size_t(0))) + "-" + std::to_string(output->value("end_line", size_t(0)));
+        return label;
       }
       if (name == "project_info") return "Project info";
       if (name == "project_settings") return "Project settings" + (text("section").empty() || text("section") == "all" ? std::string{} : middle + preview(text("section"), 32));
@@ -209,46 +222,84 @@ namespace chat_tools {
 
   json grepDefinition()
   {
+    json props;
+    props["pattern"] = {{"type", "string"}, {"minLength", 2}, {"maxLength", kMaxGrepPatternBytes},
+      {"description", "Literal text or RE2 regex (2-256 bytes)"}};
+    props["path_filter"] = {{"type", "string"}, {"description", "Optional path prefix, e.g. src/"}};
+    props["glob"] = {{"type", "string"}, {"maxLength", 256},
+      {"description", "Optional file glob, e.g. '*.cpp', 'src/**/*.{cpp,h}'"}};
+    props["regex"] = {{"type", "boolean"}, {"description", "Use RE2 regex (default false)"}};
+    props["case_sensitive"] = {{"type", "boolean"}, {"description", "Case-sensitive match (default false)"}};
+    props["whole_word"] = {{"type", "boolean"}, {"description", "Whole-word match (default false)"}};
+    props["context_lines"] = {{"type", "integer"}, {"minimum", 0}, {"maximum", 10}, {"description", "Context lines (0-10), default 2"}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"pattern"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "grep"},
-      {"description", "Search configured project source files for literal text (default, case-insensitive) or RE2 regular expressions. Supports case sensitivity, whole-word matching, configurable context lines, path prefix filters, and case-insensitive file globs. Returns snippets with line numbers."},
-      {"parameters", {{"type", "object"}, {"properties", {
-        {"pattern", {{"type", "string"}, {"description", "Literal text or RE2 regular expression, 2 to 64 bytes"}}},
-        {"path_filter", {{"type", "string"}, {"description", "Optional path prefix, up to " + std::to_string(kMaxPathFilterBytes) + " UTF-8 bytes, e.g. src/; empty means no filter. Only configured project files are searched"}}},
-        {"glob", {{"type", "string"}, {"description", "Optional case-insensitive file glob filter, e.g. '*.cpp', 'src/**/*.ts', or '*.{cpp,h}', up to 256 bytes"}}},
-        {"regex", {{"type", "boolean"}, {"description", "Default false: literal text search; true: RE2 linear-time regular expression"}}},
-        {"case_sensitive", {{"type", "boolean"}, {"description", "Default false: case-insensitive; true: case-sensitive"}}},
-        {"whole_word", {{"type", "boolean"}, {"description", "Default false; true: match whole words only"}}},
-        {"context_lines", {{"type", "integer"}, {"minimum", 0}, {"maximum", 10}, {"description", "Surrounding context lines per match (0 to 10), default 2"}}}
-      }}, {"required", json::array({"pattern"})}, {"additionalProperties", false}}}
+      {"description", "Search allowed files for literal text (default, case-insensitive) or RE2 regex with context lines, path_filter, and globs."},
+      {"parameters", std::move(params)}
     }}};
   }
 
   json readFileDefinition() {
+    json props;
+    props["path"] = {{"type", "string"}, {"description", "Allowed source path"}};
+    props["start_line"] = {{"type", "integer"}, {"minimum", 1}, {"description", "1-based start line"}};
+    props["end_line"] = {{"type", "integer"}, {"minimum", 1}, {"description", "1-based inclusive end line"}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"path"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "read_file"},
-      {"description", "Read a configured project text file, using a source path returned by the search or listing tools. Returns numbered lines, up to 200 lines and 8 KiB per call."},
-      {"parameters", {{"type", "object"}, {"properties", {
-        {"path", {{"type", "string"}, {"description", "Source path returned by a search or listing tool, or an unambiguous relative path"}}},
-        {"start_line", {{"type", "integer"}, {"minimum", 1}, {"description", "First line (1-based), default 1"}}},
-        {"end_line", {{"type", "integer"}, {"minimum", 1}, {"description", "Last line (inclusive), default start_line + 199"}}}
-      }}, {"required", json::array({"path"})}, {"additionalProperties", false}}}
+      {"description", "Read numbered lines from an allowed file (max 200 lines, 8 KiB)."},
+      {"parameters", std::move(params)}
     }}};
   }
 
   json readFilesDefinition() {
+    json itemProps;
+    itemProps["path"] = {{"type", "string"}, {"description", "Allowed source path"}};
+    itemProps["start_line"] = {{"type", "integer"}, {"minimum", 1}};
+    itemProps["end_line"] = {{"type", "integer"}, {"minimum", 1}};
+    json itemSchema = {{"type", "object"}, {"properties", std::move(itemProps)}, {"required", json::array({"path"})}, {"additionalProperties", false}};
+    json filesSchema = {{"type", "array"}, {"minItems", 1}, {"maxItems", 5},
+      {"description", "1 to 5 file/line-range read requests"}, {"items", std::move(itemSchema)}};
+    json props = {{"files", std::move(filesSchema)}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"files"})}, {"additionalProperties", false}};
     return {{"type", "function"}, {"function", {
       {"name", "read_files"},
-      {"description", "Batch-read 1 to 5 configured project text file line ranges (including disjoint ranges of the same file) in one call. Returns numbered lines sharing a single 8 KiB output budget with explicit per-item and overall truncation."},
-      {"parameters", {{"type", "object"}, {"properties", {
-        {"files", {{"type", "array"}, {"minItems", 1}, {"maxItems", 5},
-          {"description", "List of 1 to 5 file/line-range read requests"},
-          {"items", {{"type", "object"}, {"properties", {
-            {"path", {{"type", "string"}, {"description", "Source path returned by a search or listing tool, or an unambiguous relative path"}}},
-            {"start_line", {{"type", "integer"}, {"minimum", 1}, {"description", "First line (1-based), default 1"}}},
-            {"end_line", {{"type", "integer"}, {"minimum", 1}, {"description", "Last line (inclusive), default start_line + 199"}}}
-          }}, {"required", json::array({"path"})}, {"additionalProperties", false}}}}}
-      }}, {"required", json::array({"files"})}, {"additionalProperties", false}}}
+      {"description", "Batch-read 1 to 5 line ranges from allowed files sharing an 8 KiB budget."},
+      {"parameters", std::move(params)}
+    }}};
+  }
+
+  json symbolOutlineDefinition() {
+    static const json kinds = json::array({
+      "namespace", "class", "struct", "union", "enum", "concept", "type_alias", "function", "method", "constructor", "destructor"
+    });
+    static const json roles = json::array({"all", "definition", "declaration"});
+    json props;
+    props["path"] = {{"type", "string"}, {"description", "Allowed source path"}};
+    props["kind"] = {{"type", "string"}, {"enum", kinds}};
+    props["role"] = {{"type", "string"}, {"enum", roles}};
+    props["limit"] = {{"type", "integer"}, {"minimum", 1}, {"maximum", 200}};
+    props["offset"] = {{"type", "integer"}, {"minimum", 0}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"path"})}, {"additionalProperties", false}};
+    return {{"type", "function"}, {"function", {
+      {"name", "symbol_outline"},
+      {"description", "List C++ symbol declarations and definitions in an allowed file (.h defaults to C++) with selectors."},
+      {"parameters", std::move(params)}
+    }}};
+  }
+
+  json readSymbolDefinition() {
+    static const json roles = json::array({"any", "definition", "declaration"});
+    json props;
+    props["path"] = {{"type", "string"}, {"description", "Allowed source path"}};
+    props["symbol"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 256}, {"description", "Name, Class::method, or selector"}};
+    props["role"] = {{"type", "string"}, {"enum", roles}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"path", "symbol"})}, {"additionalProperties", false}};
+    return {{"type", "function"}, {"function", {
+      {"name", "read_symbol"},
+      {"description", "Read a C++ symbol or selector from an allowed file; filter role or inspect overload candidates."},
+      {"parameters", std::move(params)}
     }}};
   }
 
@@ -259,30 +310,25 @@ namespace chat_tools {
       { "function",{
         { "name", "list_files" },
         { "description",
-         "List files available in the project source scope. Optionally narrow by path "
-         "prefix or file extension. Returns up to 200 files and 8 KiB. "
-         "Use to discover file names before read_file or grep, or rank potential splitting candidates by size or lines. "
-         "Sorting covers all matching allowed files before limiting. Size/line sorting adds file_metadata alongside the files path array; "
-         "values are stored index snapshots, may be stale, and are null for unindexed files. Unknown values sort last in either direction. "
-         "Line counts use stored newline counts. "
-         "Files excluded by project rules or max_file_size_mb are not listed." },
+         "List allowed project files. Filter by path_filter or extension, or sort by path, indexed size, or lines "
+         "(index snapshots may be stale; unindexed sort last). Max 200 files, 8 KiB." },
         { "parameters",{
           { "type", "object" },
           { "properties",{
             { "path_filter",{
               { "type", "string" },
-              { "description", "Optional path prefix, up to " + std::to_string(kMaxPathFilterBytes) + " UTF-8 bytes, e.g. 'src'; empty means no filter. Must be inside project sources." }
+              { "description", "Optional path prefix, e.g. 'src'" }
             } },
             { "extension",{
               { "type", "string" },
-              { "description", "Optional file extension filter, e.g. '.cpp'; up to 16 bytes including the dot." }
+              { "description", "Optional extension filter, e.g. '.cpp'" }
             } },
             { "sort_by", {{"type", "string"}, {"enum", json::array({"path", "size", "lines"})},
-              {"description", "Sort by path, indexed byte size, or indexed line count. Omit sort_by and order to preserve discovery order."}} },
+              {"description", "Sort field; size/lines add file_metadata"}} },
             { "order", {{"type", "string"}, {"enum", json::array({"asc", "desc"})},
-              {"description", "Sort direction; default asc. With no sort_by, sorts by path. Use desc for largest files."}} },
+              {"description", "Sort direction, default asc"}} },
             { "limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 200},
-              {"description", "Maximum files to return, default 200; the 8 KiB result cap still applies."}} }
+              {"description", "Max files (1-200), default 200"}} }
           } },
           { "required", json::array() },
           { "additionalProperties", false }
@@ -295,11 +341,9 @@ namespace chat_tools {
   {
     return {{"type", "function"}, {"function", {
       {"name", "search_context"},
-      {"description", "Search project context by a natural-language question using the existing hybrid retriever. "
-        "Falls back to text search when embeddings or the index are unavailable. Returns up to 8 excerpts and 8 KiB. "
-        "Indexed excerpts can be stale; use read_file for current contents. Line ranges are 1-based inclusive; byte ranges are 0-based end-exclusive."},
+      {"description", "Hybrid semantic + text search over indexed project context (falls back to text if index/embeddings unavailable). Max 8 excerpts, 8 KiB."},
       {"parameters", {{"type", "object"}, {"properties", {
-        {"query", {{"type", "string"}, {"description", "Focused search question, 1 to 512 UTF-8 bytes"}, {"minLength", 1}, {"maxLength", 512}}}
+        {"query", {{"type", "string"}, {"description", "Search question (1-512 UTF-8 bytes)"}, {"minLength", 1}, {"maxLength", 512}}}
       }}, {"required", json::array({"query"})}, {"additionalProperties", false}}}
     }}};
   }
@@ -394,7 +438,7 @@ namespace chat_tools {
   json projectInfoDefinition() {
     return {{"type", "function"}, {"function", {
       {"name", "project_info"},
-      {"description", "Summarize the active project's identity, configured source roots, current local source count, language extensions, indexed chunk count and tool capabilities. Extensions are lowercase with leading dots; extensionless files are counted separately. Index freshness is unknown. Arrays or strings may be shortened; truncated_fields identifies affected fields (* means additional fields)."},
+      {"description", "Summarize loaded project metadata, configured sources, local file count, extensions, indexed chunk count, and available tools."},
       {"parameters", {{"type", "object"}, {"properties", json::object()}, {"additionalProperties", false}}}
     }}};
   }
@@ -402,9 +446,9 @@ namespace chat_tools {
   json projectSettingsDefinition() {
     return {{"type", "function"}, {"function", {
       {"name", "project_settings"},
-      {"description", "Inspect a filtered view of loaded project/provider settings, not files on disk. Credentials, URLs and prompts are omitted. Includes the actual generation provider selected for this request. Database locations are filenames only. Reasoning choices are configured defaults, not request selections. Arrays or strings may be shortened; truncated_fields identifies affected fields (* means additional fields)."},
+      {"description", "Inspect filtered loaded project/provider settings (no credentials, URLs, or prompts; filenames and configured defaults only)."},
       {"parameters", {{"type", "object"}, {"properties", {
-        {"section", {{"type", "string"}, {"enum", projectSections()}, {"description", "Section to inspect; defaults to all"}}}
+        {"section", {{"type", "string"}, {"enum", projectSections()}, {"description", "Section to inspect (default all)"}}}
       }}, {"additionalProperties", false}}}
     }}};
   }
@@ -838,6 +882,329 @@ namespace chat_tools {
     }
   }
 
+  namespace {
+    std::string normalizedSourceKey(const std::string &selected) {
+      std::string p = selected;
+      std::replace(p.begin(), p.end(), '\\', '/');
+      const auto bytes = std::filesystem::path(std::u8string(p.begin(), p.end())).lexically_normal().generic_u8string();
+      return std::string(bytes.begin(), bytes.end());
+    }
+
+    symbol_service::FileOutline computeVerifiedOutline(const std::string &selected, std::string &contentOut,
+                                                       symbol_service::SymbolService *symbols) {
+      const auto lang = symbol_service::detectLanguage(selected);
+      if (lang == symbol_service::Language::Unsupported) {
+        throw std::invalid_argument(
+          "Unsupported file type for C++ symbol extraction (.h defaults to C++; .c and non-C++ files are unsupported)");
+      }
+      contentOut = readTextFileChecked(selected);
+      const std::string key = normalizedSourceKey(selected);
+      if (symbols) {
+        return symbols->outlineForContent(key, lang, contentOut);
+      }
+      symbol_service::SymbolService local;
+      return local.outlineForContent(key, lang, contentOut);
+    }
+
+    json symbolEntryJson(const symbol_service::SymbolInfo &s) {
+      return {
+        {"selector", s.selector},
+        {"name", std::string{ utils::sanitizeUtf8(s.name) }},
+        {"qualified_name", std::string{ utils::sanitizeUtf8(s.qualified_name) }},
+        {"container", std::string{ utils::sanitizeUtf8(s.container) }},
+        {"kind", std::string(symbol_service::kindName(s.kind))},
+        {"role", std::string(symbol_service::roleName(s.role))},
+        {"signature", std::string{ utils::sanitizeUtf8(s.signature) }},
+        {"start_line", s.start_line},
+        {"end_line", s.end_line}
+      };
+    }
+
+    json formatSymbolSlice(const std::string &selected, const symbol_service::SymbolInfo &sym,
+                           const std::string &content, size_t maxJsonBytes) {
+      if (sym.start_byte > sym.end_byte || sym.end_byte > content.size()) {
+        throw std::runtime_error("Validated symbol byte range exceeds snapshot bounds");
+      }
+      json result = {
+        {"source", selected},
+        {"language", "cpp"},
+        {"selector", sym.selector},
+        {"name", std::string{ utils::sanitizeUtf8(sym.name) }},
+        {"qualified_name", std::string{ utils::sanitizeUtf8(sym.qualified_name) }},
+        {"container", std::string{ utils::sanitizeUtf8(sym.container) }},
+        {"kind", std::string(symbol_service::kindName(sym.kind))},
+        {"role", std::string(symbol_service::roleName(sym.role))},
+        {"signature", std::string{ utils::sanitizeUtf8(sym.signature) }},
+        {"start_line", sym.start_line},
+        {"end_line", sym.start_line},
+        {"content", ""},
+        {"truncated", false}
+      };
+      if (result.dump().size() > maxJsonBytes - 128) {
+        throw std::invalid_argument("Symbol metadata exceeds the result size limit");
+      }
+
+      const std::string_view rawSlice(content.data() + sym.start_byte, sym.end_byte - sym.start_byte);
+      size_t pos = 0;
+      size_t line = sym.start_line;
+      size_t linesEmitted = 0;
+      std::string snippet;
+      while (pos < rawSlice.size() && linesEmitted < 200) {
+        const auto newline = rawSlice.find('\n', pos);
+        const auto end = newline == std::string_view::npos ? rawSlice.size() : newline;
+        std::string text(rawSlice.substr(pos, end - pos));
+        if (!text.empty() && text.back() == '\r') text.pop_back();
+        const std::string valid{ utils::sanitizeUtf8(text) };
+        std::string numbered = std::to_string(line) + ": " + valid + "\n";
+        result["content"] = snippet + numbered;
+        result["end_line"] = line;
+        if (result.dump().size() > maxJsonBytes - 128) {
+          result["truncated"] = true;
+          if (!snippet.empty()) {
+            result["content"] = snippet;
+            result["end_line"] = line - 1;
+            result["next_start_line"] = line;
+          } else {
+            result["line_truncated"] = true;
+            result["next_start_line"] = line + 1;
+            do {
+              auto length = numbered.size() / 2;
+              while (length && (static_cast<unsigned char>(numbered[length]) & 0xc0) == 0x80) --length;
+              numbered.resize(length);
+              result["content"] = numbered;
+            } while (result.dump().size() > maxJsonBytes);
+          }
+          break;
+        }
+        snippet += numbered;
+        ++linesEmitted;
+        if (newline == std::string_view::npos) {
+          pos = rawSlice.size();
+        } else {
+          pos = newline + 1;
+          ++line;
+        }
+      }
+      if (!result["truncated"].get<bool>() && pos < rawSlice.size()) {
+        result["truncated"] = true;
+        result["next_start_line"] = line;
+      }
+      return result;
+    }
+
+    std::vector<const symbol_service::SymbolInfo *> matchSymbolCandidates(
+      const std::vector<symbol_service::SymbolInfo> &symbols,
+      const std::string &query,
+      std::optional<symbol_service::SymbolRole> roleFilter) {
+      std::vector<const symbol_service::SymbolInfo *> pool;
+      pool.reserve(symbols.size());
+      for (const auto &sym : symbols) {
+        if (!roleFilter || sym.role == *roleFilter) pool.push_back(&sym);
+      }
+
+      auto collect = [&](auto &&pred) {
+        std::vector<const symbol_service::SymbolInfo *> hits;
+        for (const auto *sym : pool) {
+          if (pred(*sym)) hits.push_back(sym);
+        }
+        return hits;
+      };
+
+      if (auto hits = collect([&](const auto &s) { return s.selector == query; }); !hits.empty()) return hits;
+      if (auto hits = collect([&](const auto &s) { return s.qualified_name == query; }); !hits.empty()) return hits;
+      if (query.find("::") != std::string::npos) {
+        const std::string suffix = "::" + query;
+        if (auto hits = collect([&](const auto &s) { return s.qualified_name.ends_with(suffix); }); !hits.empty()) return hits;
+      } else {
+        if (auto hits = collect([&](const auto &s) { return s.name == query; }); !hits.empty()) return hits;
+      }
+      return {};
+    }
+  }
+
+  json executeSymbolOutline(const json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols) {
+    LOG_MSG_DEBUG << "executeSymbolOutline: " << call.dump();
+    LOG_MSG_INFO << "[tool] symbol_outline called";
+    try {
+      const auto &function = call.at("function");
+      if (function.at("name") != "symbol_outline") throw std::invalid_argument("Unknown tool");
+      const auto arguments = function.at("arguments").get<std::string>();
+      if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
+      const auto args = json::parse(arguments);
+      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
+      for (const auto &[key, value] : args.items()) {
+        if (key != "path" && key != "kind" && key != "role" && key != "limit" && key != "offset")
+          throw std::invalid_argument("Unknown symbol_outline argument: " + preview(key, 128));
+      }
+      if (!args.contains("path") || !args["path"].is_string())
+        throw std::invalid_argument("path must be a string");
+
+      std::optional<symbol_service::SymbolKind> kindFilter;
+      if (args.contains("kind")) {
+        if (!args["kind"].is_string()) throw std::invalid_argument("kind must be a string");
+        kindFilter = symbol_service::parseKind(args["kind"].get_ref<const std::string &>());
+        if (!kindFilter) throw std::invalid_argument("Unknown symbol kind");
+      }
+
+      std::optional<symbol_service::SymbolRole> roleFilter;
+      if (args.contains("role")) {
+        if (!args["role"].is_string()) throw std::invalid_argument("role must be a string");
+        const auto &r = args["role"].get_ref<const std::string &>();
+        if (r == "definition") roleFilter = symbol_service::SymbolRole::Definition;
+        else if (r == "declaration") roleFilter = symbol_service::SymbolRole::Declaration;
+        else if (r != "all") throw std::invalid_argument("role must be all, definition, or declaration");
+      }
+
+      size_t limit = 200;
+      if (args.contains("limit")) {
+        if (!args["limit"].is_number_integer() || args["limit"] < 1 || args["limit"] > 200)
+          throw std::invalid_argument("limit must be an integer between 1 and 200");
+        limit = args["limit"].get<size_t>();
+      }
+
+      size_t offset = 0;
+      if (args.contains("offset")) {
+        if (!args["offset"].is_number_integer() || args["offset"] < 0)
+          throw std::invalid_argument("offset must be a non-negative integer");
+        offset = args["offset"].get<size_t>();
+      }
+
+      const auto selected = resolveAllowedFile(args["path"].get<std::string>(), ctx.allowedFiles);
+      std::string content;
+      const auto outline = computeVerifiedOutline(selected, content, symbols);
+
+      std::vector<const symbol_service::SymbolInfo *> filtered;
+      filtered.reserve(outline.symbols.size());
+      for (const auto &sym : outline.symbols) {
+        if (kindFilter && sym.kind != *kindFilter) continue;
+        if (roleFilter && sym.role != *roleFilter) continue;
+        filtered.push_back(&sym);
+      }
+
+      json result = {
+        {"source", selected},
+        {"language", "cpp"},
+        {"symbol_count", 0},
+        {"total_symbols", filtered.size()},
+        {"truncated", false},
+        {"symbols", json::array()}
+      };
+
+      if (offset < filtered.size()) {
+        auto &arr = result["symbols"];
+        size_t emitted = 0;
+        for (size_t i = offset; i < filtered.size(); ++i) {
+          if (emitted >= limit) {
+            result["truncated"] = true;
+            result["next_offset"] = i;
+            break;
+          }
+          arr.push_back(symbolEntryJson(*filtered[i]));
+          result["symbol_count"] = arr.size();
+          if (result.dump().size() > kMaxResultBytes) {
+            arr.erase(arr.end() - 1);
+            result["symbol_count"] = arr.size();
+            result["truncated"] = true;
+            result["next_offset"] = i;
+            break;
+          }
+          ++emitted;
+        }
+      }
+
+      if (std::find(ctx.usedSources.begin(), ctx.usedSources.end(), selected) == ctx.usedSources.end())
+        ctx.usedSources.push_back(selected);
+      return result;
+    } catch (const std::exception &e) {
+      return {{"error", preview(e.what(), 512)}};
+    }
+  }
+
+  json executeReadSymbol(const json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols) {
+    LOG_MSG_DEBUG << "executeReadSymbol: " << call.dump();
+    LOG_MSG_INFO << "[tool] read_symbol called";
+    try {
+      const auto &function = call.at("function");
+      if (function.at("name") != "read_symbol") throw std::invalid_argument("Unknown tool");
+      const auto arguments = function.at("arguments").get<std::string>();
+      if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
+      const auto args = json::parse(arguments);
+      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
+      for (const auto &[key, value] : args.items()) {
+        if (key != "path" && key != "symbol" && key != "role")
+          throw std::invalid_argument("Unknown read_symbol argument: " + preview(key, 128));
+      }
+      if (!args.contains("path") || !args["path"].is_string())
+        throw std::invalid_argument("path must be a string");
+      if (!args.contains("symbol") || !args["symbol"].is_string())
+        throw std::invalid_argument("symbol must be a string");
+      const auto query = args["symbol"].get<std::string>();
+      if (query.empty() || query.size() > 256 || query.find('\0') != std::string::npos ||
+          query.find_first_of("\r\n") != std::string::npos ||
+          query.find_first_not_of(" \t") == std::string::npos)
+        throw std::invalid_argument("symbol must be single-line nonblank text, 1 to 256 bytes");
+
+      std::optional<symbol_service::SymbolRole> roleFilter;
+      if (args.contains("role")) {
+        if (!args["role"].is_string()) throw std::invalid_argument("role must be a string");
+        const auto &r = args["role"].get_ref<const std::string &>();
+        if (r == "definition") roleFilter = symbol_service::SymbolRole::Definition;
+        else if (r == "declaration") roleFilter = symbol_service::SymbolRole::Declaration;
+        else if (r != "any") throw std::invalid_argument("role must be any, definition, or declaration");
+      }
+
+      const auto selected = resolveAllowedFile(args["path"].get<std::string>(), ctx.allowedFiles);
+      std::string content;
+      const auto outline = computeVerifiedOutline(selected, content, symbols);
+
+      const auto matches = matchSymbolCandidates(outline.symbols, query, roleFilter);
+      if (matches.empty()) {
+        if (roleFilter) {
+          const auto anyMatches = matchSymbolCandidates(outline.symbols, query, std::nullopt);
+          if (!anyMatches.empty()) {
+            const auto asked = symbol_service::roleName(*roleFilter);
+            const auto other = *roleFilter == symbol_service::SymbolRole::Definition ? "declaration" : "definition";
+            return {{"error", "No " + std::string(asked) + " found for '" + preview(query, 128) +
+              "' in " + preview(selected, 128) + " (found " + std::to_string(anyMatches.size()) + " " + other + ")"}};
+          }
+        }
+        return {{"error", "Symbol not found: " + preview(query, 128)}};
+      }
+
+      if (matches.size() > 1) {
+        json result = {
+          {"source", selected},
+          {"language", "cpp"},
+          {"ambiguous", true},
+          {"message", "Multiple symbols matched; pass one of the candidate selectors or filter by role"},
+          {"candidate_count", 0},
+          {"total_candidates", matches.size()},
+          {"truncated", false},
+          {"candidates", json::array()}
+        };
+        auto &arr = result["candidates"];
+        for (const auto *sym : matches) {
+          arr.push_back(symbolEntryJson(*sym));
+          result["candidate_count"] = arr.size();
+          if (result.dump().size() > kMaxResultBytes) {
+            arr.erase(arr.end() - 1);
+            result["candidate_count"] = arr.size();
+            result["truncated"] = true;
+            break;
+          }
+        }
+        return result;
+      }
+
+      auto result = formatSymbolSlice(selected, *matches.front(), content, kMaxResultBytes);
+      if (std::find(ctx.usedSources.begin(), ctx.usedSources.end(), selected) == ctx.usedSources.end())
+        ctx.usedSources.push_back(selected);
+      return result;
+    } catch (const std::exception &e) {
+      return {{"error", preview(e.what(), 512)}};
+    }
+  }
+
   nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx, const FileMetadataReader &readMetadata)
   {
     LOG_MSG_DEBUG << "executeListFiles: " << call.dump();
@@ -995,9 +1362,14 @@ namespace chat_tools {
             key != "case_sensitive" && key != "whole_word" && key != "context_lines")
           throw std::invalid_argument("Unknown grep argument: " + preview(key, 128));
       const auto pattern = args.at("pattern").get<std::string>();
-      if (pattern.size() < 2 || pattern.size() > 64 || pattern.find_first_not_of(" \t\r\n") == std::string::npos ||
+      if (pattern.size() < 2 || pattern.size() > kMaxGrepPatternBytes)
+        throw std::invalid_argument("pattern must be single-line text, 2 to " +
+          std::to_string(kMaxGrepPatternBytes) + " bytes (got " + std::to_string(pattern.size()) +
+          (pattern.size() == 1 ? " byte)" : " bytes)"));
+      if (pattern.find_first_not_of(" \t\r\n") == std::string::npos ||
           pattern.find('\0') != std::string::npos || pattern.find_first_of("\r\n") != std::string::npos)
-        throw std::invalid_argument("pattern must be single-line text, 2 to 64 bytes");
+        throw std::invalid_argument("pattern must be nonblank single-line text, 2 to " +
+          std::to_string(kMaxGrepPatternBytes) + " bytes");
       const auto boolArg = [&](const char *key) -> bool {
         const auto it = args.find(key);
         if (it == args.end()) return false;
@@ -1011,7 +1383,7 @@ namespace chat_tools {
       if (args.contains("context_lines")) {
         const auto &val = args["context_lines"];
         if (!val.is_number_integer() || val < 0 || val > 10)
-          throw std::invalid_argument("context_lines must be an integer between 0 and 10");
+          throw std::invalid_argument("context_lines must be an integer between 0 and 10; use read_file or read_symbol for larger ranges");
         contextLines = val.get<size_t>();
       }
       if (useRegex) {
@@ -1176,6 +1548,17 @@ namespace chat_tools {
           if (output.at("matches").empty()) status = "info";
         } else if (name == "read_file") summary = "returned lines " + std::to_string(output.at("start_line").get<size_t>()) + "-" + std::to_string(output.at("end_line").get<size_t>());
         else if (name == "read_files") summary = std::to_string(output.value("count", size_t(0))) + "/" + std::to_string(output.value("requested_count", size_t(0))) + " files returned";
+        else if (name == "symbol_outline") {
+          summary = std::to_string(output.value("symbol_count", size_t(0))) + " symbols returned";
+          if (output.value("symbol_count", size_t(0)) == 0) status = "info";
+        } else if (name == "read_symbol") {
+          if (output.value("ambiguous", false)) {
+            summary = std::to_string(output.value("candidate_count", size_t(0))) + " candidates returned";
+            status = "info";
+          } else {
+            summary = "returned lines " + std::to_string(output.at("start_line").get<size_t>()) + "-" + std::to_string(output.at("end_line").get<size_t>());
+          }
+        }
         else if (name == "project_info" || name == "project_settings") summary = "loaded summary returned";
         else summary = "inspection returned";
         if (output.value("truncated", false)) { summary += " (truncated)"; if (status != "error") status = "warning"; }
@@ -1197,6 +1580,8 @@ namespace chat_tools {
         } else if (name == "list_files") compactResult = std::to_string(output.at("count").get<size_t>()) + " files";
         else if (name == "search_context") compactResult = std::to_string(output.at("matches").size()) + " excerpts";
         else if (name == "read_files") compactResult = std::to_string(output.value("count", size_t(0))) + "/" + std::to_string(output.value("requested_count", size_t(0))) + " files";
+        else if (name == "symbol_outline") compactResult = std::to_string(output.value("symbol_count", size_t(0))) + " symbols";
+        else if (name == "read_symbol" && output.value("ambiguous", false)) compactResult = std::to_string(output.value("candidate_count", size_t(0))) + " candidates";
         auto compact = compactPrefix + compactAction(name, args, displayRoot, &output);
         if (!compactResult.empty()) compact += dash + compactResult;
         if (output.value("truncated", false)) compact += " (truncated)";

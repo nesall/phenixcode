@@ -253,7 +253,7 @@ std::vector<SearchResult> SourceProcessor::grep(const std::vector<std::string> &
   std::vector<std::unique_ptr<re2::RE2>> compiledTerms;
 
   for (const auto &term : termsArg) {
-    if (term.length() > 1 && term.length() < 65) {
+    if (term.length() > 1 && term.length() <= opts.maxPatternBytes) {
       if (useRe2) {
         auto compiled = compileGrepPattern(term, opts.useRegex, opts.caseSensitive, opts.wholeWord);
         if (!compiled) continue;

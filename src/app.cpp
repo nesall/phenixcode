@@ -1,4 +1,5 @@
 #include "app.h"
+#include "symbol_service.h"
 #include "inference_messages.h"
 #include "settings.h"
 #include "database.h"
@@ -280,6 +281,7 @@ namespace {
 
 struct App::Impl {
   reasoning_history::ReasoningHistory reasoningHistory_;
+  symbol_service::SymbolService symbolService_;
   std::unique_ptr<Settings> settings_;
   std::unique_ptr<AdminAuth> auth_;
   std::unique_ptr<VectorDatabase> db_;
@@ -309,6 +311,7 @@ App::App() : imp(new Impl)
 }
 
 reasoning_history::ReasoningHistory &App::reasoningHistory() const { return imp->reasoningHistory_; }
+symbol_service::SymbolService &App::symbolService() const { return imp->symbolService_; }
 
 App::~App()
 {

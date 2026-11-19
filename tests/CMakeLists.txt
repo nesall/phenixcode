@@ -74,11 +74,42 @@ set(RE2_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${ABSL_SOURCE_DIR}" abseil-cpp-build EXCLUDE_FROM_ALL)
 add_subdirectory("${RE2_SOURCE_DIR}" re2-build EXCLUDE_FROM_ALL)
 
+find_path(TREE_SITTER_SOURCE_DIR lib/include/tree_sitter/api.h
+  HINTS ../build_rel/_deps/tree_sitter-src ../build_dbg/_deps/tree_sitter-src REQUIRED)
+find_path(TREE_SITTER_CPP_SOURCE_DIR src/parser.c
+  HINTS ../build_rel/_deps/tree_sitter_cpp-src ../build_dbg/_deps/tree_sitter_cpp-src REQUIRED)
+
+add_library(test_tree_sitter STATIC "${TREE_SITTER_SOURCE_DIR}/lib/src/lib.c")
+target_include_directories(test_tree_sitter
+  PUBLIC "${TREE_SITTER_SOURCE_DIR}/lib/include"
+  PRIVATE "${TREE_SITTER_SOURCE_DIR}/lib/src")
+
+add_library(test_tree_sitter_cpp STATIC
+  "${TREE_SITTER_CPP_SOURCE_DIR}/src/parser.c"
+  "${TREE_SITTER_CPP_SOURCE_DIR}/src/scanner.c")
+target_include_directories(test_tree_sitter_cpp
+  PRIVATE "${TREE_SITTER_CPP_SOURCE_DIR}/src" "${TREE_SITTER_SOURCE_DIR}/lib/include")
+
+add_executable(symbol_service_tests symbol_service_tests.cpp ../src/symbol_service.cpp)
+target_compile_features(symbol_service_tests PRIVATE cxx_std_20)
+target_include_directories(symbol_service_tests PRIVATE ../include)
+target_link_libraries(symbol_service_tests PRIVATE test_tree_sitter test_tree_sitter_cpp)
+add_test(NAME symbol_service_tests COMMAND symbol_service_tests "${CMAKE_CURRENT_SOURCE_DIR}/..")
+set_tests_properties(symbol_service_tests PROPERTIES TIMEOUT 30)
+
+add_executable(symbol_tools_tests symbol_tools_tests.cpp ../src/chat_tools.cpp ../src/inference_messages.cpp
+  ../src/symbol_service.cpp ../src/settings.cpp ../src/cutils.cpp)
+target_compile_features(symbol_tools_tests PRIVATE cxx_std_20)
+target_include_directories(symbol_tools_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}")
+target_link_libraries(symbol_tools_tests PRIVATE re2::re2 test_tree_sitter test_tree_sitter_cpp)
+add_test(NAME symbol_tools_tests COMMAND symbol_tools_tests "${CMAKE_CURRENT_SOURCE_DIR}/..")
+set_tests_properties(symbol_tools_tests PROPERTIES TIMEOUT 30)
+
 add_executable(chat_tools_tests chat_tools_tests.cpp ../src/chat_tools.cpp ../src/chat_tools_git.cpp ../src/inference_messages.cpp
-  ../src/sourceproc.cpp ../src/settings.cpp ../src/cutils.cpp ../src/chunker.cpp ../src/tokenizer.cpp)
+  ../src/symbol_service.cpp ../src/sourceproc.cpp ../src/settings.cpp ../src/cutils.cpp ../src/chunker.cpp ../src/tokenizer.cpp)
 target_compile_features(chat_tools_tests PRIVATE cxx_std_20)
 target_include_directories(chat_tools_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}" "${HTTPLIB_INCLUDE_DIR}")
-target_link_libraries(chat_tools_tests PRIVATE re2::re2)
+target_link_libraries(chat_tools_tests PRIVATE re2::re2 test_tree_sitter test_tree_sitter_cpp)
 if(WIN32)
   target_link_libraries(chat_tools_tests PRIVATE ws2_32 crypt32)
 endif()

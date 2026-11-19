@@ -66,6 +66,8 @@ int main() {
     check(initRes.status == 200 && initResult["protocolVersion"] == "2025-06-18" &&
       initResult["serverInfo"]["name"] == "phenixcode" && initResult.contains("instructions") &&
       !initResult.contains("resultType") && !initResult.contains("_meta"));
+    const auto instr = initResult["instructions"].get<std::string>();
+    check(instr.find("symbol_outline") != std::string::npos && instr.find("read_symbol") != std::string::npos);
     auto initDefault = json::parse(run(legacyReq("initialize", {{"protocolVersion", "unknown"}})).body)["result"];
     check(initDefault["protocolVersion"] == "2025-11-25");
     auto notifRes = run(legacyReq("notifications/initialized", json::object(), true));

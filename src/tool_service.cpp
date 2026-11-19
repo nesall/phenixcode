@@ -1,5 +1,6 @@
 #include "tool_service.h"
 #include "app.h"
+#include "symbol_service.h"
 #include "settings.h"
 #include "sourceproc.h"
 #include "inference.h"
@@ -15,7 +16,7 @@ using json = nlohmann::json;
 namespace chat_tools {
 
   json definitions(bool includeSettings) {
-    auto tools = json::array({ grepDefinition(), readFileDefinition(), readFilesDefinition(), listFilesDefinition(), searchContextDefinition(), projectInfoDefinition() });
+    auto tools = json::array({ grepDefinition(), readFileDefinition(), readFilesDefinition(), symbolOutlineDefinition(), readSymbolDefinition(), listFilesDefinition(), searchContextDefinition(), projectInfoDefinition() });
     if (includeSettings) tools.push_back(projectSettingsDefinition());
     for (auto tool : { gitDiffDefinition(), gitLogDefinition(), gitShowDefinition(), gitBlameDefinition() }) tools.push_back(std::move(tool));
     return tools;
@@ -45,6 +46,10 @@ namespace chat_tools {
       return chat_tools::executeReadFile(call, { allowedFiles_, usedSources_ });
     if (funcName == "read_files")
       return chat_tools::executeReadFiles(call, { allowedFiles_, usedSources_ });
+    if (funcName == "symbol_outline")
+      return chat_tools::executeSymbolOutline(call, { allowedFiles_, usedSources_ }, &app_.symbolService());
+    if (funcName == "read_symbol")
+      return chat_tools::executeReadSymbol(call, { allowedFiles_, usedSources_ }, &app_.symbolService());
     if (funcName == "grep")
       return chat_tools::executeGrepWithOptions(call, { allowedFiles_, usedSources_ },
         [&](const chat_tools::GrepQuery &query, const std::vector<std::string> &paths) {
@@ -55,6 +60,7 @@ namespace chat_tools {
           opts.wholeWord = query.wholeWord;
           opts.maxMatchesPerFile = 10;
           opts.maxTotalResults = 9;
+          opts.maxPatternBytes = chat_tools::kMaxGrepPatternBytes;
           SourceProcessor::GrepStats stats;
           auto matches = app_.sourceProcessor().grep({ query.pattern }, paths, opts, &stats);
           return chat_tools::GrepSearchResult{ std::move(matches), stats.searchedFiles, stats.failedFiles, stats.limitReached };

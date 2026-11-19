@@ -381,8 +381,14 @@ int main() {
         {{"path_filter", "../src"}}, {{"path_filter", std::string(chat_tools::kMaxPathFilterBytes + 1,'x')}}, {{"extension", 42}}, {{"extension", "../cpp"}}}))
       check(list(args).contains("error"), "invalid list_files arguments return structured errors");
     const auto longKeyError = list({{std::string(127, 'x') + "\xce\xb1" + std::string(2800, 'y'), true}})["error"].get<std::string>();
-    check(longKeyError.size() <= std::string("unknown argument: ").size() + 128 &&
+    const std::string unknownPrefix = "unknown argument: ";
+    const auto hintSep = longKeyError.find(" | ", unknownPrefix.size());
+    const auto echoedKey = longKeyError.substr(unknownPrefix.size(),
+      hintSep == std::string::npos ? std::string::npos : hintSep - unknownPrefix.size());
+    check(longKeyError.starts_with(unknownPrefix) && echoedKey.size() <= 128 && echoedKey == std::string(127, 'x') &&
       utf8::is_valid(longKeyError.begin(), longKeyError.end()), "unknown list_files argument names are bounded without splitting UTF-8");
+    check(list({{"filter", "src"}})["error"].get<std::string>().find("Did you mean path_filter?") != std::string::npos,
+      "unknown list_files argument errors preserve targeted parameter suggestions");
 
     // The same filter must select the same source scope for both discovery tools.
     std::vector<std::string> filterFiles;
@@ -652,7 +658,12 @@ int main() {
       "compact reads show source-relative paths and actual ranges while details preserve original arguments");
 
     // Upgraded grep: RE2 regex, case_sensitive, whole_word, context_lines, glob.
-    check(chat_tools::grepDefinition()["function"]["parameters"]["additionalProperties"] == false, "upgraded grep schema remains strict");
+    const auto grepDef = chat_tools::grepDefinition();
+    check(grepDef["function"]["parameters"]["additionalProperties"] == false, "upgraded grep schema remains strict");
+    check(grepDef["function"]["parameters"]["properties"]["pattern"]["minLength"] == 2 &&
+      grepDef["function"]["parameters"]["properties"]["pattern"]["maxLength"] == chat_tools::kMaxGrepPatternBytes &&
+      grepDef["function"]["parameters"]["properties"]["glob"]["maxLength"] == 256,
+      "grep schema advertises pattern and glob length bounds");
     const auto regexTarget = (fixture.directory / "src" / "re2_target.h").generic_string();
     const auto regexExtra = (fixture.directory / "src" / "word_test.cpp").generic_string();
     fs::create_directories(fixture.directory / "src");
@@ -672,6 +683,7 @@ int main() {
           opts.contextLines = query.contextLines;
           opts.maxMatchesPerFile = 10;
           opts.maxTotalResults = 9;
+          opts.maxPatternBytes = chat_tools::kMaxGrepPatternBytes;
           SourceProcessor::GrepStats stats;
           auto hits = processor.grep({query.pattern}, paths, opts, &stats);
           return chat_tools::GrepSearchResult{std::move(hits), stats.searchedFiles, stats.failedFiles, stats.limitReached};
@@ -710,6 +722,38 @@ int main() {
         {{"pattern", "foo"}, {"glob", "../secret.cpp"}}}))
       check(executeUpgradedGrep(badArgs).contains("error"), "invalid RE2 regex, flags, context_lines, and globs return structured errors");
     check(re2Searches == beforeInvalidRe, "invalid grep parameters fail before invoking search");
+
+    const std::string longAltPattern = "^\\s*(void|int)\\s+(FindTarget|AlphaPlaceholderType|BetaPlaceholderType|GammaPlaceholder)\\(";
+    check(longAltPattern.size() > 64 && longAltPattern.size() <= chat_tools::kMaxGrepPatternBytes,
+      "long alternation test pattern exceeds legacy 64-byte cap");
+    auto longAltHits = executeUpgradedGrep({{"pattern", longAltPattern}, {"regex", true}, {"case_sensitive", true}, {"context_lines", 0}, {"glob", "*.h"}});
+    check(!longAltHits.contains("error") && longAltHits["matches"].size() == 1 && longAltHits["matches"][0]["source"] == regexTarget,
+      "RE2 grep supports multi-branch alternation patterns longer than 64 bytes");
+    auto maxLenHit = executeUpgradedGrep({{"pattern", std::string(chat_tools::kMaxGrepPatternBytes, 'a')}, {"glob", "*.cpp"}});
+    check(!maxLenHit.contains("error"), "grep accepts patterns up to 256 bytes");
+    auto tooLong = executeUpgradedGrep({{"pattern", std::string(chat_tools::kMaxGrepPatternBytes + 1, 'a')}});
+    check(tooLong.contains("error") &&
+      tooLong["error"].get<std::string>().find("256") != std::string::npos &&
+      tooLong["error"].get<std::string>().find("got 257 bytes") != std::string::npos,
+      "overlong grep pattern reports max length and observed byte count");
+    auto tooShort = executeUpgradedGrep({{"pattern", "x"}});
+    check(tooShort.contains("error") &&
+      tooShort["error"].get<std::string>().find("got 1 byte") != std::string::npos,
+      "1-byte grep pattern reports observed byte count");
+    auto badCtx = executeUpgradedGrep({{"pattern", "foo"}, {"context_lines", 40}});
+    check(badCtx.contains("error") &&
+      badCtx["error"].get<std::string>().find("0 and 10") != std::string::npos &&
+      badCtx["error"].get<std::string>().find("read_file") != std::string::npos &&
+      badCtx["error"].get<std::string>().find("read_symbol") != std::string::npos,
+      "context_lines error points agents to read_file and read_symbol");
+    SourceProcessor::GrepOptions defaultRegexOpts;
+    defaultRegexOpts.useRegex = true;
+    check(processor.grep({longAltPattern}, {regexTarget}, defaultRegexOpts).empty(),
+      "SourceProcessor::grep keeps default 64-byte cap for RAG calls");
+    SourceProcessor::GrepOptions expandedRegexOpts = defaultRegexOpts;
+    expandedRegexOpts.maxPatternBytes = chat_tools::kMaxGrepPatternBytes;
+    check(!processor.grep({longAltPattern}, {regexTarget}, expandedRegexOpts).empty(),
+      "SourceProcessor::grep honors expanded maxPatternBytes when configured");
 
     // Batch reads (read_files).
     check(chat_tools::readFilesDefinition()["function"]["parameters"]["additionalProperties"] == false,

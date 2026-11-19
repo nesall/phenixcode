@@ -41,7 +41,7 @@ def main():
         root = Path(directory)
         creds_dir = root / "mcp-creds"
         source = root / "source.cpp"
-        source.write_text("// MCP_NEEDLE\nvoid context() {}\n", encoding="utf-8")
+        source.write_text("// MCP_NEEDLE\nvoid context() {}\nint pick(int a);\nint pick(int a) { return a; }\nint pick(double b) { return 0; }\n", encoding="utf-8")
         (root / "excluded.env").write_text("SECRET_SENTINEL", encoding="utf-8")
         large = root / "large.cpp"
         large.write_text("// bounded\n" * 1000, encoding="utf-8")
@@ -203,8 +203,12 @@ def main():
                 check(rpc(verb="GET")[0] == 405, "GET unsupported")
                 tools = rpc("tools/list")[1]["result"]["tools"]
                 names = {t["name"] for t in tools}
-                check(names == {"grep", "read_file", "read_files", "list_files", "search_context", "project_info",
+                check(names == {"grep", "read_file", "read_files", "symbol_outline", "read_symbol", "list_files", "search_context", "project_info",
                                 "git_diff", "git_log", "git_show", "git_blame"}, "catalog independent of Chat flags")
+                grep_tool = next(t for t in tools if t["name"] == "grep")
+                grep_props = grep_tool["inputSchema"]["properties"]
+                check(grep_props["pattern"]["minLength"] == 2 and grep_props["pattern"]["maxLength"] == 256 and
+                      grep_props["glob"]["maxLength"] == 256, "grep schema advertises pattern and glob bounds")
                 def call(name, arguments=None):
                     return rpc("tools/call", {"name": name, "arguments": arguments or {}})[1]["result"]
                 info = call("project_info")["structuredContent"]
@@ -221,8 +225,30 @@ def main():
                 check(call("read_file", {"path": "large.cpp"})["structuredContent"]["truncated"], "truncation preserved")
                 check(call("grep", {"pattern": "MCP_NEEDLE"})["structuredContent"]["matches"], "grep")
                 check(call("grep", {"pattern": "void\\s+context\\(", "regex": True, "glob": "*.cpp"})["structuredContent"]["matches"], "RE2 grep with glob")
+                long_pattern = r"^\s*(void|int)\s+(context|BeeStringPlaceholder|UInitializedPlaceholder|GVectorPlaceholder)\("
+                check(len(long_pattern) > 64, "long pattern fixture exceeds legacy 64-byte cap")
+                long_grep = call("grep", {"pattern": long_pattern, "regex": True, "glob": "*.cpp"})
+                check(not long_grep["isError"] and long_grep["structuredContent"]["matches"], "MCP grep accepts >64-byte RE2 alternation")
+                bad_ctx = call("grep", {"pattern": "MCP_NEEDLE", "context_lines": 40})
+                check(bad_ctx["isError"] and "read_file" in bad_ctx["structuredContent"]["error"] and
+                      "read_symbol" in bad_ctx["structuredContent"]["error"], "MCP grep context_lines error suggests read_file/read_symbol")
+                bad_len = call("grep", {"pattern": "a" * 257})
+                check(bad_len["isError"] and "got 257 bytes" in bad_len["structuredContent"]["error"],
+                      "MCP grep pattern length error includes observed byte count")
                 rf = call("read_files", {"files": [{"path": "source.cpp", "start_line": 1, "end_line": 1}, {"path": "source.cpp", "start_line": 2, "end_line": 2}]})["structuredContent"]
                 check(rf["count"] == 2 and "MCP_NEEDLE" in rf["results"][0]["content"], "read_files")
+                so = call("symbol_outline", {"path": "source.cpp"})["structuredContent"]
+                check(so["language"] == "cpp" and so["symbol_count"] == 4 and
+                      so["symbols"][1]["role"] == "declaration" and so["symbols"][2]["role"] == "definition",
+                      "MCP symbol_outline extracts declarations and definitions")
+                rs_ambig = call("read_symbol", {"path": "source.cpp", "symbol": "pick", "role": "definition"})["structuredContent"]
+                check(rs_ambig["ambiguous"] and rs_ambig["candidate_count"] == 2,
+                      "MCP read_symbol returns candidates for overloaded definitions")
+                rs_sel = call("read_symbol", {"path": "source.cpp", "symbol": rs_ambig["candidates"][1]["selector"]})["structuredContent"]
+                check("double b" in rs_sel["content"] and rs_sel["role"] == "definition",
+                      "MCP read_symbol reads exact candidate via selector")
+                check(call("symbol_outline", {"path": "../excluded.env"})["isError"],
+                      "MCP symbol_outline enforces source allowlist")
                 check(call("search_context", {"query": "MCP_NEEDLE"})["structuredContent"]["mode"] == "text", "unindexed fallback without provider")
                 check("WORKTREE_NEEDLE" in call("git_diff")["structuredContent"]["content"], "read-only Git")
                 check("MCP_NEEDLE" in call("git_blame", {"path": "source.cpp", "start_line": 1, "end_line": 2})["structuredContent"]["content"], "git_blame")
