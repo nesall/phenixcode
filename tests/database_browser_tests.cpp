@@ -164,6 +164,10 @@ int main() {
     fixture.sql("ALTER TABLE files_metadata DROP COLUMN indexed_at");
     Reader older(fixture.database, fixture.directory);
     check(older.list("current.cpp", 0, 50)["sources"][0]["indexed_at"].is_null(), "older metadata without index timestamp is supported");
+    fixture.sql("CREATE TABLE file_dependencies(source_path TEXT NOT NULL,target_spec TEXT NOT NULL,resolved_path TEXT NOT NULL DEFAULT '',kind TEXT NOT NULL,line INTEGER NOT NULL DEFAULT 0,is_system INTEGER NOT NULL DEFAULT 0);");
+    fixture.sql("INSERT INTO file_dependencies VALUES('current.cpp','foo.h','','include',1,0);");
+    Reader withDeps(fixture.database, fixture.directory);
+    check(withDeps.list("current.cpp", 0, 50)["total"] == 1, "additive file_dependencies table remains compatible with database_browser Reader");
     fixture.sql("DROP TABLE chunks");
     expectError("unsupported_schema", [&] { Reader unsupported(fixture.database, fixture.directory); });
     std::cout << checks << " database browser checks passed.\n";

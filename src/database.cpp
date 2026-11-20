@@ -414,6 +414,7 @@ void HnswSqliteVectorDatabase::clear()
     beginTransaction();
     executeSql("DELETE FROM chunks");
     executeSql("DELETE FROM files_metadata");
+    executeSql("DELETE FROM file_dependencies");
     executeSql("DELETE FROM chunks_fts");
     // Just recreate index - simpler than unmarking everything
     if (imp->metric_ == DistanceMetric::Cosine) {
@@ -475,6 +476,20 @@ void HnswSqliteVectorDatabase::initializeDatabase()
       )
     )";
     executeSql(ftsTable);
+
+    const char *depsTable = R"(
+        CREATE TABLE IF NOT EXISTS file_dependencies (
+            source_path TEXT NOT NULL,
+            target_spec TEXT NOT NULL,
+            resolved_path TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL,
+            line INTEGER NOT NULL DEFAULT 0,
+            is_system INTEGER NOT NULL DEFAULT 0
+        )
+    )";
+    executeSql(depsTable);
+    executeSql("CREATE INDEX IF NOT EXISTS idx_file_deps_source_order ON file_dependencies(source_path, line, target_spec)");
+    executeSql("CREATE INDEX IF NOT EXISTS idx_file_deps_resolved_order ON file_dependencies(resolved_path, source_path, line)");
   }
   auto files = getTrackedFiles();
   LOG_MSG << "Loaded metadata with" << files.size() << "files";
@@ -615,11 +630,22 @@ size_t HnswSqliteVectorDatabase::deleteDocumentsBySource(const std::string &sour
 void HnswSqliteVectorDatabase::removeFileMetadata(const std::string &filepath)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  utils::SqliteStmt stmt;
-  const char *sql = "DELETE FROM files_metadata WHERE path = ?";
-  _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
-  _checkErr = sqlite3_bind_text(stmt.ref(), 1, filepath.c_str(), -1, SQLITE_STATIC);
-  _checkErr = sqlite3_step(stmt.ref());
+  {
+    utils::SqliteStmt stmt;
+    const char *sql = "DELETE FROM files_metadata WHERE path = ?";
+    _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
+    _checkErr = sqlite3_bind_text(stmt.ref(), 1, filepath.c_str(), -1, SQLITE_STATIC);
+    _checkErr = sqlite3_step(stmt.ref());
+  }
+  {
+    const std::string norm = utils::normalizePathKey(filepath);
+    utils::SqliteStmt stmt;
+    const char *sql = "DELETE FROM file_dependencies WHERE source_path = ? OR source_path = ?";
+    _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
+    _checkErr = sqlite3_bind_text(stmt.ref(), 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
+    _checkErr = sqlite3_bind_text(stmt.ref(), 2, norm.c_str(), -1, SQLITE_TRANSIENT);
+    _checkErr = sqlite3_step(stmt.ref());
+  }
 }
 
 void HnswSqliteVectorDatabase::upsertFileMetadata(const std::string &filepath, std::time_t mtime, size_t size, size_t lines)
@@ -795,6 +821,152 @@ size_t HnswSqliteVectorDatabase::countRowsNoLock(const char *sql, const std::str
   _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
   if (!bind.empty()) _checkErr = sqlite3_bind_text(stmt.ref(), 1, bind.c_str(), -1, SQLITE_TRANSIENT);
   return sqlite3_step(stmt.ref()) == SQLITE_ROW ? static_cast<size_t>(sqlite3_column_int64(stmt.ref(), 0)) : 0;
+}
+
+namespace {
+  std::vector<FileDependency> queryDependencyList(sqlite3 *db, const char *sql, const std::string &key) {
+    std::vector<FileDependency> deps;
+    if (!db || key.empty()) return deps;
+    utils::SqliteStmt stmt;
+    _checkErr = sqlite3_prepare_v2(db, sql, -1, &stmt.ref(), nullptr);
+    _checkErr = sqlite3_bind_text(stmt.ref(), 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    auto colStr = [&](int idx) -> std::string {
+      const unsigned char *txt = sqlite3_column_text(stmt.ref(), idx);
+      return txt ? reinterpret_cast<const char *>(txt) : std::string{};
+    };
+    while (sqlite3_step(stmt.ref()) == SQLITE_ROW) {
+      FileDependency dep;
+      dep.sourcePath = colStr(0);
+      dep.targetSpec = colStr(1);
+      dep.resolvedPath = colStr(2);
+      dep.kind = colStr(3);
+      dep.line = static_cast<size_t>(sqlite3_column_int64(stmt.ref(), 4));
+      dep.isSystem = sqlite3_column_int(stmt.ref(), 5) != 0;
+      deps.push_back(std::move(dep));
+    }
+    return deps;
+  }
+} // namespace
+
+void HnswSqliteVectorDatabase::replaceFileDependencies(const std::string &sourcePath, const std::vector<FileDependency> &deps)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  const std::string srcKey = utils::normalizePathKey(sourcePath);
+  executeSql("SAVEPOINT replace_file_deps");
+  try {
+    {
+      utils::SqliteStmt delStmt;
+      const char *delSql = "DELETE FROM file_dependencies WHERE source_path = ? OR source_path = ?";
+      _checkErr = sqlite3_prepare_v2(imp->db_, delSql, -1, &delStmt.ref(), nullptr);
+      _checkErr = sqlite3_bind_text(delStmt.ref(), 1, sourcePath.c_str(), -1, SQLITE_TRANSIENT);
+      _checkErr = sqlite3_bind_text(delStmt.ref(), 2, srcKey.c_str(), -1, SQLITE_TRANSIENT);
+      _checkErr = sqlite3_step(delStmt.ref());
+    }
+    if (!deps.empty()) {
+      const char *insSql = R"(
+        INSERT INTO file_dependencies (source_path, target_spec, resolved_path, kind, line, is_system)
+        VALUES (?, ?, ?, ?, ?, ?)
+      )";
+      utils::SqliteStmt insStmt;
+      _checkErr = sqlite3_prepare_v2(imp->db_, insSql, -1, &insStmt.ref(), nullptr);
+      for (const auto &dep : deps) {
+        const std::string resolvedKey = dep.resolvedPath.empty() ? std::string{} : utils::normalizePathKey(dep.resolvedPath);
+        sqlite3_reset(insStmt.ref());
+        sqlite3_clear_bindings(insStmt.ref());
+        _checkErr = sqlite3_bind_text(insStmt.ref(), 1, srcKey.c_str(), -1, SQLITE_TRANSIENT);
+        _checkErr = sqlite3_bind_text(insStmt.ref(), 2, dep.targetSpec.c_str(), -1, SQLITE_TRANSIENT);
+        _checkErr = sqlite3_bind_text(insStmt.ref(), 3, resolvedKey.c_str(), -1, SQLITE_TRANSIENT);
+        _checkErr = sqlite3_bind_text(insStmt.ref(), 4, dep.kind.c_str(), -1, SQLITE_TRANSIENT);
+        _checkErr = sqlite3_bind_int64(insStmt.ref(), 5, static_cast<sqlite3_int64>(dep.line));
+        _checkErr = sqlite3_bind_int(insStmt.ref(), 6, dep.isSystem ? 1 : 0);
+        _checkErr = sqlite3_step(insStmt.ref());
+      }
+    }
+    executeSql("RELEASE replace_file_deps");
+  } catch (...) {
+    if (sqlite3_exec(imp->db_, "ROLLBACK TO replace_file_deps", nullptr, nullptr, nullptr) != SQLITE_OK) {
+      LOG_MSG_WARN << "ROLLBACK TO replace_file_deps failed:" << sqlite3_errmsg(imp->db_);
+    }
+    if (sqlite3_exec(imp->db_, "RELEASE replace_file_deps", nullptr, nullptr, nullptr) != SQLITE_OK) {
+      LOG_MSG_WARN << "RELEASE replace_file_deps failed:" << sqlite3_errmsg(imp->db_);
+    }
+    throw;
+  }
+}
+
+void HnswSqliteVectorDatabase::removeFileDependencies(const std::string &sourcePath)
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  const std::string srcKey = utils::normalizePathKey(sourcePath);
+  utils::SqliteStmt stmt;
+  const char *sql = "DELETE FROM file_dependencies WHERE source_path = ? OR source_path = ?";
+  _checkErr = sqlite3_prepare_v2(imp->db_, sql, -1, &stmt.ref(), nullptr);
+  _checkErr = sqlite3_bind_text(stmt.ref(), 1, sourcePath.c_str(), -1, SQLITE_TRANSIENT);
+  _checkErr = sqlite3_bind_text(stmt.ref(), 2, srcKey.c_str(), -1, SQLITE_TRANSIENT);
+  _checkErr = sqlite3_step(stmt.ref());
+}
+
+std::vector<FileDependency> HnswSqliteVectorDatabase::getOutgoingDependencies(const std::string &sourcePath) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return queryDependencyList(
+    imp->db_,
+    "SELECT source_path, target_spec, resolved_path, kind, line, is_system "
+    "FROM file_dependencies WHERE source_path = ? ORDER BY line ASC, target_spec ASC",
+    utils::normalizePathKey(sourcePath));
+}
+
+std::vector<FileDependency> HnswSqliteVectorDatabase::getIncomingDependencies(const std::string &resolvedPath) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return queryDependencyList(
+    imp->db_,
+    "SELECT source_path, target_spec, resolved_path, kind, line, is_system "
+    "FROM file_dependencies WHERE resolved_path = ? ORDER BY source_path ASC, line ASC",
+    utils::normalizePathKey(resolvedPath));
+}
+
+size_t HnswSqliteVectorDatabase::dependencyCount() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  return countRowsNoLock("SELECT COUNT(*) FROM file_dependencies", "");
+}
+
+bool HnswSqliteVectorDatabase::hasAnyDependencies() const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  utils::SqliteStmt stmt;
+  _checkErr = sqlite3_prepare_v2(imp->db_, "SELECT 1 FROM file_dependencies LIMIT 1", -1, &stmt.ref(), nullptr);
+  return sqlite3_step(stmt.ref()) == SQLITE_ROW;
+}
+
+bool HnswSqliteVectorDatabase::isFileTracked(const std::string &normalizedPath) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  const std::string fwd = utils::normalizePathKey(normalizedPath);
+#ifdef _WIN32
+  std::string bck = fwd;
+  std::replace(bck.begin(), bck.end(), '/', '\\');
+  std::string fwdLow = fwd;
+  std::string bckLow = bck;
+  if (fwdLow.size() >= 2 && std::isalpha(static_cast<unsigned char>(fwdLow[0])) && fwdLow[1] == ':') {
+    fwdLow[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(fwdLow[0])));
+    bckLow[0] = fwdLow[0];
+  }
+  utils::SqliteStmt stmt;
+  _checkErr = sqlite3_prepare_v2(imp->db_,
+    "SELECT 1 FROM files_metadata WHERE path IN (?, ?, ?, ?) LIMIT 1", -1, &stmt.ref(), nullptr);
+  _checkErr = sqlite3_bind_text(stmt.ref(), 1, fwd.c_str(), -1, SQLITE_TRANSIENT);
+  _checkErr = sqlite3_bind_text(stmt.ref(), 2, bck.c_str(), -1, SQLITE_TRANSIENT);
+  _checkErr = sqlite3_bind_text(stmt.ref(), 3, fwdLow.c_str(), -1, SQLITE_TRANSIENT);
+  _checkErr = sqlite3_bind_text(stmt.ref(), 4, bckLow.c_str(), -1, SQLITE_TRANSIENT);
+  return sqlite3_step(stmt.ref()) == SQLITE_ROW;
+#else
+  utils::SqliteStmt stmt;
+  _checkErr = sqlite3_prepare_v2(imp->db_, "SELECT 1 FROM files_metadata WHERE path = ? LIMIT 1", -1, &stmt.ref(), nullptr);
+  _checkErr = sqlite3_bind_text(stmt.ref(), 1, fwd.c_str(), -1, SQLITE_TRANSIENT);
+  return sqlite3_step(stmt.ref()) == SQLITE_ROW;
+#endif
 }
 
 #if 0

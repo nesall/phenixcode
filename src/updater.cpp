@@ -5,6 +5,7 @@
 #include "database.h"
 #include "inference.h"
 #include "sourceproc.h"
+#include "symbol_service.h"
 #include "monitor.h"
 #include "3rdparty/fmt/format.h"
 #include <utils_log/logger.hpp>
@@ -175,6 +176,22 @@ size_t IncrementalUpdater::updateDatabase(EmbeddingClient &client, Chunker &chun
   const size_t totalWork =
     info.modifiedFiles.size() + info.newFiles.size();
 
+  std::vector<std::string> allCurrentFiles;
+  allCurrentFiles.reserve(info.newFiles.size() + info.modifiedFiles.size() + info.unchangedFiles.size());
+  allCurrentFiles.insert(allCurrentFiles.end(), info.newFiles.begin(), info.newFiles.end());
+  allCurrentFiles.insert(allCurrentFiles.end(), info.modifiedFiles.begin(), info.modifiedFiles.end());
+  allCurrentFiles.insert(allCurrentFiles.end(), info.unchangedFiles.begin(), info.unchangedFiles.end());
+
+  auto storeDependencies = [&](const std::string &filepath, const std::string &content) {
+    const auto extracted = symbol_service::extractDependenciesForFile(filepath, content, allCurrentFiles);
+    std::vector<FileDependency> deps;
+    deps.reserve(extracted.size());
+    for (const auto &e : extracted) {
+      deps.push_back({ e.source_path, e.target_spec, e.resolved_path, e.kind, e.line, e.is_system });
+    }
+    db_->replaceFileDependencies(utils::normalizePathKey(filepath), deps);
+  };
+
   size_t doneFiles = 0;
 
   app_.monitor().beginPhase(MonitorPhase::Embed, totalWork, 0);
@@ -212,6 +229,7 @@ size_t IncrementalUpdater::updateDatabase(EmbeddingClient &client, Chunker &chun
         ++doneFiles,
         totalWork,
         &app_.settings());
+      storeDependencies(filepath, content);
 
       totalUpdated++;
       clearFailure(filepath);
@@ -259,6 +277,7 @@ size_t IncrementalUpdater::updateDatabase(EmbeddingClient &client, Chunker &chun
         ++doneFiles,
         totalWork,
         &app_.settings());
+      storeDependencies(filepath, content);
 
       totalUpdated++;
       clearFailure(filepath);

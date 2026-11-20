@@ -12,8 +12,8 @@ namespace {
   constexpr auto version = "2026-07-28";
   constexpr auto instructions =
     "Read-only context for one loaded PhenixCode project. Indexed excerpts may be stale; "
-    "read_file, read_files, symbol_outline, and read_symbol inspect current source files "
-    "(prefer read_symbol or read_file over large grep context_lines to read full C++ definitions or longer ranges). "
+    "read_file, read_files, symbol_outline, read_symbol, find_symbol, dependencies, and find_references inspect current source files "
+    "(prefer read_symbol or read_file over large grep context_lines to read full definitions or longer ranges). "
     "Semantic search may call the configured embedding provider.";
   constexpr size_t kRateLimitPerMinute = 300;
 

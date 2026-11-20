@@ -299,6 +299,120 @@ int main(int argc, char *argv[]) {
             "TSX parser handles JSX tags and TypeScript interface annotations");
     }
 
+    // 8. Import extraction & resolution across C/C++, Python, and JS/TS/TSX.
+    {
+      const std::string cppImpSrc =
+        "// #include \"ignored_comment.h\"\n"
+        "#include \"chat_tools.h\"\n"
+        "#include <vector>\n"
+        "const char *s = \"#include \\\"not_an_include.h\\\"\";\n";
+      const auto cppImps = symbol_service::extractImportsForContent(symbol_service::Language::Cpp, cppImpSrc);
+      check(cppImps.size() == 2 &&
+            cppImps[0].raw_specifier == "chat_tools.h" && !cppImps[0].is_system && cppImps[0].kind == "include" &&
+            cppImps[1].raw_specifier == "vector" && cppImps[1].is_system,
+            "C++ import extraction captures local/system #include and ignores comments/strings");
+      const auto cppResolved = symbol_service::resolveImports(
+        "d:/repo/src/chat_tools.cpp", symbol_service::Language::Cpp, cppImps,
+        {"D:/repo/include/chat_tools.h", "D:/repo/other/chat_tools.h"});
+      check(cppResolved.size() == 2 &&
+            cppResolved[0].resolved_path == "D:/repo/include/chat_tools.h" &&
+            cppResolved[1].resolved_path.empty(),
+            "C++ resolver resolves project header and leaves system header empty");
+
+      const std::string pyImpSrc =
+        "import pkg.mod as m\n"
+        "from . import helper\n"
+        "from ..core import db\n";
+      const auto pyImps = symbol_service::extractImportsForContent(symbol_service::Language::Python, pyImpSrc);
+      check(pyImps.size() == 3 &&
+            pyImps[0].raw_specifier == "pkg.mod" && pyImps[0].kind == "import" &&
+            pyImps[1].raw_specifier == ".helper" && pyImps[1].kind == "from_import" &&
+            pyImps[2].raw_specifier == "..core" && pyImps[2].kind == "from_import",
+            "Python import extraction handles absolute, dot-relative, and parent-relative imports");
+      const auto pyResolved = symbol_service::resolveImports(
+        "d:/repo/pkg/sub/worker.py", symbol_service::Language::Python, pyImps,
+        {"d:/repo/pkg/mod.py", "d:/repo/pkg/sub/helper.py", "d:/repo/pkg/core/db.py", "d:/repo/pkg/core/__init__.py"});
+      check(pyResolved.size() == 3 &&
+            pyResolved[0].resolved_path == "D:/repo/pkg/mod.py" &&
+            pyResolved[1].resolved_path == "D:/repo/pkg/sub/helper.py" &&
+            pyResolved[2].resolved_path == "D:/repo/pkg/core/__init__.py",
+            "Python resolver resolves dotted packages, relative modules, and parent __init__.py");
+
+      const std::string tsImpSrc =
+        "import { foo } from './utils.js';\n"
+        "export { bar } from './types';\n"
+        "const cfg = require('./legacy');\n"
+        "async function load() { return import('./lazy'); }\n"
+        "// import { skip } from './nope';\n";
+      const auto tsImps = symbol_service::extractImportsForContent(symbol_service::Language::TypeScript, tsImpSrc);
+      check(tsImps.size() == 4 &&
+            tsImps[0].kind == "import" && tsImps[0].raw_specifier == "./utils.js" &&
+            tsImps[1].kind == "reexport" && tsImps[1].raw_specifier == "./types" &&
+            tsImps[2].kind == "require" && tsImps[2].raw_specifier == "./legacy" &&
+            tsImps[3].kind == "dynamic_import" && tsImps[3].raw_specifier == "./lazy",
+            "TS import extraction captures static import, reexport, require(), and import()");
+      const auto tsResolved = symbol_service::resolveImports(
+        "D:/app/src/main.ts", symbol_service::Language::TypeScript, tsImps,
+        {"D:/app/src/utils.ts", "D:/app/src/types/index.tsx", "D:/app/src/legacy.js", "D:/app/src/lazy.ts"});
+      check(tsResolved.size() == 4 &&
+            tsResolved[0].resolved_path == "D:/app/src/utils.ts" &&
+            tsResolved[1].resolved_path == "D:/app/src/types/index.tsx" &&
+            tsResolved[2].resolved_path == "D:/app/src/legacy.js" &&
+            tsResolved[3].resolved_path == "D:/app/src/lazy.ts",
+            "TS resolver maps .js specifiers to .ts and resolves index files");
+    }
+
+    // 9. AST findReferencesInContent across C++, Python, TypeScript, and TSX.
+    {
+      const std::string cppRefSrc =
+        "namespace demo {\n"
+        "  int compute(int x);\n"
+        "  int compute(int x) { return x + 1; }\n"
+        "  int run() {\n"
+        "    // compute(99) in comment\n"
+        "    const char *txt = \"compute(99)\";\n"
+        "    return compute(2);\n"
+        "  }\n"
+        "}\n"
+        "int top() { return demo::compute(3); }\n";
+      const auto cppUsages = symbol_service::findReferencesInContent(symbol_service::Language::Cpp, cppRefSrc, "demo::compute", false);
+      check(cppUsages.size() == 2 &&
+            cppUsages[0].kind == "call" && cppUsages[0].enclosing_symbol == "demo::run" && cppUsages[0].exact_qualifier &&
+            cppUsages[1].kind == "call" && cppUsages[1].enclosing_symbol == "top" && cppUsages[1].exact_qualifier,
+            "C++ reference finder skips comments/strings/declarations and reports enclosing symbols");
+      const auto cppWithDecls = symbol_service::findReferencesInContent(symbol_service::Language::Cpp, cppRefSrc, "demo::compute", true);
+      check(cppWithDecls.size() == 4 &&
+            cppWithDecls[0].kind == "declaration" && cppWithDecls[1].kind == "definition",
+            "includeDeclarations=true includes declaration and definition sites");
+
+      const std::string pyRefSrc =
+        "from pkg import target\n"
+        "class Worker:\n"
+        "    def run(self):\n"
+        "        s = 'target()'\n"
+        "        return self.helper() + target()\n"
+        "    def helper(self):\n"
+        "        return 1\n";
+      const auto pyTarget = symbol_service::findReferencesInContent(symbol_service::Language::Python, pyRefSrc, "target", false);
+      check(pyTarget.size() == 2 && pyTarget[0].kind == "import" && pyTarget[1].kind == "call" &&
+            pyTarget[1].enclosing_symbol == "Worker.run",
+            "Python reference finder detects import and call usages and skips strings");
+      const auto pyMethod = symbol_service::findReferencesInContent(symbol_service::Language::Python, pyRefSrc, "Worker.helper", false);
+      check(pyMethod.size() == 1 && pyMethod[0].kind == "call" && pyMethod[0].exact_qualifier,
+            "Python qualified method self.helper() resolves inside Worker");
+
+      const std::string tsxRefSrc =
+        "export interface HeaderProps { title: string; }\n"
+        "export const Header = (p: HeaderProps) => <h1>{p.title}</h1>;\n"
+        "export function App() { const props: HeaderProps = { title: 'hi' }; return <Header {...props} />; }\n";
+      const auto tsxComp = symbol_service::findReferencesInContent(symbol_service::Language::Tsx, tsxRefSrc, "Header", false);
+      check(tsxComp.size() == 1 && tsxComp[0].kind == "call" && tsxComp[0].enclosing_symbol == "App",
+            "TSX reference finder matches JSX <Header /> call without duplicate closing tag");
+      const auto tsxType = symbol_service::findReferencesInContent(symbol_service::Language::Tsx, tsxRefSrc, "HeaderProps", false);
+      check(tsxType.size() == 2 && tsxType[0].kind == "type" && tsxType[1].kind == "type",
+            "TSX reference finder classifies type annotation usages");
+    }
+
     std::cout << checks << " symbol service checks passed.\n";
     return 0;
   } catch (const std::exception &e) {

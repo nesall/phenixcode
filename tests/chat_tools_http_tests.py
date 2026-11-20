@@ -114,6 +114,11 @@ def main():
                         ambig_msg = json.loads(body["messages"][-1]["content"])
                         sel = ambig_msg["candidates"][1]["selector"]
                         calls = [{"id": "sym_2", "type": "function", "function": {"name": "read_symbol", "arguments": json.dumps({"path": str(source), "symbol": sel})}}]
+                if self.path in ("/code-graph-live", "/code-graph"):
+                    if step == 0:
+                        calls = [{"id": "cg_0", "type": "function", "function": {"name": "dependencies", "arguments": json.dumps({"path": str(source)})}}]
+                    elif step == 1:
+                        calls = [{"id": "cg_1", "type": "function", "function": {"name": "find_references", "arguments": json.dumps({"symbol": "Needle"})}}]
                 if self.path.startswith("/git-") and step == 0:
                     name = "git_diff" if self.path in ("/git-branch", "/git-context") else "git_log" if self.path == "/git-log-search" else self.path[1:].replace("-", "_")
                     args = {"path": str(source)} if name == "git_diff" else {"limit": 1} if name == "git_log" else {"path": str(source), "start_line": 1, "end_line": 4} if name == "git_blame" else {"revision": "HEAD", "path": str(source)}
@@ -169,7 +174,7 @@ def main():
         provider_url = f"http://127.0.0.1:{provider.server_port}"
         modes = ["stream", "plain", "error", "bad-json", "truncated", "no-usage", "budget", "steps", "listing", "ranked-listing", "ranked-unindexed",
                  "context-text", "context-hybrid", "context-fallback", "project", "git-diff", "git-log", "git-show", "git-branch", "git-context",
-                 "git-blame", "git-log-search", "grep-re2", "read-files", "symbols", "batch", "no-reasoning-usage", "empty"]
+                 "git-blame", "git-log-search", "grep-re2", "read-files", "symbols", "code-graph-live", "code-graph", "batch", "no-reasoning-usage", "empty"]
         catalog = {"agent_enabled": True, "embedding_providers": [{"id": "embed", "api_url": provider_url + "/embedding", "model": "mock",
                     "query_format": "query: {}", "document_format": "document: {}"}],
                    "generation_providers": [{"id": mode, "model": mode, "api_url": provider_url + "/" + mode,
@@ -264,9 +269,15 @@ def main():
                     check(not requests["/" + mode][-1].get("tools"), "final synthesis offers no more tools")
                     check(sum(m["role"] == "system" for m in requests["/" + mode][-1]["messages"]) == 1,
                           "finalization extends the existing system message")
+                    if mode == "budget":
+                        check(any("Omitted dependencies and find_references" in e.get("content", "") for e in events),
+                              "small context reports omitting optional code-graph tools")
                 check(len(requests["/steps"]) == 15, "fifteenth round is reserved for final answer after fourteen tool rounds")
                 check(all(request.get("tools") for request in requests["/steps"][:-1]), "tools remain available through round fourteen")
-                check(1 < len(requests["/budget"]) < 15, "small context fits all tool schemas but finalizes before the step limit")
+                budget_tools = {tool["function"]["name"] for tool in requests["/budget"][0]["tools"]}
+                check("dependencies" not in budget_tools and "find_references" not in budget_tools,
+                      "small 4K context omits dependencies and find_references tools")
+                check(1 < len(requests["/budget"]) < 15, "small context fits core tool schemas and finalizes before the step limit")
                 events = chat("listing")
                 check(len(requests["/listing"]) == 3, "list_files/read_file require three model rounds")
                 listed = json.loads(requests["/listing"][1]["messages"][-1]["content"])
@@ -281,7 +292,8 @@ def main():
                 events = chat("project")
                 check(len(requests["/project"]) == 3, "project inspection completes a full tool workflow")
                 offered = {tool["function"]["name"] for tool in requests["/project"][0]["tools"]}
-                check({"project_info", "project_settings"} <= offered, "both project tools are offered to the model")
+                check({"project_info", "project_settings", "dependencies", "find_references"} <= offered,
+                      "project tools and code-graph tools are offered for larger contexts")
                 project_info = json.loads(requests["/project"][1]["messages"][-1]["content"])
                 project_settings = json.loads(requests["/project"][2]["messages"][-1]["content"])
                 check(set(project_info["capabilities"]["available_tools"]) == offered, "project info tool list matches request definitions")
@@ -340,6 +352,14 @@ def main():
                       any(event.get("tool") == "symbol_outline" and "3 symbols returned" in event.get("content", "") for event in events) and
                       any(event.get("tool") == "read_symbol" and "returned lines 2-2" in event.get("content", "") for event in events),
                       "symbol tools progress reaches typed SSE metadata")
+                events = chat("code-graph-live")
+                live_deps = json.loads(requests["/code-graph-live"][1]["messages"][-1]["content"])
+                check(live_deps["graph_source"] == "live" and live_deps["freshness"] == "current" and
+                      live_deps["incoming_count"] == 0,
+                      "unindexed dependencies uses live Tree-sitter scan")
+                live_refs = json.loads(requests["/code-graph-live"][2]["messages"][-1]["content"])
+                check(live_refs["outcome"] == "complete" and live_refs["reference_count"] == 0,
+                      "unindexed find_references skips declarations by default when unreferenced")
                 events = chat("context-text")
                 text_result = json.loads(requests["/context-text"][1]["messages"][-1]["content"])
                 check(text_result["mode"] == "text" and any("Needle" in hit["content"] for hit in text_result["matches"]),
@@ -348,8 +368,8 @@ def main():
                 # Build only this fixture's index using deterministic local embeddings.
                 process.terminate()
                 process.wait(timeout=10)
-                semantic.write_text("// SEMANTIC_ONLY_SENTINEL\nvoid rewindOperation() {}\n", encoding="utf-8")
-                removed.write_text("// REMOVED_CONTEXT_SENTINEL\nvoid rewindOther() {}\n", encoding="utf-8")
+                semantic.write_text("#include \"source.cpp\"\n// SEMANTIC_ONLY_SENTINEL\nvoid rewindOperation() { Needle(); }\n", encoding="utf-8")
+                removed.write_text("#include \"source.cpp\"\n// REMOVED_CONTEXT_SENTINEL\nvoid rewindOther() { Needle(); }\n", encoding="utf-8")
                 config["generation"].update(max_chunks=1, max_full_sources=1)
                 (root / "settings.json").write_text(json.dumps(config), encoding="utf-8")
                 embedded = subprocess.run(command + ["embed", "--force"], cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT,
@@ -358,6 +378,24 @@ def main():
                 removed.unlink()  # Leave a deliberately stale entry in the fixture index.
                 process = start_server()
                 wait_for_server()
+                events = chat("code-graph")
+                check(len(requests["/code-graph"]) == 3, "indexed code-graph workflow completes dependencies and find_references")
+                idx_deps = json.loads(requests["/code-graph"][1]["messages"][-1]["content"])
+                check(idx_deps["graph_source"] == "index" and idx_deps["freshness"] == "unknown" and
+                      idx_deps["incoming_count"] == 1 and
+                      idx_deps["incoming"][0]["source"] == semantic.as_posix() and
+                      removed.as_posix() not in json.dumps(idx_deps),
+                      "indexed dependencies reads SQLite graph and filters stale deleted sources")
+                idx_refs = json.loads(requests["/code-graph"][2]["messages"][-1]["content"])
+                check(idx_refs["outcome"] == "complete" and idx_refs["reference_count"] == 1 and
+                      idx_refs["references"][0]["source"] == semantic.as_posix() and
+                      idx_refs["references"][0]["kind"] == "call" and
+                      idx_refs["references"][0]["enclosing_symbol"] == "rewindOperation" and
+                      removed.as_posix() not in json.dumps(idx_refs),
+                      "indexed find_references locates semantic.cpp call with enclosing_symbol and omits declarations/deleted files")
+                check(any(event.get("tool") == "dependencies" and "incoming (index)" in event.get("content", "") for event in events) and
+                      any(event.get("tool") == "find_references" and "1 references" in event.get("content", "") for event in events),
+                      "code-graph tool progress reaches typed SSE metadata")
                 events = chat("ranked-listing")
                 ranked = json.loads(requests["/ranked-listing"][1]["messages"][-1]["content"])
                 metadata = {item["source"]: item for item in ranked["file_metadata"]}

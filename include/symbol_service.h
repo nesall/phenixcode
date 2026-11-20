@@ -57,12 +57,38 @@ namespace symbol_service {
     size_t end_byte = 0;    // 0-based exclusive
   };
 
+  struct ImportEdge {
+    std::string raw_specifier;
+    std::string kind; // "include", "import", "from_import", "reexport", "require", "dynamic_import"
+    size_t line = 0;  // 1-based line number
+    bool is_system = false;
+  };
+
+  struct ResolvedDependency {
+    std::string source_path;   // normalized path key
+    std::string target_spec;
+    std::string resolved_path; // normalized path key, empty if external/unresolved
+    std::string kind;
+    size_t line = 0;
+    bool is_system = false;
+  };
+
+  struct ReferenceMatch {
+    size_t line = 0;
+    size_t column = 0;
+    std::string kind; // "call", "type", "import", "reference", "definition", "declaration"
+    std::string enclosing_symbol;
+    std::string snippet;
+    bool exact_qualifier = false;
+  };
+
   struct FileOutline {
     std::string path;
     Language language = Language::Unsupported;
     std::string content_sha256;
     size_t byte_size = 0;
     std::vector<SymbolInfo> symbols;
+    std::vector<ImportEdge> imports;
   };
 
   // Explicit extension mapping across bundled parsers (C, C++, Python, JavaScript/JSX,
@@ -73,6 +99,15 @@ namespace symbol_service {
   std::optional<SymbolKind> parseKind(std::string_view name);
   std::string_view roleName(SymbolRole role);
   std::string sha256Hex(std::string_view data);
+
+  std::vector<ImportEdge> extractImportsForContent(Language lang, std::string_view content);
+  std::vector<ResolvedDependency> resolveImports(std::string_view sourcePath, Language lang,
+    const std::vector<ImportEdge> &imports, const std::vector<std::string> &candidatePaths);
+  std::vector<ResolvedDependency> extractDependenciesForFile(std::string_view sourcePath,
+    std::string_view content, const std::vector<std::string> &candidatePaths);
+  std::vector<ReferenceMatch> findReferencesInContent(Language lang, std::string_view content,
+    std::string_view query, bool includeDeclarations = false,
+    const std::vector<SymbolInfo> *outlineSymbols = nullptr);
 
   class SymbolService {
   public:

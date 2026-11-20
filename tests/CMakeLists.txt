@@ -145,7 +145,7 @@ set(TEST_TREE_SITTER_LIBS
   test_tree_sitter_typescript
   test_tree_sitter_tsx)
 
-add_executable(symbol_service_tests symbol_service_tests.cpp ../src/symbol_service.cpp)
+add_executable(symbol_service_tests symbol_service_tests.cpp ../src/symbol_service.cpp ../src/cutils.cpp)
 target_compile_features(symbol_service_tests PRIVATE cxx_std_20)
 target_include_directories(symbol_service_tests PRIVATE ../include)
 target_link_libraries(symbol_service_tests PRIVATE ${TEST_TREE_SITTER_LIBS})

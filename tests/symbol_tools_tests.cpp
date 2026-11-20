@@ -42,6 +42,10 @@ int main(int argc, char *argv[]) {
       "read_symbol schema rejects unknown arguments");
     check(chat_tools::findSymbolDefinition()["function"]["parameters"]["additionalProperties"] == false,
       "find_symbol schema rejects unknown arguments");
+    check(chat_tools::dependenciesDefinition()["function"]["parameters"]["additionalProperties"] == false,
+      "dependencies schema rejects unknown arguments");
+    check(chat_tools::findReferencesDefinition()["function"]["parameters"]["additionalProperties"] == false,
+      "find_references schema rejects unknown arguments");
 
     Fixture fixture;
     const auto symHeader = (fixture.directory / "sym_api.h").generic_string();
@@ -348,6 +352,194 @@ int main(int argc, char *argv[]) {
       check(fsOutcome.text == "Done" && fsEvents.size() == 2 &&
             fsEvents[1]["summary"].get<std::string>().find("Find symbol executeGrepWithOptions") != std::string::npos,
         "chat_tools::run formats compact summaries for find_symbol");
+    }
+
+    // 10. dependencies & find_references tools (live + indexed graph, allowlist, unreadable, repo lookup, and run summaries).
+    {
+      const fs::path cgDir = fixture.directory / "cg";
+      fs::create_directories(cgDir);
+      const auto depH = (cgDir / "dep.h").generic_string();
+      const auto depCpp = (cgDir / "dep.cpp").generic_string();
+      const auto depTs = (cgDir / "app.ts").generic_string();
+      const auto depSvelte = (cgDir / "Widget.svelte").generic_string();
+      const auto depPy = (cgDir / "mod.py").generic_string();
+      {
+        std::ofstream f(depH);
+        f << "#pragma once\nint sharedFn(int x);\n";
+      }
+      {
+        std::ofstream f(depCpp);
+        f << "#include \"dep.h\"\n#include <vector>\n// sharedFn(1)\nint useFn() { return sharedFn(2); }\n";
+      }
+      {
+        std::ofstream f(depTs);
+        f << "import Widget from './Widget.svelte';\nimport externalPkg from 'pkg';\n";
+      }
+      { std::ofstream f(depSvelte); f << "<script>export let x = 1;</script>\n"; }
+      { std::ofstream f(depPy); f << "from . import unknown_mod\n"; }
+
+      const std::vector<std::string> cgScope{depH, depCpp, depTs, depSvelte, depPy};
+      symbol_service::SymbolService cgService;
+      std::vector<std::string> cgUsed;
+
+      auto liveDepsCpp = chat_tools::executeDependencies(
+        call("deps_cpp", {{"path", "dep.cpp"}, {"include_external", true}}, "dependencies"),
+        {cgScope, cgUsed}, &cgService);
+      check(!liveDepsCpp.contains("error") && liveDepsCpp["graph_source"] == "live" &&
+            liveDepsCpp["freshness"] == "current" && liveDepsCpp["outgoing_count"] == 2 &&
+            liveDepsCpp["outgoing"][0]["resolved"] == depH && !liveDepsCpp["outgoing"][0]["external"].get<bool>() &&
+            liveDepsCpp["outgoing"][1]["target"] == "vector" && liveDepsCpp["outgoing"][1]["external"] == true &&
+            liveDepsCpp["incoming_count"] == 0,
+        "live dependencies resolves local C++ includes and preserves external headers");
+
+      auto liveDepsNoExt = chat_tools::executeDependencies(
+        call("deps_cpp_noext", {{"path", "dep.cpp"}, {"include_external", false}, {"direction", "outgoing"}}, "dependencies"),
+        {cgScope, cgUsed}, &cgService);
+      check(!liveDepsNoExt.contains("error") && liveDepsNoExt["outgoing_count"] == 1 &&
+            liveDepsNoExt["outgoing"][0]["resolved"] == depH,
+        "include_external=false filters out external dependencies");
+
+      auto svelteIncoming = chat_tools::executeDependencies(
+        call("deps_svelte", {{"path", "Widget.svelte"}, {"direction", "incoming"}}, "dependencies"),
+        {cgScope, cgUsed}, &cgService);
+      check(!svelteIncoming.contains("error") && svelteIncoming["language"] == "unsupported" &&
+            svelteIncoming["incoming_count"] == 1 && svelteIncoming["incoming"][0]["source"] == depTs,
+        "dependencies reports incoming .ts/.js dependents even on .svelte target files");
+
+      check(chat_tools::executeDependencies(
+        call("deps_denied", {{"path", "Widget.svelte"}}, "dependencies"),
+        {{depCpp}, cgUsed}, &cgService).contains("error"),
+        "dependencies enforces source allowlist");
+
+      // Mock indexed dependency graph verifying allowlist filtering of stale/deleted files.
+      auto mockReader = [&](const std::string &) -> chat_tools::IndexedDependencyQuery {
+        chat_tools::IndexedDependencyQuery q;
+        q.hasIndexedGraph = true;
+        q.sourceTracked = true;
+        q.outgoing.push_back({depCpp, "dep.h", depH, "include", 1, false});
+        q.outgoing.push_back({depCpp, "removed.h", (cgDir / "removed.h").generic_string(), "include", 2, false});
+        q.incoming.push_back({depCpp, "dep.h", depH, "include", 1, false});
+        q.incoming.push_back({(cgDir / "removed_caller.cpp").generic_string(), "dep.h", depH, "include", 1, false});
+        return q;
+      };
+      auto idxDeps = chat_tools::executeDependencies(
+        call("deps_idx", {{"path", "dep.h"}}, "dependencies"),
+        {{depH, depCpp}, cgUsed}, &cgService, mockReader);
+      check(!idxDeps.contains("error") && idxDeps["graph_source"] == "index" && idxDeps["freshness"] == "unknown" &&
+            idxDeps["incoming_count"] == 1 && idxDeps["incoming"][0]["source"] == depCpp,
+        "indexed dependencies uses fast path and filters stale incoming sources not in allowlist");
+
+      auto idxOut = chat_tools::executeDependencies(
+        call("deps_idx_out", {{"path", "dep.cpp"}, {"direction", "outgoing"}}, "dependencies"),
+        {{depH, depCpp}, cgUsed}, &cgService, mockReader);
+      check(!idxOut.contains("error") && idxOut["outgoing_count"] == 2 &&
+            idxOut["outgoing"][1]["external"] == true && idxOut["outgoing"][1]["resolved"].is_null(),
+        "indexed outgoing marks deleted resolved target outside allowlist as external");
+
+      std::vector<std::string> refUsed;
+      auto liveRefs = chat_tools::executeFindReferences(
+        call("fr_shared", {{"symbol", "sharedFn"}}, "find_references"),
+        {cgScope, refUsed}, &cgService);
+      check(!liveRefs.contains("error") && liveRefs["outcome"] == "complete" &&
+            liveRefs["reference_count"] == 1 && liveRefs["references"][0]["source"] == depCpp &&
+            liveRefs["references"][0]["kind"] == "call" && liveRefs["references"][0]["enclosing_symbol"] == "useFn",
+        "find_references locates call usage, skips comment and declarations, and sets enclosing_symbol");
+
+      auto liveRefsWithDecls = chat_tools::executeFindReferences(
+        call("fr_shared_decl", {{"symbol", "sharedFn"}, {"include_declarations", true}}, "find_references"),
+        {cgScope, refUsed}, &cgService);
+      check(!liveRefsWithDecls.contains("error") && liveRefsWithDecls["reference_count"] == 2 &&
+            liveRefsWithDecls["references"][0]["kind"] == "call" &&
+            liveRefsWithDecls["references"][1]["kind"] == "declaration",
+        "find_references with include_declarations ranks usages before declarations");
+
+      const std::string missingRefFile = (cgDir / "missing.cpp").generic_string();
+      auto partialRefs = chat_tools::executeFindReferences(
+        call("fr_inc", {{"symbol", "sharedFn"}}, "find_references"),
+        {{missingRefFile, depCpp}, refUsed}, &cgService);
+      check(!partialRefs.contains("error") && partialRefs["incomplete"] == true &&
+            partialRefs["unreadable_files"] == 1 && partialRefs["reference_count"] == 1,
+        "find_references reports incomplete=true when a supported file cannot be read");
+
+      // PhenixCode repo executeGrepWithOptions reference check across header, chat_tools.cpp, and tool_service.cpp.
+      const std::string repoToolService = (repoRoot / "src" / "tool_service.cpp").generic_string();
+      std::vector<std::string> repoRefUsed;
+      auto repoRefs = chat_tools::executeFindReferences(
+        call("fr_repo", {{"symbol", "executeGrepWithOptions"}, {"include_declarations", false}}, "find_references"),
+        {{repoH, repoCpp, repoToolService}, repoRefUsed}, &cgService);
+      check(!repoRefs.contains("error") && !repoRefs["incomplete"].get<bool>() &&
+            repoRefs["reference_count"].get<size_t>() >= 2 &&
+            repoRefs["references"][0]["kind"] == "call",
+        "find_references locates executeGrepWithOptions call sites in PhenixCode sources");
+
+      size_t cgRounds = 0;
+      std::vector<json> cgEvents;
+      const json cgCalls = {{"role", "assistant"}, {"tool_calls", json::array({
+        call("d1", {{"path", repoCpp}, {"direction", "outgoing"}}, "dependencies"),
+        call("r1", {{"symbol", "executeGrepWithOptions"}}, "find_references")
+      })}};
+      auto cgOutcome = chat_tools::run(messages, [&](const json &) -> chat_tools::Turn {
+        if (++cgRounds == 1) return {"", cgCalls};
+        return {"Done", {{"role", "assistant"}, {"content", "Done"}}};
+      }, [&](const json &request) {
+        return request["function"]["name"] == "dependencies"
+          ? chat_tools::executeDependencies(request, {{repoH, repoCpp, repoToolService}, repoRefUsed}, &cgService)
+          : chat_tools::executeFindReferences(request, {{repoH, repoCpp, repoToolService}, repoRefUsed}, &cgService);
+      }, [] { return true; }, 5, [&](const json &ev) { cgEvents.push_back(ev); }, repoRoot.generic_string());
+      check(cgOutcome.text == "Done" && cgEvents.size() == 4 &&
+            cgEvents[1]["summary"].get<std::string>().find("Dependencies src/chat_tools.cpp") != std::string::npos &&
+            cgEvents[3]["summary"].get<std::string>().find("Find references executeGrepWithOptions") != std::string::npos,
+        "chat_tools::run formats compact summaries for dependencies and find_references");
+
+      // Mixed freshness, live incoming RE2 prefilter (including index.ts), and find_references per-file cap.
+      auto mixedReader = [&](const std::string &) -> chat_tools::IndexedDependencyQuery {
+        chat_tools::IndexedDependencyQuery q;
+        q.hasIndexedGraph = true;
+        q.sourceTracked = false; // Untracked file -> live outgoing + indexed incoming.
+        q.incoming.push_back({depCpp, "dep.h", depH, "include", 1, false});
+        return q;
+      };
+      auto mixedDeps = chat_tools::executeDependencies(
+        call("deps_mixed", {{"path", "dep.h"}}, "dependencies"),
+        {{depH, depCpp}, cgUsed}, &cgService, mixedReader);
+      check(!mixedDeps.contains("error") && mixedDeps["graph_source"] == "mixed" &&
+            mixedDeps["freshness"] == "mixed" &&
+            mixedDeps["outgoing_source"] == "live" && mixedDeps["incoming_source"] == "index" &&
+            mixedDeps["supported_files"].is_null() && mixedDeps["searched_files"].is_null(),
+        "dependencies reports mixed graph_source and mixed freshness when directions split index vs live");
+
+      const fs::path modDir = cgDir / "sub";
+      fs::create_directories(modDir);
+      const auto subIdx = (modDir / "index.ts").generic_string();
+      const auto subCaller = (cgDir / "caller.ts").generic_string();
+      const auto subUnrelated = (cgDir / "unrelated.cpp").generic_string();
+      { std::ofstream f(subIdx); f << "export const v = 1;\n"; }
+      { std::ofstream f(subCaller); f << "import { v } from './sub';\n"; }
+      { std::ofstream f(subUnrelated); f << "int unrelated() { return 0; }\n"; }
+      symbol_service::SymbolService prefilterService;
+      std::vector<std::string> pfUsed;
+      auto idxLive = chat_tools::executeDependencies(
+        call("deps_idx_ts", {{"path", subIdx}, {"direction", "incoming"}}, "dependencies"),
+        {{subIdx, subCaller, subUnrelated}, pfUsed}, &prefilterService);
+      check(!idxLive.contains("error") && idxLive["incoming_count"] == 1 &&
+            idxLive["incoming"][0]["source"] == subCaller &&
+            prefilterService.cachedFileCount() == 1,
+        "live incoming prefilter matches index.ts directory imports while skipping unrelated Tree-sitter parses");
+
+      const auto manyCallsFile = (cgDir / "many_calls.cpp").generic_string();
+      {
+        std::ofstream f(manyCallsFile);
+        f << "void spamTarget();\nvoid caller() {\n";
+        for (int i = 0; i < 40; ++i) f << "  spamTarget();\n";
+        f << "}\n";
+      }
+      auto cappedRefs = chat_tools::executeFindReferences(
+        call("fr_cap", {{"symbol", "spamTarget"}, {"limit", 50}}, "find_references"),
+        {{manyCallsFile}, pfUsed}, &prefilterService);
+      check(!cappedRefs.contains("error") && cappedRefs["file_match_limited"] == true &&
+            cappedRefs["truncated"] == true && cappedRefs["per_file_limit"] == 25 &&
+            cappedRefs["reference_count"] == 25,
+        "find_references enforces per-file match cap and flags file_match_limited + truncated");
     }
 
     std::cout << checks << " symbol tool checks passed.\n";

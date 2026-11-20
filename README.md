@@ -217,6 +217,8 @@ Agent tools let the model investigate beyond the initial retrieved context. They
 | `symbol_outline` | Extract structured symbol declarations and definitions for C (`.c`), C++ (`.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh`, `.hxx`, `.ipp`, `.tpp`, and `.h` defaulting to C++), Python (`.py`, `.pyi`), JavaScript/JSX (`.js`, `.jsx`, `.mjs`, `.cjs`), TypeScript (`.ts`, `.mts`, `.cts`), and TSX (`.tsx`) — `.svelte` unsupported — with line ranges, roles, signatures, and selectors for `read_symbol`. |
 | `read_symbol` | Read the exact source range of a named symbol, qualified name (`Class::method` or `Class.method`), or `symbol_outline` / `find_symbol` selector in an allowed file, filtering `declaration` vs `definition` with `role` and returning disambiguation candidates when overloaded or ambiguous. |
 | `find_symbol` | Search supported files in the request allowlist from cold or warm cache (exact or `prefix` match, optional `role`, `kind`, `path_filter`, `glob`, and `limit`), ranking definitions before declarations and explicitly reporting incomplete scans or unreadable files. |
+| `dependencies` | Inspect outgoing imports/includes and incoming dependents for an allowed file, using the SQLite `file_dependencies` graph populated during `embed`/`update` when available with automatic live Tree-sitter fallback. |
+| `find_references` | Find AST-verified symbol usages across allowed files (`call`, `type`, `import` for Python/JS/TS import identifiers, `reference`, and optional `definition`/`declaration`; C/C++ `#include` paths are tracked by `dependencies`), skipping comments and strings, capping at 25 hits per file, and reporting enclosing symbols and incomplete scans. |
 | `list_files` | Discover source paths, filter by path or extension, or rank files by indexed byte size or line count with `sort_by`, `order`, and `limit`. |
 | `search_context` | Retrieve relevant indexed excerpts using natural-language hybrid search, with text fallback when query embeddings are unavailable. |
 | `project_info` | Inspect project identity, configured sources, current local source count, indexed chunk count, and available tools. Index freshness is reported as unknown. |
@@ -236,7 +238,7 @@ Project summaries flag shortened arrays or strings with `truncated: true` and li
 
 To enable tools, set the top-level `agent_enabled` to `true` in `providers.json`, and set `supports_tools` to `"on"` on a generation provider whose model and endpoint support OpenAI-style function calling. Restart the running backend after changing provider settings. Tool progress appears in the Chat UI's response metadata.
 
-Tool execution currently applies to `/api/chat` with OpenAI-compatible providers. `supports_tools: "auto"` does not perform detection yet; Anthropic tool execution is not supported. Tools are disabled for free-chat and attached-files-only requests. The interactive CLI `chat` command does not execute these tools.
+Tool execution currently applies to `/api/chat` with OpenAI-compatible providers. `supports_tools: "auto"` does not perform detection yet; Anthropic tool execution is not supported. Tools are disabled for free-chat and attached-files-only requests. The interactive CLI `chat` command does not execute these tools. When a model's configured context size or remaining prompt budget cannot comfortably accommodate all tool schemas (for example `context_length < 8192`), `/api/chat` omits the optional code-graph tools (`dependencies` and `find_references`) automatically so core navigation tools continue working.
 
 ### MCP context server
 
@@ -285,7 +287,7 @@ Use `Content-Type: application/json` and
 An absent Origin is allowed for native clients; a present Origin must match the
 listener's localhost or 127.0.0.1 HTTP origin.
 
-Tools: `project_info`, `search_context`, `list_files`, `read_file`, `read_files`, `symbol_outline`, `read_symbol`, `find_symbol`, `grep`,
+Tools: `project_info`, `search_context`, `list_files`, `read_file`, `read_files`, `symbol_outline`, `read_symbol`, `find_symbol`, `dependencies`, `find_references`, `grep`,
 `git_diff`, `git_log`, `git_show`, and `git_blame`. These reuse Chat's execution and current
 local source allowlist, exclusions, result limits, and Git restrictions.
 URL sources and `project_settings` are not exposed. Indexed content and file

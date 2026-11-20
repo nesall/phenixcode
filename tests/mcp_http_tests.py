@@ -41,7 +41,7 @@ def main():
         root = Path(directory)
         creds_dir = root / "mcp-creds"
         source = root / "source.cpp"
-        source.write_text("// MCP_NEEDLE\nvoid context() {}\nint pick(int a);\nint pick(int a) { return a; }\nint pick(double b) { return 0; }\n", encoding="utf-8")
+        source.write_text("// MCP_NEEDLE\nvoid context() {}\nint pick(int a);\nint pick(int a) { return a; }\nint pick(double b) { return pick(static_cast<int>(b)); }\n#include <vector>\n", encoding="utf-8")
         (root / "excluded.env").write_text("SECRET_SENTINEL", encoding="utf-8")
         large = root / "large.cpp"
         large.write_text("// bounded\n" * 1000, encoding="utf-8")
@@ -203,8 +203,9 @@ def main():
                 check(rpc(verb="GET")[0] == 405, "GET unsupported")
                 tools = rpc("tools/list")[1]["result"]["tools"]
                 names = {t["name"] for t in tools}
-                check(names == {"grep", "read_file", "read_files", "symbol_outline", "read_symbol", "find_symbol", "list_files", "search_context", "project_info",
-                                "git_diff", "git_log", "git_show", "git_blame"}, "catalog independent of Chat flags")
+                check(names == {"grep", "read_file", "read_files", "symbol_outline", "read_symbol", "find_symbol", "dependencies", "find_references",
+                                "list_files", "search_context", "project_info", "git_diff", "git_log", "git_show", "git_blame"},
+                      "catalog independent of Chat flags")
                 grep_tool = next(t for t in tools if t["name"] == "grep")
                 grep_props = grep_tool["inputSchema"]["properties"]
                 check(grep_props["pattern"]["minLength"] == 2 and grep_props["pattern"]["maxLength"] == 256 and
@@ -255,6 +256,19 @@ def main():
                       "MCP read_symbol reads exact candidate via selector")
                 check(call("symbol_outline", {"path": "../excluded.env"})["isError"],
                       "MCP symbol_outline enforces source allowlist")
+                deps = call("dependencies", {"path": "source.cpp"})["structuredContent"]
+                check(deps["graph_source"] == "live" and deps["outgoing_count"] == 1 and
+                      deps["outgoing"][0]["target"] == "vector" and deps["outgoing"][0]["is_system"],
+                      "MCP dependencies extracts includes cleanly in live mode")
+                check(call("dependencies", {"path": "../excluded.env"})["isError"],
+                      "MCP dependencies enforces source allowlist")
+                refs = call("find_references", {"symbol": "pick"})["structuredContent"]
+                check(refs["outcome"] == "complete" and refs["reference_count"] == 1 and
+                      refs["references"][0]["kind"] == "call" and refs["references"][0]["line"] == 5,
+                      "MCP find_references finds AST call site on line 5")
+                refs_decls = call("find_references", {"symbol": "pick", "include_declarations": True})["structuredContent"]
+                check(refs_decls["reference_count"] == 4,
+                      "MCP find_references include_declarations includes declaration and definitions")
                 check(call("search_context", {"query": "MCP_NEEDLE"})["structuredContent"]["mode"] == "text", "unindexed fallback without provider")
                 check("WORKTREE_NEEDLE" in call("git_diff")["structuredContent"]["content"], "read-only Git")
                 check("MCP_NEEDLE" in call("git_blame", {"path": "source.cpp", "start_line": 1, "end_line": 2})["structuredContent"]["content"], "git_blame")

@@ -666,3 +666,18 @@ utils::QueryIntent utils::queryIntent(std::string_view query)
   return QueryIntent::Neutral;
 }
 
+std::string utils::normalizePathKey(std::string_view path)
+{
+  if (path.empty()) return {};
+  std::string p(path);
+  std::replace(p.begin(), p.end(), '\\', '/');
+  const auto bytes = fs::path(std::u8string(p.begin(), p.end())).lexically_normal().generic_u8string();
+  std::string out(bytes.begin(), bytes.end());
+#ifdef _WIN32
+  if (out.size() >= 2 && std::isalpha(static_cast<unsigned char>(out[0])) && out[1] == ':') {
+    out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
+  }
+#endif
+  return out;
+}
+

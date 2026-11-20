@@ -549,6 +549,11 @@ void App::embed(bool noPrompt)
   size_t totalFiles = 0;
   size_t totalTokens = 0;
   size_t skippedFiles = 0;
+  std::vector<std::string> allLocalSources;
+  allLocalSources.reserve(sources.size());
+  for (const auto &s : sources) {
+    if (!s.isUrl) allLocalSources.push_back(s.source);
+  }
   EmbeddingClient embeddingClient{ settings().embeddingCurrentApi(), settings().embeddingTimeoutMs() };
   for (size_t i = 0; i < sources.size(); ++i) {
     const auto &source = sources[i].source;
@@ -591,6 +596,15 @@ void App::embed(bool noPrompt)
         chunks, batchSize, embeddingClient, *imp->db_,
         settings().embeddingPrependLabelFormat(),
         imp->monitor_.get(), totalFiles, sources.size(), &settings());
+      if (!sources[i].isUrl) {
+        const auto extracted = symbol_service::extractDependenciesForFile(source, content, allLocalSources);
+        std::vector<FileDependency> deps;
+        deps.reserve(extracted.size());
+        for (const auto &e : extracted) {
+          deps.push_back({ e.source_path, e.target_spec, e.resolved_path, e.kind, e.line, e.is_system });
+        }
+        imp->db_->replaceFileDependencies(utils::normalizePathKey(source), deps);
+      }
       std::cout << std::endl;
       totalChunks += chunks.size();
       totalFiles++;

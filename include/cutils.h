@@ -35,6 +35,7 @@ namespace utils {
   [[nodiscard]] std::string stemKey(const std::string &path);
   [[nodiscard]] std::string expandEnvVar(const std::string &var);
   [[nodiscard]] std::string sanitizeUtf8(std::string_view input);
+  [[nodiscard]] std::string normalizePathKey(std::string_view path);
 
   enum class QueryIntent : uint8_t { Neutral, Declaration, Implementation };
   [[nodiscard]] QueryIntent queryIntent(std::string_view query);

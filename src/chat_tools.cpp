@@ -102,6 +102,16 @@ namespace chat_tools {
         if (!text("path_filter").empty()) label += middle + preview(text("path_filter"), 32);
         return label;
       }
+      if (name == "dependencies") {
+        auto label = "Dependencies " + shortPath(text("path"), root);
+        if (!text("direction").empty() && text("direction") != "both") label += middle + preview(text("direction"), 16);
+        return label;
+      }
+      if (name == "find_references") {
+        auto label = "Find references " + preview(text("symbol"), 48);
+        if (!text("path_filter").empty()) label += middle + preview(text("path_filter"), 32);
+        return label;
+      }
       if (name == "project_info") return "Project info";
       if (name == "project_settings") return "Project settings" + (text("section").empty() || text("section") == "all" ? std::string{} : middle + preview(text("section"), 32));
       std::string label = preview(name, 64);
@@ -344,6 +354,36 @@ namespace chat_tools {
     return {{"type", "function"}, {"function", {
       {"name", "find_symbol"},
       {"description", "Find symbols across allowed project files."},
+      {"parameters", std::move(params)}
+    }}};
+  }
+
+  json dependenciesDefinition() {
+    static const json directions = json::array({"both", "outgoing", "incoming"});
+    json props;
+    props["path"] = {{"type", "string"}};
+    props["direction"] = {{"type", "string"}, {"enum", directions}};
+    props["include_external"] = {{"type", "boolean"}};
+    props["limit"] = {{"type", "integer"}, {"minimum", 1}, {"maximum", 100}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"path"})}, {"additionalProperties", false}};
+    return {{"type", "function"}, {"function", {
+      {"name", "dependencies"},
+      {"description", "Inspect imports/includes (outgoing) and dependents (incoming) for an allowed file."},
+      {"parameters", std::move(params)}
+    }}};
+  }
+
+  json findReferencesDefinition() {
+    json props;
+    props["symbol"] = {{"type", "string"}, {"minLength", 1}, {"maxLength", 256}, {"description", "Symbol, Class::m, or Class.m"}};
+    props["include_declarations"] = {{"type", "boolean"}};
+    props["path_filter"] = {{"type", "string"}};
+    props["glob"] = {{"type", "string"}};
+    props["limit"] = {{"type", "integer"}, {"minimum", 1}, {"maximum", 100}};
+    json params = {{"type", "object"}, {"properties", std::move(props)}, {"required", json::array({"symbol"})}, {"additionalProperties", false}};
+    return {{"type", "function"}, {"function", {
+      {"name", "find_references"},
+      {"description", "Find AST-verified symbol usages across allowed files, skipping comments and strings."},
       {"parameters", std::move(params)}
     }}};
   }
@@ -912,10 +952,31 @@ namespace chat_tools {
 
   namespace {
     std::string normalizedSourceKey(const std::string &selected) {
-      std::string p = selected;
-      std::replace(p.begin(), p.end(), '\\', '/');
-      const auto bytes = std::filesystem::path(std::u8string(p.begin(), p.end())).lexically_normal().generic_u8string();
-      return std::string(bytes.begin(), bytes.end());
+      return utils::normalizePathKey(selected);
+    }
+
+    struct SupportedEntry {
+      std::string source;
+      std::string key;
+      symbol_service::Language language;
+    };
+
+    std::vector<SupportedEntry> collectSupportedFiles(const std::vector<std::string> &files) {
+      std::vector<SupportedEntry> out;
+      out.reserve(files.size());
+      for (const auto &file : files) {
+        const auto lang = symbol_service::detectLanguage(file);
+        if (lang != symbol_service::Language::Unsupported) {
+          out.push_back({file, normalizedSourceKey(file), lang});
+        }
+      }
+      return out;
+    }
+
+    void recordUsedSource(std::vector<std::string> &usedSources, const std::string &source) {
+      if (!source.empty() && std::find(usedSources.begin(), usedSources.end(), source) == usedSources.end()) {
+        usedSources.push_back(source);
+      }
     }
 
     symbol_service::FileOutline computeVerifiedOutline(const std::string &selected, std::string &contentOut,
@@ -1309,20 +1370,7 @@ namespace chat_tools {
       std::string globText;
       const auto globRe = compileGlob(args, globText);
       const auto filteredFiles = filterAllowedFiles(ctx.allowedFiles, filter, globRe);
-
-      struct SupportedEntry {
-        std::string source;
-        std::string key;
-        symbol_service::Language language;
-      };
-      std::vector<SupportedEntry> supportedFiles;
-      supportedFiles.reserve(filteredFiles.size());
-      for (const auto &file : filteredFiles) {
-        const auto lang = symbol_service::detectLanguage(file);
-        if (lang != symbol_service::Language::Unsupported) {
-          supportedFiles.push_back({file, normalizedSourceKey(file), lang});
-        }
-      }
+      const auto supportedFiles = collectSupportedFiles(filteredFiles);
 
       json result = {
         {"query", query},
@@ -1425,6 +1473,462 @@ namespace chat_tools {
         }
         if (std::find(ctx.usedSources.begin(), ctx.usedSources.end(), collected[i].source) == ctx.usedSources.end())
           ctx.usedSources.push_back(collected[i].source);
+      }
+
+      return result;
+    } catch (const std::exception &e) {
+      return {{"error", preview(e.what(), 512)}};
+    }
+  }
+
+  json executeDependencies(const json &call, const ToolContext &ctx,
+                           symbol_service::SymbolService *symbols, const DependencyReader &readIndexed) {
+    LOG_MSG_DEBUG << "executeDependencies: " << call.dump();
+    LOG_MSG_INFO << "[tool] dependencies called";
+    try {
+      const auto &function = call.at("function");
+      if (function.at("name") != "dependencies") throw std::invalid_argument("Unknown tool");
+      const auto arguments = function.at("arguments").get<std::string>();
+      if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
+      const auto args = json::parse(arguments);
+      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
+      for (const auto &[key, value] : args.items()) {
+        if (key != "path" && key != "direction" && key != "include_external" && key != "limit")
+          throw std::invalid_argument("Unknown dependencies argument: " + preview(key, 128));
+      }
+      if (!args.contains("path") || !args["path"].is_string())
+        throw std::invalid_argument("path must be a string");
+
+      std::string direction = "both";
+      if (args.contains("direction")) {
+        if (!args["direction"].is_string()) throw std::invalid_argument("direction must be a string");
+        direction = args["direction"].get<std::string>();
+        if (direction != "both" && direction != "outgoing" && direction != "incoming")
+          throw std::invalid_argument("direction must be both, outgoing, or incoming");
+      }
+      const bool wantOutgoing = direction == "both" || direction == "outgoing";
+      const bool wantIncoming = direction == "both" || direction == "incoming";
+
+      bool includeExternal = true;
+      if (args.contains("include_external")) {
+        if (!args["include_external"].is_boolean()) throw std::invalid_argument("include_external must be a boolean");
+        includeExternal = args["include_external"].get<bool>();
+      }
+
+      size_t limit = 50;
+      if (args.contains("limit")) {
+        if (!args["limit"].is_number_integer() || args["limit"] < 1 || args["limit"] > 100)
+          throw std::invalid_argument("limit must be an integer between 1 and 100");
+        limit = args["limit"].get<size_t>();
+      }
+
+      const auto selected = resolveAllowedFile(args["path"].get<std::string>(), ctx.allowedFiles);
+      const auto selectedKey = normalizedSourceKey(selected);
+      const auto selectedLang = symbol_service::detectLanguage(selected);
+
+      std::unordered_map<std::string, std::string> allowedByKey;
+      allowedByKey.reserve(ctx.allowedFiles.size());
+      for (const auto &file : ctx.allowedFiles) {
+        allowedByKey.emplace(normalizedSourceKey(file), file);
+      }
+
+      IndexedDependencyQuery indexed;
+      if (readIndexed) {
+        indexed = readIndexed(selectedKey);
+      }
+
+      symbol_service::SymbolService localSymbols;
+      symbol_service::SymbolService *activeSymbols = symbols ? symbols : &localSymbols;
+
+      const bool useIndexedOutgoing = wantOutgoing && indexed.hasIndexedGraph && indexed.sourceTracked;
+      const bool useIndexedIncoming = wantIncoming && indexed.hasIndexedGraph;
+      const bool outgoingUsedIndex = wantOutgoing && useIndexedOutgoing;
+      const bool outgoingUsedLive = wantOutgoing && !useIndexedOutgoing;
+      const bool incomingUsedIndex = wantIncoming && useIndexedIncoming;
+      const bool incomingUsedLive = wantIncoming && !useIndexedIncoming;
+      const bool anyIndex = outgoingUsedIndex || incomingUsedIndex;
+      const bool anyLive = outgoingUsedLive || incomingUsedLive;
+      const std::string graphSource = (anyIndex && anyLive) ? "mixed" : (anyIndex ? "index" : "live");
+      const std::string freshness = (anyIndex && anyLive) ? "mixed" : (anyIndex ? "unknown" : "current");
+
+      struct OutgoingRow {
+        std::string target;
+        std::string resolved;
+        std::string kind;
+        size_t line = 0;
+        bool isSystem = false;
+        bool isExternal = false;
+      };
+      struct IncomingRow {
+        std::string source;
+        std::string target;
+        std::string kind;
+        size_t line = 0;
+      };
+      std::vector<OutgoingRow> outgoingRows;
+      std::vector<IncomingRow> incomingRows;
+      size_t unreadableFiles = 0;
+      size_t searchedFiles = 0;
+      size_t supportedCount = 0;
+      bool searchLimited = false;
+      bool incomplete = false;
+
+      if (wantOutgoing) {
+        if (useIndexedOutgoing) {
+          for (const auto &dep : indexed.outgoing) {
+            std::string canonicalResolved;
+            if (!dep.resolvedPath.empty()) {
+              if (const auto it = allowedByKey.find(normalizedSourceKey(dep.resolvedPath)); it != allowedByKey.end()) {
+                canonicalResolved = it->second;
+              }
+            }
+            const bool isExt = canonicalResolved.empty();
+            if (isExt && !includeExternal) continue;
+            outgoingRows.push_back({dep.targetSpec, canonicalResolved, dep.kind, dep.line, dep.isSystem, isExt});
+          }
+        } else if (selectedLang != symbol_service::Language::Unsupported) {
+          const auto content = readTextFileChecked(selected);
+          const auto outline = activeSymbols->outlineForContent(selectedKey, selectedLang, content);
+          const auto resolvedDeps = symbol_service::resolveImports(selectedKey, selectedLang, outline.imports, ctx.allowedFiles);
+          for (const auto &dep : resolvedDeps) {
+            std::string canonicalResolved;
+            if (!dep.resolved_path.empty()) {
+              if (const auto it = allowedByKey.find(dep.resolved_path); it != allowedByKey.end()) {
+                canonicalResolved = it->second;
+              }
+            }
+            const bool isExt = canonicalResolved.empty();
+            if (isExt && !includeExternal) continue;
+            outgoingRows.push_back({dep.target_spec, canonicalResolved, dep.kind, dep.line, dep.is_system, isExt});
+          }
+        }
+      }
+
+      if (wantIncoming) {
+        if (useIndexedIncoming) {
+          for (const auto &dep : indexed.incoming) {
+            const auto it = allowedByKey.find(normalizedSourceKey(dep.sourcePath));
+            if (it == allowedByKey.end()) continue;
+            incomingRows.push_back({it->second, dep.targetSpec, dep.kind, dep.line});
+          }
+        } else {
+          const auto selectedPath = std::filesystem::path(std::u8string(selectedKey.begin(), selectedKey.end()));
+          const std::string stem = selectedPath.stem().string();
+          const std::string parentName = selectedPath.parent_path().filename().string();
+          const bool indexOrInit = (stem == "index" || stem == "__init__");
+          const std::string needle = (indexOrInit && !parentName.empty()) ? parentName : stem;
+          std::unique_ptr<re2::RE2> incomingPrefilter;
+          if (!needle.empty()) {
+            re2::RE2::Options preOpt;
+            preOpt.set_log_errors(false);
+            preOpt.set_max_mem(1 << 20);
+            preOpt.set_case_sensitive(false);
+            const std::string pat = indexOrInit
+              ? ("(?:" + re2::RE2::QuoteMeta(needle) + "|['\"]\\.{1,2}(?:/['\"])?)")
+              : re2::RE2::QuoteMeta(needle);
+            auto re = std::make_unique<re2::RE2>(pat, preOpt);
+            if (re->ok()) incomingPrefilter = std::move(re);
+          }
+
+          const auto supportedFiles = collectSupportedFiles(ctx.allowedFiles);
+          supportedCount = supportedFiles.size();
+          const auto startedAt = std::chrono::steady_clock::now();
+          constexpr auto kScanBudget = std::chrono::milliseconds(5000);
+          for (const auto &entry : supportedFiles) {
+            if (searchedFiles > 0 && (std::chrono::steady_clock::now() - startedAt) >= kScanBudget) {
+              searchLimited = true;
+              break;
+            }
+            if (entry.key == selectedKey) {
+              ++searchedFiles;
+              continue;
+            }
+            try {
+              const auto content = readTextFileChecked(entry.source);
+              if (incomingPrefilter && !re2::RE2::PartialMatch(content, *incomingPrefilter)) {
+                ++searchedFiles;
+                continue;
+              }
+              const auto outline = activeSymbols->outlineForContent(entry.key, entry.language, content);
+              ++searchedFiles;
+              const auto resolvedDeps = symbol_service::resolveImports(entry.key, outline.language, outline.imports, ctx.allowedFiles);
+              for (const auto &dep : resolvedDeps) {
+                if (dep.resolved_path == selectedKey) {
+                  incomingRows.push_back({entry.source, dep.target_spec, dep.kind, dep.line});
+                }
+              }
+            } catch (const std::exception &) {
+              ++unreadableFiles;
+            }
+          }
+          if (searchedFiles + unreadableFiles < supportedCount || unreadableFiles > 0 || searchLimited) {
+            incomplete = true;
+          }
+        }
+      }
+
+      std::stable_sort(incomingRows.begin(), incomingRows.end(), [](const IncomingRow &a, const IncomingRow &b) {
+        if (a.source != b.source) return a.source < b.source;
+        return a.line < b.line;
+      });
+
+      json result = {
+        {"source", selected},
+        {"language", std::string(symbol_service::languageName(selectedLang))},
+        {"direction", direction},
+        {"graph_source", graphSource},
+        {"freshness", freshness},
+        {"outgoing_source", wantOutgoing ? (useIndexedOutgoing ? "index" : "live") : "none"},
+        {"incoming_source", wantIncoming ? (useIndexedIncoming ? "index" : "live") : "none"},
+        {"incomplete", incomplete},
+        {"supported_files", incomingUsedLive ? json(supportedCount) : json(nullptr)},
+        {"searched_files", incomingUsedLive ? json(searchedFiles) : json(nullptr)},
+        {"unreadable_files", unreadableFiles},
+        {"search_limited", searchLimited},
+        {"outgoing", json::array()},
+        {"outgoing_count", 0},
+        {"total_outgoing", outgoingRows.size()},
+        {"incoming", json::array()},
+        {"incoming_count", 0},
+        {"total_incoming", incomingRows.size()},
+        {"truncated", false}
+      };
+
+      recordUsedSource(ctx.usedSources, selected);
+
+      auto &outArr = result["outgoing"];
+      for (const auto &row : outgoingRows) {
+        if (outArr.size() >= limit) {
+          result["truncated"] = true;
+          break;
+        }
+        outArr.push_back({
+          {"target", row.target},
+          {"resolved", row.resolved.empty() ? json(nullptr) : json(row.resolved)},
+          {"kind", row.kind},
+          {"line", row.line},
+          {"is_system", row.isSystem},
+          {"external", row.isExternal}
+        });
+        result["outgoing_count"] = outArr.size();
+        if (result.dump().size() > kMaxResultBytes) {
+          outArr.erase(outArr.end() - 1);
+          result["outgoing_count"] = outArr.size();
+          result["truncated"] = true;
+          break;
+        }
+        if (!row.resolved.empty()) recordUsedSource(ctx.usedSources, row.resolved);
+      }
+
+      auto &inArr = result["incoming"];
+      for (const auto &row : incomingRows) {
+        if (inArr.size() >= limit) {
+          result["truncated"] = true;
+          break;
+        }
+        inArr.push_back({
+          {"source", row.source},
+          {"target", row.target},
+          {"kind", row.kind},
+          {"line", row.line}
+        });
+        result["incoming_count"] = inArr.size();
+        if (result.dump().size() > kMaxResultBytes) {
+          inArr.erase(inArr.end() - 1);
+          result["incoming_count"] = inArr.size();
+          result["truncated"] = true;
+          break;
+        }
+        recordUsedSource(ctx.usedSources, row.source);
+      }
+
+      return result;
+    } catch (const std::exception &e) {
+      return {{"error", preview(e.what(), 512)}};
+    }
+  }
+
+  json executeFindReferences(const json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols) {
+    LOG_MSG_DEBUG << "executeFindReferences: " << call.dump();
+    LOG_MSG_INFO << "[tool] find_references called";
+    try {
+      const auto &function = call.at("function");
+      if (function.at("name") != "find_references") throw std::invalid_argument("Unknown tool");
+      const auto arguments = function.at("arguments").get<std::string>();
+      if (arguments.size() > 4096) throw std::invalid_argument("Tool arguments exceed the size limit");
+      const auto args = json::parse(arguments);
+      if (!args.is_object()) throw std::invalid_argument("Tool arguments must be an object");
+      for (const auto &[key, value] : args.items()) {
+        if (key != "symbol" && key != "include_declarations" && key != "path_filter" && key != "glob" && key != "limit")
+          throw std::invalid_argument("Unknown find_references argument: " + preview(key, 128));
+      }
+      if (!args.contains("symbol") || !args["symbol"].is_string())
+        throw std::invalid_argument("symbol must be a string");
+      const auto query = args["symbol"].get<std::string>();
+      if (query.empty() || query.size() > 256 || query.find('\0') != std::string::npos ||
+          query.find_first_of("\r\n") != std::string::npos ||
+          query.find_first_not_of(" \t") == std::string::npos)
+        throw std::invalid_argument("symbol must be single-line nonblank text, 1 to 256 bytes");
+
+      std::string baseName = query;
+      const auto cppSep = query.rfind("::");
+      const auto dotSep = query.rfind('.');
+      if (cppSep != std::string::npos && (dotSep == std::string::npos || cppSep > dotSep)) {
+        baseName = query.substr(cppSep + 2);
+      } else if (dotSep != std::string::npos) {
+        baseName = query.substr(dotSep + 1);
+      }
+      baseName = utils::trimmed(baseName);
+      if (baseName.empty())
+        throw std::invalid_argument("symbol must specify a valid identifier name");
+
+      bool includeDeclarations = false;
+      if (args.contains("include_declarations")) {
+        if (!args["include_declarations"].is_boolean())
+          throw std::invalid_argument("include_declarations must be a boolean");
+        includeDeclarations = args["include_declarations"].get<bool>();
+      }
+
+      size_t limit = 30;
+      if (args.contains("limit")) {
+        if (!args["limit"].is_number_integer() || args["limit"] < 1 || args["limit"] > 100)
+          throw std::invalid_argument("limit must be an integer between 1 and 100");
+        limit = args["limit"].get<size_t>();
+      }
+
+      const auto filter = pathFilter(args);
+      std::string globText;
+      const auto globRe = compileGlob(args, globText);
+      const auto filteredFiles = filterAllowedFiles(ctx.allowedFiles, filter, globRe);
+      const auto supportedFiles = collectSupportedFiles(filteredFiles);
+
+      json result = {
+        {"symbol", query},
+        {"base_name", baseName},
+        {"include_declarations", includeDeclarations},
+        {"outcome", "incomplete_search"},
+        {"path_filter", filter},
+        {"supported_files", supportedFiles.size()},
+        {"searched_files", 0},
+        {"parsed_files", 0},
+        {"unreadable_files", 0},
+        {"incomplete", false},
+        {"search_limited", false},
+        {"reference_count", 0},
+        {"total_references", 0},
+        {"truncated", false},
+        {"references", json::array()}
+      };
+      if (!globText.empty()) result["glob"] = globText;
+
+      if (filteredFiles.empty()) {
+        result["outcome"] = "no_files_matched_filter";
+        return result;
+      }
+      if (supportedFiles.empty()) {
+        result["outcome"] = "no_supported_files";
+        return result;
+      }
+
+      const std::string leafPrefilter = (baseName.size() > 1 && baseName.front() == '~') ? baseName.substr(1) : baseName;
+      re2::RE2::Options preOpt;
+      preOpt.set_log_errors(false);
+      preOpt.set_max_mem(1 << 20);
+      preOpt.set_case_sensitive(true);
+      re2::RE2 prefilter("(?:^|[^A-Za-z0-9_])" + re2::RE2::QuoteMeta(leafPrefilter) + "(?:$|[^A-Za-z0-9_])", preOpt);
+      if (!prefilter.ok()) throw std::invalid_argument("Unable to compile symbol reference filter");
+
+      symbol_service::SymbolService localSymbols;
+      symbol_service::SymbolService *activeSymbols = symbols ? symbols : &localSymbols;
+
+      struct RefHit {
+        std::string source;
+        std::string key;
+        symbol_service::Language language;
+        symbol_service::ReferenceMatch match;
+      };
+      std::vector<RefHit> collected;
+      size_t searchedFiles = 0;
+      size_t parsedFiles = 0;
+      size_t unreadableFiles = 0;
+      bool searchLimited = false;
+      bool fileMatchLimited = false;
+      const auto startedAt = std::chrono::steady_clock::now();
+      constexpr auto kScanBudget = std::chrono::milliseconds(5000);
+      constexpr size_t kMaxReferencesPerFile = 25;
+
+      for (const auto &entry : supportedFiles) {
+        if (searchedFiles > 0 && (std::chrono::steady_clock::now() - startedAt) >= kScanBudget) {
+          searchLimited = true;
+          break;
+        }
+        try {
+          const auto content = readTextFileChecked(entry.source);
+          ++searchedFiles;
+          if (!re2::RE2::PartialMatch(content, prefilter)) continue;
+          const auto outline = activeSymbols->outlineForContent(entry.key, entry.language, content);
+          ++parsedFiles;
+          auto refs = symbol_service::findReferencesInContent(entry.language, content, query, includeDeclarations, &outline.symbols);
+          size_t perFile = 0;
+          for (auto &r : refs) {
+            if (perFile >= kMaxReferencesPerFile) {
+              fileMatchLimited = true;
+              break;
+            }
+            collected.push_back({entry.source, entry.key, outline.language, std::move(r)});
+            ++perFile;
+          }
+        } catch (const std::exception &) {
+          ++unreadableFiles;
+        }
+      }
+
+      std::stable_sort(collected.begin(), collected.end(), [](const RefHit &a, const RefHit &b) {
+        if (a.match.exact_qualifier != b.match.exact_qualifier) return a.match.exact_qualifier;
+        const bool aIsUsage = a.match.kind != "definition" && a.match.kind != "declaration";
+        const bool bIsUsage = b.match.kind != "definition" && b.match.kind != "declaration";
+        if (aIsUsage != bIsUsage) return aIsUsage;
+        if (a.key != b.key) return a.key < b.key;
+        if (a.match.line != b.match.line) return a.match.line < b.match.line;
+        return a.match.column < b.match.column;
+      });
+
+      const bool incomplete = (searchedFiles + unreadableFiles < supportedFiles.size()) || unreadableFiles > 0 || searchLimited;
+      result["searched_files"] = searchedFiles;
+      result["parsed_files"] = parsedFiles;
+      result["unreadable_files"] = unreadableFiles;
+      result["search_limited"] = searchLimited;
+      result["file_match_limited"] = fileMatchLimited;
+      result["per_file_limit"] = kMaxReferencesPerFile;
+      result["incomplete"] = incomplete;
+      result["outcome"] = incomplete ? "incomplete_search" : "complete";
+      result["total_references"] = collected.size();
+      if (fileMatchLimited) result["truncated"] = true;
+
+      auto &arr = result["references"];
+      for (size_t i = 0; i < collected.size(); ++i) {
+        if (arr.size() >= limit) {
+          result["truncated"] = true;
+          break;
+        }
+        arr.push_back({
+          {"source", collected[i].source},
+          {"language", std::string(symbol_service::languageName(collected[i].language))},
+          {"line", collected[i].match.line},
+          {"column", collected[i].match.column},
+          {"kind", collected[i].match.kind},
+          {"enclosing_symbol", std::string{ utils::sanitizeUtf8(collected[i].match.enclosing_symbol) }},
+          {"exact_qualifier", collected[i].match.exact_qualifier},
+          {"snippet", std::string{ utils::sanitizeUtf8(collected[i].match.snippet) }}
+        });
+        result["reference_count"] = arr.size();
+        if (result.dump().size() > kMaxResultBytes) {
+          arr.erase(arr.end() - 1);
+          result["reference_count"] = arr.size();
+          result["truncated"] = true;
+          break;
+        }
+        recordUsedSource(ctx.usedSources, collected[i].source);
       }
 
       return result;
@@ -1787,6 +2291,24 @@ namespace chat_tools {
           } else if (output.value("match_count", size_t(0)) == 0) {
             status = "info";
           }
+        } else if (name == "dependencies") {
+          summary = std::to_string(output.value("outgoing_count", size_t(0))) + " outgoing, " +
+            std::to_string(output.value("incoming_count", size_t(0))) + " incoming (" +
+            output.value("graph_source", std::string("live")) + ")";
+          if (output.value("incomplete", false)) {
+            summary += " (incomplete)";
+            status = "warning";
+          }
+        } else if (name == "find_references") {
+          summary = std::to_string(output.value("reference_count", size_t(0))) + " references; searched " +
+            std::to_string(output.value("searched_files", size_t(0))) + "/" +
+            std::to_string(output.value("supported_files", size_t(0))) + " files";
+          if (output.value("incomplete", false)) {
+            summary += " (incomplete)";
+            status = "warning";
+          } else if (output.value("reference_count", size_t(0)) == 0) {
+            status = "info";
+          }
         }
         else if (name == "project_info" || name == "project_settings") summary = "loaded summary returned";
         else summary = "inspection returned";
@@ -1813,6 +2335,15 @@ namespace chat_tools {
         else if (name == "read_symbol" && output.value("ambiguous", false)) compactResult = std::to_string(output.value("candidate_count", size_t(0))) + " candidates";
         else if (name == "find_symbol") {
           compactResult = std::to_string(output.value("match_count", size_t(0))) + " matches" + middle +
+            std::to_string(output.value("searched_files", size_t(0))) + "/" +
+            std::to_string(output.value("supported_files", size_t(0))) + " files";
+          if (output.value("incomplete", false)) compactResult += " (incomplete)";
+        } else if (name == "dependencies") {
+          compactResult = std::to_string(output.value("outgoing_count", size_t(0))) + " out, " +
+            std::to_string(output.value("incoming_count", size_t(0))) + " in";
+          if (output.value("incomplete", false)) compactResult += " (incomplete)";
+        } else if (name == "find_references") {
+          compactResult = std::to_string(output.value("reference_count", size_t(0))) + " refs" + middle +
             std::to_string(output.value("searched_files", size_t(0))) + "/" +
             std::to_string(output.value("supported_files", size_t(0))) + " files";
           if (output.value("incomplete", false)) compactResult += " (incomplete)";

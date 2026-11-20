@@ -38,6 +38,8 @@ namespace chat_tools {
   nlohmann::json symbolOutlineDefinition();
   nlohmann::json readSymbolDefinition();
   nlohmann::json findSymbolDefinition();
+  nlohmann::json dependenciesDefinition();
+  nlohmann::json findReferencesDefinition();
   nlohmann::json listFilesDefinition();
   nlohmann::json searchContextDefinition();
   nlohmann::json projectInfoDefinition();
@@ -77,6 +79,17 @@ namespace chat_tools {
   nlohmann::json executeSymbolOutline(const nlohmann::json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols = nullptr);
   nlohmann::json executeReadSymbol(const nlohmann::json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols = nullptr);
   nlohmann::json executeFindSymbol(const nlohmann::json &call, const ToolContext &ctx, symbol_service::SymbolService *symbols = nullptr);
+  struct IndexedDependencyQuery {
+    bool hasIndexedGraph = false;
+    bool sourceTracked = false;
+    std::vector<FileDependency> outgoing;
+    std::vector<FileDependency> incoming;
+  };
+  using DependencyReader = std::function<IndexedDependencyQuery(const std::string &normalizedPath)>;
+  nlohmann::json executeDependencies(const nlohmann::json &call, const ToolContext &ctx,
+    symbol_service::SymbolService *symbols = nullptr, const DependencyReader &readIndexed = {});
+  nlohmann::json executeFindReferences(const nlohmann::json &call, const ToolContext &ctx,
+    symbol_service::SymbolService *symbols = nullptr);
   using FileMetadataReader = std::function<std::vector<FileMetadata>()>;
   nlohmann::json executeListFiles(const nlohmann::json &call, const ToolContext &ctx, const FileMetadataReader &metadata = {});
   nlohmann::json executeSearchContext(const nlohmann::json &call, const ToolContext &ctx, const ContextSearch &search);

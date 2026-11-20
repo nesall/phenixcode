@@ -150,8 +150,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
       LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
 
       const bool agentEnabled = imp->app_.settings().providers().agentEnabled();
-      const json tools = chat_tools::enabled(agentEnabled, apiConfig, freeChat, request.value("attachedonly", false))
-        ? chat_tools::definitions(true) : json::array();
+      const bool toolsEnabled = chat_tools::enabled(agentEnabled, apiConfig, freeChat, request.value("attachedonly", false));
       if (agentEnabled && !freeChat && !request.value("attachedonly", false)) {
         if (apiConfig.supportsTools == "on" && apiConfig.apiStyle == ApiConfig::ApiStyle::Anthropic)
           pendingInfoVec.push_back("Tools are unavailable for Anthropic API style; continuing without tools");
@@ -159,7 +158,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
           pendingInfoVec.push_back("Automatic tool detection is unavailable; choose Tool Support On for an OpenAI-compatible provider");
       }
 
-      if (!tools.empty()) LOG_MSG_INFO << "Tool support is enabled for this request";
+      if (toolsEnabled) LOG_MSG_INFO << "Tool support is enabled for this request";
 
       const auto &attachmentsJson = request["attachments"];
       auto attachments = parseAttachments(attachmentsJson);
@@ -241,20 +240,39 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
           try {
             const auto count = [&](std::string_view text) { return imp->app_.tokenizer().countTokensWithVocab(text); };
             const auto inputBudget = inference_contant::inputTokenBudget(apiConfig.contextLength, maxTokens);
-            const auto schemaTokens = tools.empty() ? 0 : count(tools.dump());
-            const auto toolReserve = tools.empty() ? 0 : (std::min)(size_t(8192), apiConfig.contextLength / 8);
-            const auto retrievalBudget = inference_contant::retrievalTokenBudget(
-              apiConfig.contextLength, maxTokens, schemaTokens, contextSizeRatio, toolReserve);
             auto prepared = imp->app_.reasoningHistory().prepare(replaySessionId, responseId, apiConfig, messagesJson);
             size_t initialTokens = inference_contant::estimateRequestTokens(prepared.messages, json::array(), count);
             if (!freeChat || !attachments.empty())
               initialTokens += imp->app_.tokenizer().countTokensWithVocab(CompletionClient::queryTemplate(freeChat));
+
+            json tools = toolsEnabled ? chat_tools::definitions(true, /*includeCodeGraph=*/true) : json::array();
+            const auto toolReserve = tools.empty() ? 0 : (std::min)(size_t(8192), apiConfig.contextLength / 8);
+            auto schemaTokens = tools.empty() ? 0 : count(tools.dump());
+            bool omittedCodeGraph = false;
+            if (!tools.empty()) {
+              bool omitCodeGraph = apiConfig.contextLength < 8192;
+              if (!omitCodeGraph) {
+                omitCodeGraph = schemaTokens >= inputBudget || toolReserve >= inputBudget - schemaTokens ||
+                  (inputBudget - schemaTokens - toolReserve) < initialTokens + 256;
+              }
+              if (omitCodeGraph) {
+                tools = chat_tools::definitions(true, /*includeCodeGraph=*/false);
+                schemaTokens = count(tools.dump());
+                omittedCodeGraph = true;
+                LOG_MSG_INFO << "Omitting dependencies and find_references tools due to model context budget (" << apiConfig.contextLength << " tokens)";
+              }
+            }
+            const auto retrievalBudget = inference_contant::retrievalTokenBudget(
+              apiConfig.contextLength, maxTokens, schemaTokens, contextSizeRatio, toolReserve);
             auto [orderedResults, usedTokens] = processInputResults(
               imp->app_, apiConfig, initialTokens, question, attachments, sources, contextSizeRatio, attachedOnly, onInfo, freeChat, retrievalBudget
             );
 
             for (const auto &s : pendingInfoVec) {
               onInfo(s);
+            }
+            if (omittedCodeGraph) {
+              onInfo("Omitted dependencies and find_references tools due to model context budget");
             }
 
             CompletionClient cc(apiConfig, imp->app_.settings().generationTimeoutMs(), imp->app_);

@@ -32,6 +32,15 @@ struct FileMetadata {
   std::string hash; // Optional: content hash for change detection
 };
 
+struct FileDependency {
+  std::string sourcePath;
+  std::string targetSpec;
+  std::string resolvedPath;
+  std::string kind;
+  size_t line = 0;
+  bool isSystem = false;
+};
+
 struct DatabaseStats {
   size_t totalChunks = 0;
   size_t vectorCount = 0;
@@ -87,6 +96,14 @@ public:
   virtual std::vector<size_t> getChunkIdsBySource(const std::string &sourceId) const = 0;
   virtual std::vector<float> getEmbeddingVector(size_t chunkId) const = 0;
 
+  virtual void replaceFileDependencies(const std::string &sourcePath, const std::vector<FileDependency> &deps) {}
+  virtual void removeFileDependencies(const std::string &sourcePath) {}
+  virtual std::vector<FileDependency> getOutgoingDependencies(const std::string &sourcePath) const { return {}; }
+  virtual std::vector<FileDependency> getIncomingDependencies(const std::string &resolvedPath) const { return {}; }
+  virtual size_t dependencyCount() const { return 0; }
+  virtual bool hasAnyDependencies() const { return dependencyCount() > 0; }
+  virtual bool isFileTracked(const std::string &normalizedPath) const { return fileExistsInMetadata(normalizedPath); }
+
   virtual DatabaseStats getStats() const = 0;
   virtual void persist() = 0;
   virtual void compact() {}
@@ -136,6 +153,14 @@ public:
   std::vector<FileMetadata> getTrackedFiles() const override;
   std::unordered_map<std::string, size_t> getChunkCountsBySources() const override;
   std::vector<float> getEmbeddingVector(size_t chunkId) const override;
+
+  void replaceFileDependencies(const std::string &sourcePath, const std::vector<FileDependency> &deps) override;
+  void removeFileDependencies(const std::string &sourcePath) override;
+  std::vector<FileDependency> getOutgoingDependencies(const std::string &sourcePath) const override;
+  std::vector<FileDependency> getIncomingDependencies(const std::string &resolvedPath) const override;
+  size_t dependencyCount() const override;
+  bool hasAnyDependencies() const override;
+  bool isFileTracked(const std::string &normalizedPath) const override;
 
   void beginTransaction() override;
   void commit() override;

@@ -6,6 +6,7 @@
 #include "inference.h"
 #include "monitor.h"
 #include "tokenizer.h"
+#include "cutils.h"
 #include <utils_log/logger.hpp>
 #include <algorithm>
 #include <chrono>
@@ -15,10 +16,14 @@ using json = nlohmann::json;
 
 namespace chat_tools {
 
-  json definitions(bool includeSettings) {
+  json definitions(bool includeSettings, bool includeCodeGraph) {
     auto tools = json::array({ grepDefinition(), readFileDefinition(), readFilesDefinition(), symbolOutlineDefinition(), readSymbolDefinition(), findSymbolDefinition(), listFilesDefinition(), searchContextDefinition(), projectInfoDefinition() });
     if (includeSettings) tools.push_back(projectSettingsDefinition());
     for (auto tool : { gitDiffDefinition(), gitLogDefinition(), gitShowDefinition(), gitBlameDefinition() }) tools.push_back(std::move(tool));
+    if (includeCodeGraph) {
+      tools.push_back(dependenciesDefinition());
+      tools.push_back(findReferencesDefinition());
+    }
     return tools;
   }
 
@@ -52,6 +57,20 @@ namespace chat_tools {
       return chat_tools::executeReadSymbol(call, { allowedFiles_, usedSources_ }, &app_.symbolService());
     if (funcName == "find_symbol")
       return chat_tools::executeFindSymbol(call, { allowedFiles_, usedSources_ }, &app_.symbolService());
+    if (funcName == "dependencies") {
+      auto reader = [&](const std::string &normalizedPath) -> chat_tools::IndexedDependencyQuery {
+        chat_tools::IndexedDependencyQuery q;
+        q.hasIndexedGraph = app_.db().hasAnyDependencies();
+        if (!q.hasIndexedGraph) return q;
+        q.sourceTracked = app_.db().isFileTracked(normalizedPath);
+        if (q.sourceTracked) q.outgoing = app_.db().getOutgoingDependencies(normalizedPath);
+        q.incoming = app_.db().getIncomingDependencies(normalizedPath);
+        return q;
+      };
+      return chat_tools::executeDependencies(call, { allowedFiles_, usedSources_ }, &app_.symbolService(), reader);
+    }
+    if (funcName == "find_references")
+      return chat_tools::executeFindReferences(call, { allowedFiles_, usedSources_ }, &app_.symbolService());
     if (funcName == "grep")
       return chat_tools::executeGrepWithOptions(call, { allowedFiles_, usedSources_ },
         [&](const chat_tools::GrepQuery &query, const std::vector<std::string> &paths) {

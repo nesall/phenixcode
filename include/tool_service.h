@@ -2,7 +2,7 @@
 #include "chat_tools.h"
 class App;
 namespace chat_tools {
-  nlohmann::json definitions(bool includeSettings = false);
+  nlohmann::json definitions(bool includeSettings = false, bool includeCodeGraph = true);
   // One instance per request; scope and Git discovery must never cross requests.
   class Service {
     App &app_;
