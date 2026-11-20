@@ -51,15 +51,15 @@ namespace {
 int main() {
   try {
     ApiConfig api; api.supportsTools = "on";
-    check(chat_tools::enabled(true, api, false, false), "explicit tool support enables agent");
-    check(!chat_tools::enabled(false, api, false, false), "global off disables agent");
-    check(!chat_tools::enabled(true, api, true, false), "free chat cannot search code");
-    check(!chat_tools::enabled(true, api, false, true), "attached-only cannot search code");
+    check(chat_tools::isToolEnabled(true, api, false, false), "explicit tool support enables agent");
+    check(!chat_tools::isToolEnabled(false, api, false, false), "global off disables agent");
+    check(!chat_tools::isToolEnabled(true, api, true, false), "free chat cannot search code");
+    check(!chat_tools::isToolEnabled(true, api, false, true), "attached-only cannot search code");
     api.apiStyle = ApiConfig::ApiStyle::Anthropic;
-    check(!chat_tools::enabled(true, api, false, false), "Anthropic execution is deferred");
+    check(!chat_tools::isToolEnabled(true, api, false, false), "Anthropic execution is deferred");
     api.apiStyle = ApiConfig::ApiStyle::OpenAI;
     for (const auto &support : {"auto", "off"}) { api.supportsTools = support;
-      check(!chat_tools::enabled(true, api, false, false), "auto and off do not assume capability"); }
+      check(!chat_tools::isToolEnabled(true, api, false, false), "auto and off do not assume capability"); }
 
     Fixture fixture;
     const auto source = (fixture.directory / "source.cpp").generic_string();

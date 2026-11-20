@@ -210,7 +210,7 @@ int main(int argc, char *argv[]) {
 
     // 8. PhenixCode repo fixtures via chat_tools executors & SSE run loop.
     const std::string repoH = (repoRoot / "include" / "chat_tools.h").generic_string();
-    const std::string repoCpp = (repoRoot / "src" / "chat_tools.cpp").generic_string();
+    const std::string repoCpp = (repoRoot / "src" / "chat_tools_search.cpp").generic_string();
     std::vector<std::string> repoUsed;
     const std::vector<std::string> repoScope{repoH, repoCpp};
 
@@ -227,7 +227,7 @@ int main(int argc, char *argv[]) {
     check(!repoDef.contains("error") && repoDef["role"] == "definition" &&
           repoDef["content"].get<std::string>().find("executeGrepWithOptions") != std::string::npos &&
           repoDef["end_line"].get<size_t>() > repoDef["start_line"].get<size_t>(),
-      "read_symbol resolves executeGrepWithOptions implementation in src/chat_tools.cpp");
+      "read_symbol resolves executeGrepWithOptions implementation in src/chat_tools_search.cpp");
 
     // Verify SSE progress summaries through chat_tools::run().
     size_t rounds = 0;
@@ -329,7 +329,7 @@ int main(int argc, char *argv[]) {
             repoFind["match_count"] == 2 &&
             repoFind["matches"][0]["source"] == repoCpp && repoFind["matches"][0]["role"] == "definition" &&
             repoFind["matches"][1]["source"] == repoH && repoFind["matches"][1]["role"] == "declaration",
-        "find_symbol ranks src/chat_tools.cpp definition before include/chat_tools.h declaration");
+        "find_symbol ranks src/chat_tools_search.cpp definition before include/chat_tools.h declaration");
 
       auto repoNoExt = chat_tools::executeFindSymbol(
         call("fs_noext", {{"name", "anything"}, {"glob", "*.svelte"}}, "find_symbol"),
@@ -461,7 +461,7 @@ int main(int argc, char *argv[]) {
             partialRefs["unreadable_files"] == 1 && partialRefs["reference_count"] == 1,
         "find_references reports incomplete=true when a supported file cannot be read");
 
-      // PhenixCode repo executeGrepWithOptions reference check across header, chat_tools.cpp, and tool_service.cpp.
+      // PhenixCode repo executeGrepWithOptions reference check across header, chat_tools_search.cpp, and tool_service.cpp.
       const std::string repoToolService = (repoRoot / "src" / "tool_service.cpp").generic_string();
       std::vector<std::string> repoRefUsed;
       auto repoRefs = chat_tools::executeFindReferences(
@@ -487,7 +487,7 @@ int main(int argc, char *argv[]) {
           : chat_tools::executeFindReferences(request, {{repoH, repoCpp, repoToolService}, repoRefUsed}, &cgService);
       }, [] { return true; }, 5, [&](const json &ev) { cgEvents.push_back(ev); }, repoRoot.generic_string());
       check(cgOutcome.text == "Done" && cgEvents.size() == 4 &&
-            cgEvents[1]["summary"].get<std::string>().find("Dependencies src/chat_tools.cpp") != std::string::npos &&
+            cgEvents[1]["summary"].get<std::string>().find("Dependencies src/chat_tools_search.cpp") != std::string::npos &&
             cgEvents[3]["summary"].get<std::string>().find("Find references executeGrepWithOptions") != std::string::npos,
         "chat_tools::run formats compact summaries for dependencies and find_references");
 

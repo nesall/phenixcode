@@ -145,23 +145,23 @@ set(TEST_TREE_SITTER_LIBS
   test_tree_sitter_typescript
   test_tree_sitter_tsx)
 
-add_executable(symbol_service_tests symbol_service_tests.cpp ../src/symbol_service.cpp ../src/cutils.cpp)
+add_executable(symbol_service_tests symbol_service_tests.cpp ../src/symbol_service.cpp ../src/symbol_service_util.cpp ../src/symbol_service_language.cpp ../src/symbol_extract_cpp.cpp ../src/symbol_extract_c.cpp ../src/symbol_extract_python.cpp ../src/symbol_extract_js_ts.cpp ../src/symbol_service_outline.cpp ../src/symbol_service_imports.cpp ../src/symbol_service_references.cpp ../src/cutils.cpp)
 target_compile_features(symbol_service_tests PRIVATE cxx_std_20)
 target_include_directories(symbol_service_tests PRIVATE ../include)
 target_link_libraries(symbol_service_tests PRIVATE ${TEST_TREE_SITTER_LIBS})
 add_test(NAME symbol_service_tests COMMAND symbol_service_tests "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set_tests_properties(symbol_service_tests PROPERTIES TIMEOUT 30)
 
-add_executable(symbol_tools_tests symbol_tools_tests.cpp ../src/chat_tools.cpp ../src/inference_messages.cpp
-  ../src/symbol_service.cpp ../src/settings.cpp ../src/cutils.cpp)
+add_executable(symbol_tools_tests symbol_tools_tests.cpp ../src/chat_tools_common.cpp ../src/chat_tools_definitions.cpp ../src/chat_tools_files.cpp ../src/chat_tools_symbols.cpp ../src/chat_tools_symbol_search.cpp ../src/chat_tools_search.cpp ../src/chat_tools_project.cpp ../src/chat_tools_run.cpp ../src/inference_messages.cpp
+  ../src/symbol_service.cpp ../src/symbol_service_util.cpp ../src/symbol_service_language.cpp ../src/symbol_extract_cpp.cpp ../src/symbol_extract_c.cpp ../src/symbol_extract_python.cpp ../src/symbol_extract_js_ts.cpp ../src/symbol_service_outline.cpp ../src/symbol_service_imports.cpp ../src/symbol_service_references.cpp ../src/settings.cpp ../src/cutils.cpp)
 target_compile_features(symbol_tools_tests PRIVATE cxx_std_20)
 target_include_directories(symbol_tools_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}")
 target_link_libraries(symbol_tools_tests PRIVATE re2::re2 ${TEST_TREE_SITTER_LIBS})
 add_test(NAME symbol_tools_tests COMMAND symbol_tools_tests "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set_tests_properties(symbol_tools_tests PROPERTIES TIMEOUT 30)
 
-add_executable(chat_tools_tests chat_tools_tests.cpp ../src/chat_tools.cpp ../src/chat_tools_git.cpp ../src/inference_messages.cpp
-  ../src/symbol_service.cpp ../src/sourceproc.cpp ../src/settings.cpp ../src/cutils.cpp ../src/chunker.cpp ../src/tokenizer.cpp)
+add_executable(chat_tools_tests chat_tools_tests.cpp ../src/chat_tools_common.cpp ../src/chat_tools_definitions.cpp ../src/chat_tools_files.cpp ../src/chat_tools_symbols.cpp ../src/chat_tools_symbol_search.cpp ../src/chat_tools_search.cpp ../src/chat_tools_project.cpp ../src/chat_tools_run.cpp ../src/chat_tools_git.cpp ../src/inference_messages.cpp
+  ../src/symbol_service.cpp ../src/symbol_service_util.cpp ../src/symbol_service_language.cpp ../src/symbol_extract_cpp.cpp ../src/symbol_extract_c.cpp ../src/symbol_extract_python.cpp ../src/symbol_extract_js_ts.cpp ../src/symbol_service_outline.cpp ../src/symbol_service_imports.cpp ../src/symbol_service_references.cpp ../src/sourceproc.cpp ../src/settings.cpp ../src/cutils.cpp ../src/chunker.cpp ../src/tokenizer.cpp)
 target_compile_features(chat_tools_tests PRIVATE cxx_std_20)
 target_include_directories(chat_tools_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}" "${HTTPLIB_INCLUDE_DIR}")
 target_link_libraries(chat_tools_tests PRIVATE re2::re2 ${TEST_TREE_SITTER_LIBS})

@@ -139,3 +139,82 @@ namespace symbol_service {
   };
 
 } // namespace symbol_service
+
+#if defined(__has_include) && __has_include(<tree_sitter/api.h>)
+#include <tree_sitter/api.h>
+
+// Internal: shared between symbol_*.cpp. Not for callers.
+namespace symbol_service::detail {
+  std::string toLowerAscii(std::string_view text);
+  std::string_view trimView(std::string_view sv);
+  std::string collapseWhitespace(std::string_view sv, size_t maxBytes = 200);
+
+  struct ParserHandle {
+    TSParser *raw = nullptr;
+    ParserHandle();
+    ~ParserHandle();
+    ParserHandle(const ParserHandle &) = delete;
+    ParserHandle &operator=(const ParserHandle &) = delete;
+  };
+
+  struct TreeHandle {
+    TSTree *raw = nullptr;
+    explicit TreeHandle(TSTree *t);
+    ~TreeHandle();
+    TreeHandle(const TreeHandle &) = delete;
+    TreeHandle &operator=(const TreeHandle &) = delete;
+  };
+
+  struct CursorGuard {
+    TSTreeCursor raw;
+    explicit CursorGuard(TSNode root);
+    ~CursorGuard();
+    CursorGuard(const CursorGuard &) = delete;
+    CursorGuard &operator=(const CursorGuard &) = delete;
+  };
+
+  template <class Fn>
+  void walkAst(TSNode root, Fn &&visit) {
+    if (ts_node_is_null(root)) return;
+    CursorGuard cursor(root);
+    bool reachedRoot = false;
+    while (!reachedRoot) {
+      TSNode current = ts_tree_cursor_current_node(&cursor.raw);
+      if (visit(current) && ts_tree_cursor_goto_first_child(&cursor.raw)) {
+        continue;
+      }
+      if (ts_tree_cursor_goto_next_sibling(&cursor.raw)) {
+        continue;
+      }
+      while (true) {
+        if (!ts_tree_cursor_goto_parent(&cursor.raw)) {
+          reachedRoot = true;
+          break;
+        }
+        if (ts_tree_cursor_goto_next_sibling(&cursor.raw)) {
+          break;
+        }
+      }
+    }
+  }
+
+  std::string_view nodeText(TSNode node, std::string_view src);
+  bool isType(TSNode node, const char *typeName);
+  TSNode effectiveRange(TSNode inner, TSNode rangeOwner);
+  std::string joinScope(const std::vector<std::string> &parts, std::string_view separator);
+  void fillSpan(TSNode rangeNode, size_t maxBytes, SymbolInfo &sym);
+  std::string sliceUntilByte(std::string_view src, TSNode startNode, uint32_t endByte, char trimTrail = ';');
+  std::string cleanDeclarationSignature(std::string_view src, TSNode rangeNode);
+  void emitSymbol(std::vector<SymbolInfo> &symbols, std::string_view src, std::string_view separator,
+                  SymbolInfo sym, TSNode rangeNode);
+  void assignUniqueSelectors(std::vector<SymbolInfo> &symbols);
+  void ensureLanguage(TSParser *parser, Language lang);
+  std::vector<SymbolInfo> extractCpp(TSNode root, std::string_view content);
+  std::vector<SymbolInfo> extractC(TSNode root, std::string_view content);
+  bool isPythonStubEllipsis(TSNode body);
+  std::vector<SymbolInfo> extractPython(TSNode root, std::string_view content, bool isStubFile);
+  std::vector<SymbolInfo> extractJsTs(TSNode root, std::string_view content);
+  std::vector<SymbolInfo> extractOutlineSymbols(Language lang, std::string_view key, TSNode root, std::string_view content);
+  std::vector<ImportEdge> extractImportsFromRoot(Language lang, TSNode root, std::string_view src);
+}
+#endif

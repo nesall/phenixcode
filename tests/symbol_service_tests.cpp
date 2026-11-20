@@ -79,8 +79,8 @@ int main(int argc, char *argv[]) {
             declHits[0]->kind == symbol_service::SymbolKind::Function,
             "header executeGrepWithOptions is Function Declaration in chat_tools");
 
-      const std::string cppSrc = readRepoFile(repoRoot / "src" / "chat_tools.cpp");
-      const auto cppOutline = service.outlineForContent("src/chat_tools.cpp", symbol_service::Language::Cpp, cppSrc);
+      const std::string cppSrc = readRepoFile(repoRoot / "src" / "chat_tools_search.cpp");
+      const auto cppOutline = service.outlineForContent("src/chat_tools_search.cpp", symbol_service::Language::Cpp, cppSrc);
       const auto defHits = findByName(cppOutline, "executeGrepWithOptions");
       check(defHits.size() == 1 && defHits[0]->role == symbol_service::SymbolRole::Definition &&
             defHits[0]->container == "chat_tools",

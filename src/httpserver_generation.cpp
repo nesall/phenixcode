@@ -150,7 +150,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
       LOG_MSG << "[" << apiConfig.model << "]" << apiConfig.apiUrl;
 
       const bool agentEnabled = imp->app_.settings().providers().agentEnabled();
-      const bool toolsEnabled = chat_tools::enabled(agentEnabled, apiConfig, freeChat, request.value("attachedonly", false));
+      const bool toolsEnabled = chat_tools::isToolEnabled(agentEnabled, apiConfig, freeChat, request.value("attachedonly", false));
       if (agentEnabled && !freeChat && !request.value("attachedonly", false)) {
         if (apiConfig.supportsTools == "on" && apiConfig.apiStyle == ApiConfig::ApiStyle::Anthropic)
           pendingInfoVec.push_back("Tools are unavailable for Anthropic API style; continuing without tools");

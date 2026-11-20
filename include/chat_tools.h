@@ -31,7 +31,7 @@ namespace chat_tools {
     std::map<std::filesystem::path, std::filesystem::path> roots;
   };
 
-  bool enabled(bool agentEnabled, const ApiConfig &api, bool freeChat, bool attachedOnly);
+  bool isToolEnabled(bool agentEnabled, const ApiConfig &api, bool freeChat, bool attachedOnly);
   nlohmann::json grepDefinition();
   nlohmann::json readFileDefinition();
   nlohmann::json readFilesDefinition();
@@ -110,4 +110,35 @@ namespace chat_tools {
     const std::function<nlohmann::json(const nlohmann::json &)> &execute,
     const std::function<bool()> &connected, size_t maxSteps = kMaxAgentSteps, const Status &onStatus = {},
     const std::string &displayRoot = {});
+}
+
+#include "symbol_service.h"
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace re2 { class RE2; }
+
+// Internal: shared between chat_tools_*.cpp. Not for callers.
+namespace chat_tools::detail {
+  extern const std::string middle;
+  std::string preview(std::string text, size_t maximum);
+  std::string compactAction(const std::string &name, const nlohmann::json &args, const std::string &root, const nlohmann::json *output = nullptr);
+  std::string pathFilter(const nlohmann::json &args);
+  std::unique_ptr<re2::RE2> compileGlob(const nlohmann::json &args, std::string &normalizedGlob);
+  std::vector<std::string> filterAllowedFiles(const std::vector<std::string> &allowedFiles,
+                                              const std::string &filter,
+                                              const std::unique_ptr<re2::RE2> &globRe);
+  const nlohmann::json &projectSections();
+  std::string resolveAllowedFile(std::string path, const std::vector<std::string> &allowedFiles);
+  std::string readTextFileChecked(const std::string &selected);
+
+  struct SupportedEntry {
+    std::string source;
+    std::string key;
+    symbol_service::Language language;
+  };
+  std::vector<SupportedEntry> collectSupportedFiles(const std::vector<std::string> &files);
+  void recordUsedSource(std::vector<std::string> &usedSources, const std::string &source);
+  nlohmann::json symbolEntryJson(const symbol_service::SymbolInfo &s);
 }

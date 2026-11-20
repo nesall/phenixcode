@@ -255,9 +255,25 @@ add_executable(${PROJECT_NAME}
   src/mcp_credentials.cpp
   src/mcp_protocol.cpp
   src/mcp_server.cpp
-  src/chat_tools.cpp
+  src/chat_tools_common.cpp
+  src/chat_tools_definitions.cpp
+  src/chat_tools_files.cpp
+  src/chat_tools_symbols.cpp
+  src/chat_tools_symbol_search.cpp
+  src/chat_tools_search.cpp
+  src/chat_tools_project.cpp
+  src/chat_tools_run.cpp
   src/chat_tools_git.cpp
   src/symbol_service.cpp
+  src/symbol_service_util.cpp
+  src/symbol_service_language.cpp
+  src/symbol_extract_cpp.cpp
+  src/symbol_extract_c.cpp
+  src/symbol_extract_python.cpp
+  src/symbol_extract_js_ts.cpp
+  src/symbol_service_outline.cpp
+  src/symbol_service_imports.cpp
+  src/symbol_service_references.cpp
   src/database.cpp
   src/sourceproc.cpp
   src/context_builder.cpp
