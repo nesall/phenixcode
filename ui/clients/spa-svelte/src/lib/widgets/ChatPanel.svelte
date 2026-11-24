@@ -291,7 +291,6 @@
             sources = stripCommonPrefix(sources);
             console.log("parseFromSSE. sources: ", sources);
             fullResponse += `\n\nSources:  \n`;
-            console.log("Sources: ", sources);
             for (const a of sources as string[]) {
               fullResponse += `*${a}*  \n`;
             }
@@ -513,6 +512,8 @@
         });
         assistantMessage._reasoningVisible = reasoningUserChanged && liveReasoningOpen;
         if (assistantMessage._reasoningVisible) assistantMessage._metaVisible = true;
+        console.log("metaInfoArray", $state.snapshot(metaInfoArray));
+        console.log("reasongingTextRaw", $state.snapshot(reasoningTextRaw));
         $messages = $messages;
       }
       resetUi();
@@ -603,8 +604,8 @@
   }
 </script>
 
-<div class="chat-panel p-3 w-full h-full flex flex-col space-y-8 overflow-y-auto">
-  <div class="flex flex-col space-y-6 mb-4 grow p-4" id="chat-messages">
+<div class="chat-panel p-2 w-full h-full flex flex-col space-y-8 overflow-y-auto">
+  <div class="flex flex-col space-y-6 mb-4 grow p-2" id="chat-messages">
     {#if $messages.length === 0}
       <p class="text text-center text-surface-500">No messages yet. Start the conversation!</p>
     {/if}
