@@ -304,6 +304,30 @@ int main() {
       "tool start and failure are exposed as progress independently of final prose");
     check(recovered.text == "I could not complete that search", "model can recover after a tool failure");
 
+    // The four-byte character straddles the 4 KiB display boundary.
+    const json longResult = {{"text", std::string(4082, 'x') + "\xf0\x9f\x94\x8d" + "tail\nline"}};
+    for (const std::string argStatus : {"", "missing", "invalid", "oversized"}) {
+      auto request = call("trace", json::object(), "project_info");
+      if (argStatus == "missing") request["function"].erase("arguments");
+      if (argStatus == "invalid") request["function"]["arguments"] = "{";
+      if (argStatus == "oversized") request["function"]["arguments"] = std::string(4097, ' ');
+      std::vector<json> events;
+      rounds = 0;
+      chat_tools::run(messages, [&](const json &transcript) -> chat_tools::Turn {
+        if (++rounds == 1) return {"", {{"role", "assistant"}, {"tool_calls", json::array({request})}}};
+        check(json::parse(transcript.back().at("content").get<std::string>()) == longResult, "trace preview preserves model result");
+        return {"done", {{"role", "assistant"}, {"content", "done"}}};
+      }, [&](const json &) { return longResult; }, [] { return true; }, 3, [&](const json &event) { events.push_back(event); });
+      check(events.size() == 2 && events[0]["event_id"] == events[1]["event_id"], "paired trace events");
+      for (const auto &event : events)
+        check(argStatus.empty() ? event.at("args") == json::object() :
+          event.at("args_status") == argStatus && !event.contains("args"), "trace parameter state on both events");
+      const auto preview = events.back().at("result_preview").get<std::string>();
+      check(events.back()["result_preview_truncated"] == true && preview.size() <= 4096 &&
+        preview.find('\n') != std::string::npos && longResult.dump(2).starts_with(preview) &&
+        !events.back().dump().empty() && events.back()["duration_ms"].get<int64_t>() >= 0, "bounded multiline UTF-8 preview and timing");
+    }
+
     const auto read = [&](json args) { return chat_tools::executeReadFile(call("read", args, "read_file"), {{source}, usedSources}); };
     auto excerpt = read({{"path", source}, {"start_line", 2}, {"end_line", 2}});
     check(excerpt["content"] == "2: void SanitizeUtf8() {}\n" && excerpt["start_line"] == 2 && excerpt["end_line"] == 2,
@@ -348,7 +372,13 @@ int main() {
       return {"Final answer", {{"role", "assistant"}, {"content", "Final answer"}}};
     }, [&](const json &request) {
       return request["function"]["name"] == "read_file" ? chat_tools::executeReadFile(request, {{source}, usedSources}) : execute(request);
-    }, [] { return true; }, 5, [&](const json &event) { status.push_back(event.at("content").get<std::string>()); });
+    }, [] { return true; }, 5, [&](const json &event) {
+      status.push_back(event.at("content").get<std::string>());
+      if (event.at("tool") == "read_file" && event.at("status") != "running")
+        check(event.at("result_preview_truncated") == false && excerpt.at("truncated") == true &&
+          json::parse(event.at("result_preview").get<std::string>()) == excerpt,
+          "complete preview of a partial file result preserves the tool's own truncation flag");
+    });
     check(readOutcome.text == "Final answer" && status.size() == 4, "grep and read_file expose four progress events but only one final answer");
     check(status[0].find("sanitizeUtf8") != std::string::npos && status[1].find("snippets;") != std::string::npos &&
       status[3].find("returned lines 2-2") != std::string::npos, "progress includes arguments and result summaries");

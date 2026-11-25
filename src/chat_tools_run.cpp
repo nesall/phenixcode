@@ -1,5 +1,6 @@
 #include "chat_tools.h"
 #include "cutils.h"
+#include <chrono>
 #include <set>
 #include <stdexcept>
 
@@ -62,9 +63,18 @@ namespace chat_tools {
         const auto callId = call.at("id").get<std::string>();
         std::string description = detail::preview(name, 64) + "(";
         json args = json::object();
+        std::string argsStatus;
         try {
-          const auto &raw = call.at("function").at("arguments").get_ref<const std::string &>();
-          args = raw.size() <= 4096 ? json::parse(raw) : json::object();
+          const auto &function = call.at("function");
+          if (!function.contains("arguments")) argsStatus = "missing";
+          else {
+            const auto &raw = function.at("arguments").get_ref<const std::string &>();
+            if (raw.size() > 4096) argsStatus = "oversized";
+            else {
+              args = json::parse(raw);
+              if (!args.is_object()) argsStatus = "invalid";
+            }
+          }
           bool first = true;
           if (args.is_object()) for (const auto &[key, value] : args.items()) {
             if (!first) description += ", ";
@@ -73,20 +83,25 @@ namespace chat_tools {
             description += value.dump();
           }
           if (name == "grep" && !args.contains("path_filter")) description += (first ? "" : ", ") + std::string("path_filter=<all configured files>");
-        } catch (const std::exception &) { description += "invalid arguments"; }
+        } catch (const std::exception &) { argsStatus = "invalid"; description += "invalid arguments"; }
         description = detail::preview(description + ")", 4608);
         const auto prefix = "Round " + std::to_string(step + 1) + "/" + std::to_string(maxSteps) +
           " \xc2\xb7 Call " + std::to_string(callIndex) + "/" + std::to_string(calls->size()) + ": " + description;
         const auto compactPrefix = "Round " + std::to_string(step + 1) + detail::middle +
           std::to_string(callIndex) + "/" + std::to_string(calls->size()) + detail::middle;
-        json event = {{"event_id", "tool:" + std::to_string(step + 1) + ":" + callId}, {"tool", name},
+        const auto action = detail::compactAction(name, args, displayRoot);
+        json event = {{"event_id", "tool:" + std::to_string(step + 1) + ":" + callId}, {"tool", name}, {"action", action},
           {"round", step + 1}, {"max_rounds", maxSteps}, {"call_id", callId}, {"call_index", callIndex}, {"call_count", calls->size()},
-          {"status", "running"}, {"content", prefix}, {"summary", compactPrefix + detail::compactAction(name, args, displayRoot)}};
+          {"status", "running"}, {"content", prefix}, {"summary", compactPrefix + action}};
+        if (argsStatus.empty()) event["args"] = args;
+        else event["args_status"] = argsStatus;
         if (onStatus) onStatus(event);
         if (!connected()) return result;
         json output;
+        const auto started = std::chrono::steady_clock::now();
         try { output = execute(call); }
         catch (const std::exception &e) { output = {{"error", detail::preview(utils::sanitizeUtf8(e.what()), 512)}}; }
+        event["duration_ms"] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
         std::string summary;
         std::string status = "success";
         if (output.contains("error")) { summary = "failed: " + output.at("error").get<std::string>(); status = "error"; }
@@ -184,15 +199,30 @@ namespace chat_tools {
             std::to_string(output.value("supported_files", size_t(0))) + " files";
           if (output.value("incomplete", false)) compactResult += " (incomplete)";
         }
-        auto compact = compactPrefix + detail::compactAction(name, args, displayRoot, &output);
+        const auto completedAction = detail::compactAction(name, args, displayRoot, &output);
+        auto compact = compactPrefix + completedAction;
         if (!compactResult.empty()) compact += dash + compactResult;
         if (output.value("truncated", false)) compact += " (truncated)";
         event["summary"] = compact;
+        event["action"] = completedAction;
+        event["outcome_summary"] = compactResult.empty() ? summary : compactResult;
+        if (!compactResult.empty() && output.value("truncated", false)) event["outcome_summary"] = compactResult + " (truncated)";
         if (name == "grep" && !output.contains("error")) {
           for (const auto *key : {"outcome", "matched_files", "searched_files", "unreadable_files", "search_limited", "path_filter", "glob"})
             if (output.contains(key)) event[key] = output[key];
         }
-        if (onStatus) onStatus(event);
+        if (onStatus) {
+          auto preview = output.dump(2, ' ', false, json::error_handler_t::replace);
+          constexpr size_t maxPreviewBytes = 4096;
+          event["result_preview_truncated"] = preview.size() > maxPreviewBytes;
+          if (preview.size() > maxPreviewBytes) {
+            size_t end = maxPreviewBytes;
+            while (end && (static_cast<unsigned char>(preview[end]) & 0xc0) == 0x80) --end;
+            preview.resize(end);
+          }
+          event["result_preview"] = std::move(preview);
+          onStatus(event);
+        }
         messages.push_back({{"role", "tool"}, {"tool_call_id", call.at("id")}, {"content", output.dump()}});
       }
     }

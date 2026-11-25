@@ -39,6 +39,14 @@ interface ChatMetaInfo {
   tool?: string;
   call_index?: number;
   call_count?: number;
+  action?: string;
+  outcome_summary?: string;
+  args?: Record<string, unknown>;
+  args_status?: "missing" | "invalid" | "oversized";
+  duration_ms?: number;
+  result_preview?: string;
+  result_preview_truncated?: boolean;
+  interrupted?: boolean;
 }
 
 interface ChatMessage {
@@ -47,9 +55,7 @@ interface ChatMessage {
   content: string;
   _html: string;
   _metaInfoArray?: (string | ChatMetaInfo)[];
-  _metaVisible?: boolean;
   _reasoningText?: string;
-  _reasoningVisible?: boolean;
 }
 
 interface AppInstance {

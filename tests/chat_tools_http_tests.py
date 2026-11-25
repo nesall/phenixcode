@@ -246,6 +246,11 @@ def main():
                 check(len(tool_events) == 4 and [event["call_index"] for event in tool_events] == [1, 1, 2, 2] and
                       all(event["round"] == 1 for event in tool_events), "batched tools share a round but have separate call numbers")
                 check(tool_events[0]["event_id"] == tool_events[1]["event_id"] and tool_events[2]["event_id"] == tool_events[3]["event_id"], "call results update their own start identity")
+                for running, terminal in zip(tool_events[::2], tool_events[1::2]):
+                    check(running["args"] == terminal["args"] and running["action"] and terminal["outcome_summary"] and
+                          terminal["duration_ms"] >= 0 and not terminal["result_preview_truncated"] and
+                          isinstance(json.loads(terminal["result_preview"])["matches"], list),
+                          "batched SSE trace includes parameters, readable results and tool duration")
                 check(tool_events[1]["status"] == "info" and tool_events[1]["outcome"] == "no_files_matched_filter" and
                       tool_events[3]["searched_files"] == 1 and tool_events[3]["status"] == "success", "grep distinguishes empty scope from a successful searched scope")
                 usage = {(row["tool"], row["caller"]): row for row in tool_usage()}
@@ -280,6 +285,10 @@ def main():
                     check(sum(m["role"] == "system" for m in requests["/" + mode][-1]["messages"]) == 1,
                           "finalization extends the existing system message")
                     if mode == "budget":
+                        check(any(event.get("result_preview_truncated") and
+                                  0 < len(event["result_preview"].encode("utf-8")) <= 4096
+                                  for event in events if event.get("tool") == "read_file"),
+                              "large file result travels over SSE as a bounded preview")
                         check(any("Omitted dependencies and find_references" in e.get("content", "") for e in events),
                               "small context reports omitting optional code-graph tools")
                 check(len(requests["/steps"]) == 15, "fifteenth round is reserved for final answer after fourteen tool rounds")

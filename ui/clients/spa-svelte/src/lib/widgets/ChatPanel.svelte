@@ -2,7 +2,8 @@
   import InputArea from "./InputArea.svelte";
   import ReasoningPicker from "./ReasoningPicker.svelte";
   import * as icons from "@lucide/svelte";
-  import { fade, slide } from "svelte/transition";
+  import ResponseActivity from "./ResponseActivity.svelte";
+  import { fade } from "svelte/transition";
   import { onMount, tick } from "svelte";
   import DOMPurify from "dompurify";
   import { renderMarkdown } from "../markdown";
@@ -51,29 +52,14 @@
   }
 
   // let loading = $state(false);
-  let messagesEndDiv: HTMLDivElement;
+  let messageViewport: HTMLDivElement;
+  let messageList: HTMLDivElement;
   let started = $state(false);
   let activeAssistantIndex = $state(-1);
-  let liveReasoningOpen = $state(true);
-  let reasoningUserChanged = false;
-  let liveReasoningDiv = $state<HTMLDivElement>();
-  let followLiveReasoning = true;
-
-  function toggleLiveReasoning() {
-    reasoningUserChanged = true;
-    liveReasoningOpen = !liveReasoningOpen;
-    followLiveReasoning = true;
-  }
-
-  function trackReasoningScroll() {
-    if (liveReasoningDiv)
-      followLiveReasoning = liveReasoningDiv.scrollHeight - liveReasoningDiv.scrollTop - liveReasoningDiv.clientHeight < 24;
-  }
-  // let messages = $state<ChatMessage[]>([]);
   let showScrollBtn = $state(false);
 
   let reasoningTextRaw = $state("");
-  let metaInfoArray: (string | ChatMetaInfo)[] = $state([]);
+  let metaInfoArray: ChatMetaInfo[] = $state([]);
   let sourceids: string[] = $state([]);
   let attachments: File[] = $state([]);
   let attachmentsLoaded: Attachment[] = $state([]);
@@ -84,11 +70,13 @@
 
   const hasAttachedFiles = $derived(isGoodArray(sourceids) || isGoodArray(attachments));
 
-  function checkMessagesEndVisibility() {
-    if (!messagesEndDiv) return;
-    // console.log("checkMessagesEndVisibility");
-    const rect = messagesEndDiv.getBoundingClientRect();
-    showScrollBtn = window.innerHeight < rect.bottom;
+  function updateScrollButton() {
+    const { scrollHeight, scrollTop, clientHeight } = messageViewport;
+    showScrollBtn = scrollHeight - scrollTop - clientHeight > 1;
+  }
+
+  function scrollToBottom() {
+    messageViewport.scrollTo({ top: messageViewport.scrollHeight, behavior: "smooth" });
   }
 
   onMount(() => {
@@ -111,19 +99,13 @@
       })();
     }
 
-    const wrapper = document.querySelector(".chat-panel") as HTMLDivElement | null | undefined;
-    if (wrapper) wrapper.addEventListener("scroll", checkMessagesEndVisibility);
-    window.addEventListener("resize", checkMessagesEndVisibility);
-    tick().then(checkMessagesEndVisibility);
+    const resizeObserver = new ResizeObserver(updateScrollButton);
+    resizeObserver.observe(messageViewport);
+    resizeObserver.observe(messageList);
     return () => {
       mounted = false;
-      if (wrapper) wrapper.removeEventListener("scroll", checkMessagesEndVisibility);
-      window.removeEventListener("resize", checkMessagesEndVisibility);
+      resizeObserver.disconnect();
     };
-  });
-
-  $effect(() => {
-    if (messages) checkMessagesEndVisibility();
   });
 
   function constructPersistedChat(inst: AppInstance) {
@@ -235,6 +217,14 @@
       content: typeof info.content === "string" ? info.content : "",
       ...(typeof info.summary === "string" && info.summary.length ? { summary: info.summary } : {}),
       status,
+      ...(typeof info.action === "string" ? { action: info.action } : {}),
+      ...(typeof info.outcome_summary === "string" ? { outcome_summary: info.outcome_summary } : {}),
+      ...(info.args && typeof info.args === "object" && !Array.isArray(info.args) ? { args: info.args as Record<string, unknown> } : {}),
+      ...(info.args_status === "missing" || info.args_status === "invalid" || info.args_status === "oversized" ? { args_status: info.args_status } : {}),
+      ...(typeof info.duration_ms === "number" && Number.isFinite(info.duration_ms) && info.duration_ms >= 0 ? { duration_ms: info.duration_ms } : {}),
+      ...(typeof info.result_preview === "string" ? { result_preview: info.result_preview } : {}),
+      ...(info.result_preview_truncated === true ? { result_preview_truncated: true } : {}),
+      ...(info.interrupted === true ? { interrupted: true } : {}),
       ...(typeof info.event_id === "string" ? { event_id: info.event_id } : {}),
       ...(typeof info.round === "number" ? { round: info.round } : {}),
       ...(typeof info.call_id === "string" ? { call_id: info.call_id } : {}),
@@ -247,7 +237,7 @@
   function mergeMeta(events: ChatMetaInfo[]) {
     const next = [...metaInfoArray];
     for (const event of events) {
-      const index = event.event_id ? next.findIndex(info => normalizeMeta(info).event_id === event.event_id) : -1;
+      const index = event.event_id ? next.findIndex(info => info.event_id === event.event_id) : -1;
       if (index >= 0) next[index] = event;
       else next.push(event);
     }
@@ -330,9 +320,6 @@
     let pendingRender = Promise.resolve();
     let answerDirty = false;
     let reasoningDirty = false;
-    liveReasoningOpen = true;
-    reasoningUserChanged = false;
-    followLiveReasoning = true;
     activeAssistantIndex = -1;
     $bLoading = true;
     started = false;
@@ -356,7 +343,7 @@
         },
       ];
       input = "";
-      tick().then(() => messagesEndDiv?.scrollIntoView({ behavior: "smooth" }));
+      tick().then(scrollToBottom);
     }
 
     if (!$sessionId) $sessionId = newUUID();
@@ -382,8 +369,6 @@
         if (reasoning !== undefined) message._reasoningText = normalizeHeaders(await renderMarkdown(reasoning));
         $messages = $messages;
         await tick();
-        if (liveReasoningDiv && followLiveReasoning) liveReasoningDiv.scrollTop = liveReasoningDiv.scrollHeight;
-        checkMessagesEndVisibility();
       });
       // Timer-triggered work is awaited again by the final flush/error path.
       void pendingRender.catch(() => {});
@@ -459,7 +444,7 @@
             reasoningDirty = true;
           }
           if (meta.length) mergeMeta(meta);
-          const firstFrame = !assistantMessage && !!(chunk || reasoning);
+          const firstFrame = !assistantMessage && !!(chunk || reasoning || meta.some(event => event.tool || event.status === "error"));
           if (firstFrame) {
             assistantMessage = { role: "assistant", content: "", _html: "" };
             activeAssistantIndex = $messages.length;
@@ -471,12 +456,10 @@
           assistantMessage.content += chunk;
           if (chunk) answerDirty = true;
           const firstAnswer = !hadAnswer && !!assistantMessage.content.trim();
-          if (firstAnswer && !reasoningUserChanged) liveReasoningOpen = false;
           assistantMessage._metaInfoArray = [...metaInfoArray];
           if (firstFrame || firstAnswer) await flushRender();
           else if (chunk || reasoning) scheduleRender();
           $messages = $messages;
-          tick().then(checkMessagesEndVisibility);
         }
       }
       await flushRender();
@@ -506,14 +489,13 @@
     } finally {
       clearTimeout(renderTimer);
       if (assistantMessage) {
-        assistantMessage._metaInfoArray = metaInfoArray.map(value => {
-          const info = normalizeMeta(value);
-          return info.status === "running" ? { ...info, status: "warning", content: info.content + " — interrupted", ...(info.summary ? { summary: info.summary + " — interrupted" } : {}) } : info;
+        assistantMessage._metaInfoArray = metaInfoArray.map(info => {
+          if (info.status !== "running") return info;
+          return {
+            ...info, status: "warning", interrupted: true, outcome_summary: "Interrupted",
+            content: info.content + " — interrupted", summary: (info.summary ?? info.content) + " — interrupted",
+          };
         });
-        assistantMessage._reasoningVisible = reasoningUserChanged && liveReasoningOpen;
-        if (assistantMessage._reasoningVisible) assistantMessage._metaVisible = true;
-        console.log("metaInfoArray", $state.snapshot(metaInfoArray));
-        console.log("reasongingTextRaw", $state.snapshot(reasoningTextRaw));
         $messages = $messages;
       }
       resetUi();
@@ -526,7 +508,6 @@
   }
 
   function onCopyMsg(content: string) {
-    clog("Copying message:", content);
     navigator.clipboard.writeText(content).then(
       () => {
         toaster.success({ title: "Message copied to clipboard" });
@@ -604,210 +585,119 @@
   }
 </script>
 
-<div class="chat-panel p-2 w-full h-full flex flex-col space-y-8 overflow-y-auto">
-  <div class="flex flex-col space-y-6 mb-4 grow p-2" id="chat-messages">
-    {#if $messages.length === 0}
-      <p class="text text-center text-surface-500">No messages yet. Start the conversation!</p>
-    {/if}
-    {#each $messages as msg, i}
-      {@const isActive = $bLoading && i === activeAssistantIndex}
-      {#if msg.role === "user"}
-        <div class="flex flex-col items-end overflow-y-hidden box-border message" data-role="user">
-          <div
-            class="bg-primary-50-950 shadow2 rounded-xl whitespace-pre-wrap p-4 m-1 break-normal text-left message-content"
-            id="user-message-{i}"
-          >
-            {msg.content}
-          </div>
-          <div class="flex gap-2 mt-1">
-            <button
-              type="button"
-              class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
-              onclick={() => onCopyMsg(msg.content)}
-              title="Copy to clipboard"
-            >
-              <icons.Copy />
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
-              onclick={() => onEditMsg(i)}
-              disabled={$bLoading}
-              title="Edit your original question"
-            >
-              <icons.SquarePen />
-            </button>
-          </div>
-        </div>
-      {:else}
-        <div class="flex flex-col overflow-y-hidden box-border pb-4 space-y-1 message" data-role="assistant">
-          <div class="flex items-start justify-end">
-            {#if isActive || isGoodArray(msg._metaInfoArray) || msg._reasoningText}
-              <div class="text-xs flex flex-col space-y-0 self-end text-right min-w-0 max-w-full">
-                <button
-                  type="button"
-                  class="btn btn-sm text-surface-500 border-surface-500 flex text-right justify-end"
-                  onclick={() => ($messages[i]._metaVisible = !$messages[i]._metaVisible)}
-                  aria-expanded={!!msg._metaVisible}
-                >
-                  <span class="text-xs">{isActive ? "Working…" : "Ready"}</span>
-                  {#if msg._metaVisible}
-                    <icons.ChevronUp />
-                  {:else}
-                    <icons.ChevronDown />
-                  {/if}
-                </button>
-                {#if msg._metaVisible}
-                  <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to focus this region to scroll it.) -->
-                  <div class="meta-list flex flex-col min-w-0 max-w-full overflow-y-auto overscroll-y-contain" role="region" aria-label="Response activity" tabindex="0" transition:slide>
-                    {#each [...(msg._metaInfoArray ?? []).entries()].reverse() as [index, value] (index)}
-                      {@const info = normalizeMeta(value)}
-                      <span class="flex items-start justify-end gap-1 wrap-break-word" data-meta-status={info.status} data-meta-id={info.event_id} title={info.content + (info.call_id ? `\nCall ID: ${info.call_id}` : "")}>
-                        <span class="min-w-0">{info.summary ?? info.content}</span>
-                        {#if info.status === "running"}
-                          <icons.LoaderCircle size={12} class="shrink-0 animate-spin" aria-label="Running" />
-                        {:else if info.status === "success"}
-                          <icons.Check size={12} class="shrink-0" aria-label="Completed" />
-                        {:else if info.status === "warning"}
-                          <icons.TriangleAlert size={12} class="shrink-0 text-warning-500" aria-label="Warning" />
-                        {:else if info.status === "error"}
-                          <icons.CircleX size={12} class="shrink-0 text-error-500" aria-label="Failed" />
-                        {/if}
-                      </span>
-                    {/each}
-                  </div>
-                  <div class="text-xs flex flex-col space-y-0 self-end text-right min-w-0 max-w-full">
-                    {#if !isActive && msg._reasoningText}
-                      <button
-                        type="button"
-                        class="btn btn-sm text-surface-500 border-surface-500 flex text-right justify-end"
-                        onclick={() => ($messages[i]._reasoningVisible = !$messages[i]._reasoningVisible)}
-                        aria-expanded={!!msg._reasoningVisible}
-                      >
-                        <span class="text-xs">Reasoning</span>
-                        {#if msg._reasoningVisible}
-                          <icons.ChevronUp />
-                        {:else}
-                          <icons.ChevronDown />
-                        {/if}
-                      </button>
-                      {#if msg._reasoningVisible}
-                        <div
-                          class="reasoning-content min-w-0 max-w-full max-h-36 overflow-y-auto overscroll-y-contain text-left whitespace-normal text-surface-500"
-                          role="region"
-                          aria-label="Reasoning content"
-                          transition:slide
-                        >
-                          <div class="text-xs">
-                            {@html DOMPurify.sanitize(msg._reasoningText)}
-                          </div>
-                        </div>
-                      {/if}
-                    {/if}
-                  </div>
-                {/if}
-              </div>
-            {/if}
-          </div>
-          {#if isActive}
-            {#if !msg._metaVisible}
-              <span role="status" class="text-xs text-right text-surface-500">{metaInfo || "Working…"}</span>
-            {/if}
-            {#if msg._reasoningText}
-              <div class="flex flex-col min-w-0 max-w-full">
-                <button
-                  type="button"
-                  class="btn btn-sm self-end text-surface-500"
-                  onclick={toggleLiveReasoning}
-                  aria-expanded={liveReasoningOpen}
-                >
-                  <span class="text-xs">{msg.content.trim() ? "Reasoning" : "Reasoning…"}</span>
-                  {#if liveReasoningOpen}<icons.ChevronUp />{:else}<icons.ChevronDown />{/if}
-                </button>
-                {#if liveReasoningOpen}
-                  <div
-                    bind:this={liveReasoningDiv}
-                    onscroll={trackReasoningScroll}
-                    class="reasoning-content min-w-0 max-w-full max-h-36 overflow-y-auto overscroll-y-contain text-left whitespace-normal text-surface-500 text-xs"
-                    role="region"
-                    aria-label="Reasoning content"
-                  >
-                    {@html DOMPurify.sanitize(msg._reasoningText)}
-                  </div>
-                {/if}
-              </div>
-            {/if}
-          {/if}
-          {#if msg.content.trim()}
+<div class="chat-panel flex h-full min-h-0 w-full flex-col py-2 px-0">
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard scroll region.) -->
+  <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain" role="region" aria-label="Chat messages"
+    tabindex="0" bind:this={messageViewport} onscroll={updateScrollButton}>
+    <div class="flex flex-col space-y-6 p-2 pb-6 max-w-3xl mx-auto" id="chat-messages" bind:this={messageList}>
+      {#if $messages.length === 0}
+        <p class="text text-center text-surface-500">No messages yet. Start the conversation!</p>
+      {/if}
+      {#each $messages as msg, i}
+        {@const isActive = $bLoading && i === activeAssistantIndex}
+        {#if msg.role === "user"}
+          <div class="flex flex-col items-end overflow-y-hidden box-border message" data-role="user">
             <div
-              class="text-sm border2 border-surface-100-900 bg-surface-500/5 shadow2 rounded-xl whitespace-normal p-4 pb-1 break-normal text-left message-content"
+              class="bg-primary-50-950 shadow2 rounded-xl whitespace-pre-wrap p-4 m-1 break-normal text-left message-content"
+              id="user-message-{i}"
             >
-              {#if msg._html}
-                {@html DOMPurify.sanitize(msg._html, {
-                  ADD_ATTR: ["onclick"],
-                })}
-              {:else}
-                {msg.content}
-              {/if}
+              {msg.content}
             </div>
-          {/if}
-          {#if msg.content.trim() || !isActive}
-            <div class="flex items-center">
-              {#if msg.content.trim()}
-                <button
-                  type="button"
-                  class="btn btn-sm px-2 preset-filled-surface-50-950 cursor-pointer"
-                  onclick={() => onCopyMsg(msg.content)}
-                  disabled={$bLoading}
-                  title="Copy to clipboard"
-                >
-                  <icons.Copy />
-                </button>
-              {/if}
-              <!-- Feedbacks are temporarily off-->
-              <!-- <button
-                type="button"
-                class="btn btn-sm px-1"
-                onclick={() => onThumbsFeedback(i, "good")}
-                disabled={$bLoading}
-                title="Good answer"
-              >
-                <icons.ThumbsUp />
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm px-1"
-                onclick={() => onThumbsFeedback(i, "bad")}
-                disabled={$bLoading}
-                title="Incorrect or unhelpful answer"
-              >
-                <icons.ThumbsDown />
-              </button> -->
-              {#if msg.content.trim()}<span class="vr mx-1 h-4"></span>{/if}
+            <div class="flex gap-2 mt-1">
               <button
                 type="button"
                 class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
-                onclick={() => onRetry(i)}
-                disabled={$bLoading}
-                title="Retry the answer"
+                onclick={() => onCopyMsg(msg.content)}
+                title="Copy to clipboard"
               >
-                <icons.RefreshCw />
+                <icons.Copy />
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
+                onclick={() => onEditMsg(i)}
+                disabled={$bLoading}
+                title="Edit your original question"
+              >
+                <icons.SquarePen />
               </button>
             </div>
-          {/if}
+          </div>
+        {:else}
+          <div class="flex flex-col overflow-y-hidden box-border pb-4 space-y-1 message" data-role="assistant">
+            {#key msg}
+              <ResponseActivity events={(msg._metaInfoArray ?? []).map(normalizeMeta)} reasoning={msg._reasoningText ?? ""}
+                active={isActive} progress={isActive ? metaInfo : ""} />
+            {/key}
+            {#if msg.content.trim()}
+              <div
+                class="text-sm border2 border-surface-100-900 bg-surface-500/5 shadow2 rounded-xl whitespace-normal p-4 pb-1 break-normal text-left message-content"
+              >
+                {#if msg._html}
+                  {@html DOMPurify.sanitize(msg._html, {
+                    ADD_ATTR: ["onclick"],
+                  })}
+                {:else}
+                  {msg.content}
+                {/if}
+              </div>
+            {/if}
+            {#if msg.content.trim() || !isActive}
+              <div class="flex items-center">
+                {#if msg.content.trim()}
+                  <button
+                    type="button"
+                    class="btn btn-sm px-2 preset-filled-surface-50-950 cursor-pointer"
+                    onclick={() => onCopyMsg(msg.content)}
+                    disabled={$bLoading}
+                    title="Copy to clipboard"
+                  >
+                    <icons.Copy />
+                  </button>
+                {/if}
+                <!-- Feedbacks are temporarily off-->
+                <!-- <button
+                  type="button"
+                  class="btn btn-sm px-1"
+                  onclick={() => onThumbsFeedback(i, "good")}
+                  disabled={$bLoading}
+                  title="Good answer"
+                >
+                  <icons.ThumbsUp />
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm px-1"
+                  onclick={() => onThumbsFeedback(i, "bad")}
+                  disabled={$bLoading}
+                  title="Incorrect or unhelpful answer"
+                >
+                  <icons.ThumbsDown />
+                </button> -->
+                {#if msg.content.trim()}<span class="vr mx-1 h-4"></span>{/if}
+                <button
+                  type="button"
+                  class="btn btn-sm px-1 preset-filled-surface-50-950 cursor-pointer"
+                  onclick={() => onRetry(i)}
+                  disabled={$bLoading}
+                  title="Retry the answer"
+                >
+                  <icons.RefreshCw />
+                </button>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      {/each}
+      {#if $bLoading && !started}
+        <div role="status" class="text-left text-surface-500 text-sm">
+          <icons.LoaderCircle size={12} class="inline animate-spin" /> {metaInfo || "Working…"}
         </div>
       {/if}
-    {/each}
-    {#if $bLoading && !started}
-      <div role="status" class="italic text-right text-surface-500 text-sm">
-        {metaInfo || "Thinking..."}
-      </div>
-    {/if}
-    <div class="min-h-16"></div>
-    <div bind:this={messagesEndDiv}></div>
+    </div>
   </div>
 
-  <div class="sticky bottom-0 flex items-end pb-0 pt-4 gradient-to-t from-surface-50-950">
+  <div class="relative z-10 flex shrink-0 items-end pt-4 px-2 w-full max-w-3xl mx-auto">
     {#if showScrollBtn}
       <div class="absolute -top-6 w-full flex" transition:fade>
         <button
@@ -815,7 +705,7 @@
           class="btn preset-filled-surface-100-900 w-8 h-8 p-0 rounded-full mx-auto"
           aria-label="Scroll to bottom"
           id="scroll-to-bottom-btn"
-          onclick={() => messagesEndDiv?.scrollIntoView({ behavior: "smooth" })}
+          onclick={scrollToBottom}
         >
           <icons.ArrowDown />
         </button>
@@ -861,31 +751,3 @@
     {/if}
   </div>
 </div>
-
-<style>
-  .meta-list {
-    max-height: min(18rem, 40vh);
-    scrollbar-gutter: stable;
-    overflow-wrap: anywhere;
-  }
-
-  .reasoning-content {
-    overflow-wrap: anywhere;
-    overflow-x: hidden;
-  }
-
-  .reasoning-content :global(pre),
-  .reasoning-content :global(code) {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-
-  .reasoning-content :global(.overflow-x-auto) {
-    overflow-x: hidden;
-  }
-
-  .reasoning-content :global(table) {
-    table-layout: fixed;
-    width: 100%;
-  }
-</style>

@@ -97,12 +97,10 @@
 </script>
 
 <main
-  class="mx-auto flex flex-col space-y-2 items-center justify-center
-    w-screen h-screen min-w-sx min-h-sx max-h-screen"
-  style="max-width: 60rem"
+  class="mx-auto flex flex-col space-y-2 items-center justify-center w-screen h-screen min-w-sx min-h-sx max-h-screen"
 >
-  <div class="p-4 m-0 flex flex-col w-full h-full">
-    <Toolbar {fetchInstances} {onClear} />
+  <Toolbar {fetchInstances} {onClear} />
+  <div class="px-0 pb-4 m-0 flex flex-col w-full h-full">
     <div class="chatpanel-wrapper grow w-full h-0 -mb-2">
       <ChatPanel bind:this={chatPanel} />
     </div>
