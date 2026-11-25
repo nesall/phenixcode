@@ -22,7 +22,7 @@
     },
     {
       "key": "DatabaseLocation|D:/workspace/misc/phenixcode_projects/settings_phenixcode_and_ui.json",
-      "value": "{\"base_directory\":\"D:/workspace/projects/phenixcode/ui/dashboard/webview/build\",\"configured\":\"D:/workspace/misc/phenixcode_projects/phenixcode_and_ui/db_metadata.db\"}"
+      "value": "{\"base_directory\":\"D:/workspace/projects/phenixcode/build_dbg\",\"configured\":\"D:/workspace/misc/phenixcode_projects/phenixcode_and_ui/db_metadata.db\"}"
     },
     {
       "key": "CoreExecutablePath",

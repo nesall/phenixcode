@@ -278,6 +278,15 @@ def main():
                     results = list(pool.map(lambda _: call("list_files"), range(8)))
                 check(all(r["structuredContent"]["count"] == 2 for r in results), "concurrent isolated calls")
 
+                with urlopen(f"http://127.0.0.1:{api_port}/api/monitor/snapshot", timeout=5) as reply:
+                    usage = {row["tool"]: row for row in json.load(reply)["metrics"]["tool_usage"]}
+                check(usage["list_files"]["calls"] == 9 and usage["list_files"]["errors"] == 0,
+                      "MCP counts one legacy call and eight concurrent calls")
+                check(usage["grep"]["calls"] == 5 and usage["grep"]["errors"] == 2 and
+                      "project_settings" not in usage and
+                      all(row["caller"] == "mcp" and row["last_used"] > 0 for row in usage.values()),
+                      "MCP counts tool errors and excludes unadvertised tools")
+
                 # Start a second instance for the same project_id and verify live token rotation across both.
                 process2 = subprocess.Popen(command2, cwd=root, env=env, stdout=log2, stderr=subprocess.STDOUT,
                                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

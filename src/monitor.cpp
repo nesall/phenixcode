@@ -237,6 +237,16 @@ struct MonitorTracker::Impl {
       );
       CREATE INDEX IF NOT EXISTS idx_endpoint_metrics_project ON endpoint_metrics(project_id);
 
+      CREATE TABLE IF NOT EXISTS tool_usage (
+        project_id TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        caller TEXT NOT NULL,
+        calls INTEGER NOT NULL,
+        errors INTEGER NOT NULL,
+        last_used INTEGER NOT NULL,
+        PRIMARY KEY (project_id, tool, caller)
+      );
+
       CREATE TABLE IF NOT EXISTS session_heartbeats (
         session_id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -439,6 +449,35 @@ void MonitorTracker::recordRequest(
   }
 }
 
+void MonitorTracker::recordToolCall(const std::string &tool, MonitorToolCaller caller, bool isError)
+{
+  std::lock_guard<std::mutex> lock(imp->dbMtx_);
+  if (!imp->db_) return;
+
+  const char *upsertSql = R"(
+    INSERT INTO tool_usage (project_id, tool, caller, calls, errors, last_used)
+    VALUES (?, ?, ?, 1, ?, ?)
+    ON CONFLICT(project_id, tool, caller) DO UPDATE SET
+      calls = calls + 1,
+      errors = errors + excluded.errors,
+      last_used = MAX(last_used, excluded.last_used);
+  )";
+  utils::SqliteStmt stmt(imp->db_);
+  if (sqlite3_prepare_v2(imp->db_, upsertSql, -1, &stmt.ref(), nullptr) != SQLITE_OK) {
+    LOG_MSG_ERROR << "[Monitor] Failed to prepare tool usage upsert: " << sqlite3_errmsg(imp->db_);
+    return;
+  }
+
+  sqlite3_bind_text(stmt.ref(), 1, imp->projectId_.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt.ref(), 2, tool.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmt.ref(), 3, caller == MonitorToolCaller::Chat ? "chat" : "mcp", -1, SQLITE_STATIC);
+  sqlite3_bind_int(stmt.ref(), 4, isError ? 1 : 0);
+  sqlite3_bind_int64(stmt.ref(), 5, nowEpochSeconds());
+  if (sqlite3_step(stmt.ref()) != SQLITE_DONE) {
+    LOG_MSG_ERROR << "[Monitor] Failed to execute tool usage upsert: " << sqlite3_errmsg(imp->db_);
+  }
+}
+
 void MonitorTracker::recordGenerationCost(
   const std::string &providerId,
   size_t tokensIn,
@@ -573,6 +612,7 @@ json MonitorTracker::toJson() const
   size_t totalTokensIn = 0;
   size_t totalTokensOut = 0;
   json byEndpointJson = json::object();
+  json toolUsageJson = json::array();
 
   double genInputCost = 0.0;
   double genOutputCost = 0.0;
@@ -623,6 +663,26 @@ json MonitorTracker::toJson() const
             { "latency_p95_ms", epP95 },
             { "latency_samples", samples }
           };
+        }
+      }
+
+      const char *selectToolSql = R"(
+        SELECT tool, caller, calls, errors, last_used
+        FROM tool_usage
+        WHERE project_id = ?
+        ORDER BY tool, caller
+      )";
+      utils::SqliteStmt toolStmt(imp->db_);
+      if (sqlite3_prepare_v2(imp->db_, selectToolSql, -1, &toolStmt.ref(), nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(toolStmt.ref(), 1, imp->projectId_.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(toolStmt.ref()) == SQLITE_ROW) {
+          toolUsageJson.push_back({
+            { "tool", reinterpret_cast<const char *>(sqlite3_column_text(toolStmt.ref(), 0)) },
+            { "caller", reinterpret_cast<const char *>(sqlite3_column_text(toolStmt.ref(), 1)) },
+            { "calls", sqlite3_column_int64(toolStmt.ref(), 2) },
+            { "errors", sqlite3_column_int64(toolStmt.ref(), 3) },
+            { "last_used", sqlite3_column_int64(toolStmt.ref(), 4) }
+          });
         }
       }
 
@@ -711,7 +771,8 @@ json MonitorTracker::toJson() const
       { "latency_p50_ms", p50 },
       { "latency_p95_ms", p95 },
       { "latency_samples", imp->reservoir_.samples.size() },
-      { "by_endpoint", byEndpointJson }
+      { "by_endpoint", byEndpointJson },
+      { "tool_usage", toolUsageJson }
     } },
     { "cost", costJson }
   };

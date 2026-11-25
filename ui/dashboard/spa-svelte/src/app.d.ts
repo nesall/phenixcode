@@ -310,6 +310,16 @@ export interface MonitorMetrics {
   latency_samples: number;
   /** optional per-endpoint breakdown; key = route name like "embed" | "chat" */
   by_endpoint?: Record<string, MonitorEndpointMetrics>;
+  /** Cumulative tool calls for this project. Older cores omit this field. */
+  tool_usage?: MonitorToolUsage[];
+}
+
+export interface MonitorToolUsage {
+  tool: string;
+  caller: "chat" | "mcp";
+  calls: number;
+  errors: number;
+  last_used: number;          // epoch seconds
 }
 
 export interface MonitorEndpointMetrics {

@@ -11,6 +11,7 @@ class ProvidersSettings;
 
 enum class MonitorState { Idle, Scanning, Indexing, Ready, Error };
 enum class MonitorPhase { Idle, Walk, Chunk, Embed, Persist };
+enum class MonitorToolCaller { Chat, Mcp };
 
 class MonitorTracker {
 public:
@@ -45,6 +46,8 @@ public:
     bool isError,
     size_t tokensIn = 0,
     size_t tokensOut = 0);
+
+  void recordToolCall(const std::string &tool, MonitorToolCaller caller, bool isError);
 
   void recordGenerationCost(
     const std::string &providerId,

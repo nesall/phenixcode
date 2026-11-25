@@ -284,7 +284,7 @@ void HttpServer::registerGenerationRoutes(AdminAuth &auth)
             }
             if (inference_contant::estimateRequestTokens(generationMessages, json::array(), count) > retrievalBudget)
               throw std::runtime_error("Conversation history exceeds the available input budget");
-            chat_tools::Service toolService(imp->app_);
+            chat_tools::Service toolService(imp->app_, MonitorToolCaller::Chat);
             std::set<std::string> displayRoots;
             if (!tools.empty()) for (const auto &source : imp->app_.settings().sources()) {
               if (source.type != "directory" && source.type != "file") continue;

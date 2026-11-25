@@ -32,7 +32,20 @@ namespace chat_tools {
     const auto name = call.value("function", json::object()).value("name", "");
     if (std::none_of(tools.begin(), tools.end(), [&](const json &t) { return t.at("function").at("name") == name; }))
       return { { "error", "Tool unavailable" } };
-    const auto funcName = call.value("function", json::object()).value("name", "");
+    json output;
+    try {
+      output = executeAvailable(call, name, tools, selectedApi, connected, warning);
+    } catch (...) {
+      app_.monitor().recordToolCall(name, caller_, true);
+      throw;
+    }
+    app_.monitor().recordToolCall(name, caller_, output.contains("error"));
+    return output;
+  }
+
+  json Service::executeAvailable(const json &call, const std::string &funcName, const json &tools,
+    const ApiConfig *selectedApi, const std::function<bool()> &connected,
+    const std::function<void(const std::string &)> &warning) {
     if (funcName == "project_settings")
       return selectedApi ? chat_tools::executeProjectSettings(call, app_.settings(), *selectedApi) : json{ { "error", "Tool unavailable" } };
     if (!collected_) {

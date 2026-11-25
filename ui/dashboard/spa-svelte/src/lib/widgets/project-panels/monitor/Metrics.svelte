@@ -65,23 +65,64 @@
     </div>
     {#if metrics.by_endpoint && Object.keys(metrics.by_endpoint).length}
       <div class="overflow-x-auto rounded-md border border-surface-200-800">
-        <table class="table table-compact w-full">
-          <thead
-            ><tr><th>Endpoint</th><th>Requests</th><th>Errors</th><th>p50</th><th>p95</th><th>Tokens in / out</th></tr
-            ></thead
-          >
+        <table class="table table-compact w-full text-left">
+          <thead>
+            <tr>
+              <th scope="col">Endpoint</th>
+              <th scope="col" class="text-right">Requests</th>
+              <th scope="col" class="text-right">Errors</th>
+              <th scope="col" class="text-right">p50</th>
+              <th scope="col" class="text-right">p95</th>
+              <th scope="col" class="text-right">Tokens in / out</th>
+            </tr>
+          </thead>
           <tbody>
             {#each Object.entries(metrics.by_endpoint) as [name, endpoint]}
-              <tr>
-                <td>{name}</td><td>{number(endpoint.requests)}</td><td>{number(endpoint.errors)}</td>
-                <td>{endpoint.latency_samples ? `${endpoint.latency_p50_ms.toFixed(1)} ms` : "—"}</td>
-                <td>{endpoint.latency_samples ? `${endpoint.latency_p95_ms.toFixed(1)} ms` : "—"}</td>
-                <td>{number(endpoint.tokens_in)} / {number(endpoint.tokens_out)}</td>
+              <tr class="hover:bg-surface-100-900">
+                <td>{name}</td>
+                <td class="text-right tabular-nums">{number(endpoint.requests)}</td>
+                <td class="text-right tabular-nums">{number(endpoint.errors)}</td>
+                <td class="text-right tabular-nums">{endpoint.latency_samples ? `${endpoint.latency_p50_ms.toFixed(1)} ms` : "-"}</td>
+                <td class="text-right tabular-nums">{endpoint.latency_samples ? `${endpoint.latency_p95_ms.toFixed(1)} ms` : "-"}</td>
+                <td class="text-right tabular-nums">{number(endpoint.tokens_in)} / {number(endpoint.tokens_out)}</td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
     {/if}
+    <section class="space-y-2" aria-labelledby="tool-usage-heading">
+      <h3 class="text-lg font-semibold" id="tool-usage-heading">Tool usage</h3>
+      {#if metrics.tool_usage?.length}
+        <div class="overflow-x-auto rounded-md border border-surface-200-800">
+          <table class="table table-compact w-full text-left" aria-labelledby="tool-usage-heading">
+            <thead>
+              <tr>
+                <th scope="col">Tool</th>
+                <th scope="col">Caller</th>
+                <th scope="col" class="text-right">Calls</th>
+                <th scope="col" class="text-right">Errors</th>
+                <th scope="col">Last used</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each metrics.tool_usage as usage (`${usage.tool}:${usage.caller}`)}
+                <tr class="hover:bg-surface-100-900">
+                  <td>{usage.tool}</td>
+                  <td>{usage.caller === "chat" ? "Chat" : "MCP"}</td>
+                  <td class="text-right tabular-nums">{number(usage.calls)}</td>
+                  <td class="text-right tabular-nums">{number(usage.errors)}</td>
+                  <td class="whitespace-nowrap">{new Date(usage.last_used * 1000).toLocaleString()}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else}
+        <p class="text-sm text-surface-500">
+          {metrics.tool_usage ? "No tool calls recorded." : "Tool usage metrics unavailable."}
+        </p>
+      {/if}
+    </section>
   {/if}
 </section>

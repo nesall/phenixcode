@@ -201,6 +201,10 @@ def main():
                 return subprocess.Popen(command + ["serve", "--yes", "--port", str(port)],
                 cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             base = f"http://127.0.0.1:{port}"
+            def tool_usage():
+                with urlopen(base + "/api/monitor/snapshot", timeout=5) as reply:
+                    return json.load(reply)["metrics"]["tool_usage"]
+
             def wait_for_server():
                 for _ in range(300):
                     try:
@@ -215,6 +219,7 @@ def main():
             process = start_server()
             try:
                 wait_for_server()
+                check(tool_usage() == [], "fresh project has no tool usage")
                 def chat(mode, free=False):
                     request = {"targetapi": mode, "messages": [{"role": "system", "content": "You are a useful assistant."}, {"role": "user", "content": "Explain Needle"}],
                                "attachments": [], "sourceids": [str(source)], "max_tokens": 257, "ctxratio": 1.0, "free_chat": free}
@@ -243,6 +248,11 @@ def main():
                 check(tool_events[0]["event_id"] == tool_events[1]["event_id"] and tool_events[2]["event_id"] == tool_events[3]["event_id"], "call results update their own start identity")
                 check(tool_events[1]["status"] == "info" and tool_events[1]["outcome"] == "no_files_matched_filter" and
                       tool_events[3]["searched_files"] == 1 and tool_events[3]["status"] == "success", "grep distinguishes empty scope from a successful searched scope")
+                usage = {(row["tool"], row["caller"]): row for row in tool_usage()}
+                check(set(usage) == {("grep", "chat"), ("read_file", "chat")} and
+                      usage["grep", "chat"]["calls"] == 3 and usage["read_file", "chat"]["calls"] == 1 and
+                      all(row["errors"] == 0 and row["last_used"] > 0 for row in usage.values()),
+                      "chat counts each invocation once and treats an empty search as successful")
                 check('path_filter="missing/"' in tool_events[0]["content"] and 'pattern="Needle("' in tool_events[2]["content"], "literal patterns and path filters are visible in streaming metadata")
                 check("path_filter=" not in tool_events[0]["summary"] and "in missing/" in tool_events[0]["summary"], "compact tool summary retains custom scope without parameter names")
                 check("1/1 files" not in tool_events[3]["summary"] and "1 files" in tool_events[3]["summary"], "complete searches omit redundant denominator counts")
@@ -366,6 +376,7 @@ def main():
                       "unindexed search_context reuses text retrieval")
                 check(any(e.get("content") == "Final answer" for e in events), "context search can lead to read_file and a final answer")
                 # Build only this fixture's index using deterministic local embeddings.
+                usage_before_restart = tool_usage()
                 process.terminate()
                 process.wait(timeout=10)
                 semantic.write_text("#include \"source.cpp\"\n// SEMANTIC_ONLY_SENTINEL\nvoid rewindOperation() { Needle(); }\n", encoding="utf-8")
@@ -378,6 +389,7 @@ def main():
                 removed.unlink()  # Leave a deliberately stale entry in the fixture index.
                 process = start_server()
                 wait_for_server()
+                check(tool_usage() == usage_before_restart, "tool usage survives a core restart")
                 events = chat("code-graph")
                 check(len(requests["/code-graph"]) == 3, "indexed code-graph workflow completes dependencies and find_references")
                 idx_deps = json.loads(requests["/code-graph"][1]["messages"][-1]["content"])

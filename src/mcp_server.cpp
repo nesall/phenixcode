@@ -3,6 +3,7 @@
 #include "mcp_protocol.h"
 #include "tool_service.h"
 #include "app.h"
+#include "monitor.h"
 #include "settings.h"
 #include <httplib.h>
 #include <thread>
@@ -61,7 +62,7 @@ void McpServer::start()
   imp_->server.set_write_timeout(10, 0);
 
   imp_->server.Post("/mcp", [this](const auto &req, auto &res) {
-    chat_tools::Service service(imp_->app);
+    chat_tools::Service service(imp_->app, MonitorToolCaller::Mcp);
     const auto tools = chat_tools::definitions();
     imp_->handler->handle(req, res, tools, [&](const json &call) { return service.execute(call, tools); });
   });
