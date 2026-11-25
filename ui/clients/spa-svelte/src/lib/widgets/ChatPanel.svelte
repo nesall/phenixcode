@@ -587,7 +587,7 @@
 
 <div class="chat-panel flex h-full min-h-0 w-full flex-col py-2 px-0">
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard scroll region.) -->
-  <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain" role="region" aria-label="Chat messages"
+  <div class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain scrollbar-gutter-both" role="region" aria-label="Chat messages"
     tabindex="0" bind:this={messageViewport} onscroll={updateScrollButton}>
     <div class="flex flex-col space-y-6 p-2 pb-6 max-w-3xl mx-auto" id="chat-messages" bind:this={messageList}>
       {#if $messages.length === 0}
@@ -690,7 +690,7 @@
         {/if}
       {/each}
       {#if $bLoading && !started}
-        <div role="status" class="text-left text-surface-500 text-sm">
+        <div role="status" class="text-left text-surface-500 text-sm flex items-center gap-1">
           <icons.LoaderCircle size={12} class="inline animate-spin" /> {metaInfo || "Working…"}
         </div>
       {/if}
@@ -699,7 +699,7 @@
 
   <div class="relative z-10 flex shrink-0 items-end pt-4 px-2 w-full max-w-3xl mx-auto">
     {#if showScrollBtn}
-      <div class="absolute -top-6 w-full flex" transition:fade>
+      <div class="absolute left-0 -top-6 w-full flex" transition:fade>
         <button
           type="button"
           class="btn preset-filled-surface-100-900 w-8 h-8 p-0 rounded-full mx-auto"

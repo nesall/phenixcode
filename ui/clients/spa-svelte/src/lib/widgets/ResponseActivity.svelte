@@ -42,7 +42,7 @@
     {/if}
     {#if calls.length}
       <details>
-        <summary class="cursor-pointer py-1 font-medium">
+        <summary class="cursor-pointer py-1 font-medium flex items-center gap-1">
           {#if active}<icons.LoaderCircle size={12} class="inline animate-spin" /> Working… · {/if}
           {calls.length} tool {calls.length === 1 ? "call" : "calls"}{#if !active && timed}&nbsp;·&nbsp;{elapsed < 1000 ? elapsed + " ms" : (elapsed / 1000).toFixed(1) + " s"} in tools{/if}
           {#if failures}<span class="text-error-500"> · {failures} failed</span>{/if}
@@ -55,7 +55,7 @@
         </div>
       </details>
     {:else if active}
-      <p role="status" class="text-surface-500"><icons.LoaderCircle size={12} class="inline animate-spin" /> {progress || "Working…"}</p>
+      <p role="status" class="text-surface-500 flex items-center gap-1"><icons.LoaderCircle size={12} class="inline animate-spin" /> {progress || "Working…"}</p>
     {/if}
     {#if details.length}
       <details>
