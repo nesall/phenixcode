@@ -332,6 +332,43 @@ export interface MonitorEndpointMetrics {
   latency_samples: number;
 }
 
+export interface MonitorCostSummary {
+  /** Earliest YYYY-MM-DD recorded in provider_cost_daily for generation, or "" if none. */
+  history_since: string;
+  /** Local-time calendar day spend (USD). */
+  today: number;
+  /** Rolling 7 local calendar days including today (USD). */
+  last_7d: number;
+  /** Rolling 30 local calendar days including today (USD). */
+  last_30d: number;
+  /** Local calendar month-to-date spend (USD). */
+  this_month: number;
+  /** Local calendar year-to-date spend (USD). */
+  ytd: number;
+  /** last_30d divided by min(30, tracked days), in USD. */
+  avg_daily_30d: number;
+  /** tracked_total divided by elapsed calendar months since history_since, in USD. */
+  avg_monthly: number;
+  /** Elapsed calendar months from history_since through current month inclusive. */
+  months_tracked: number;
+  /** Run-rate projection for the current local calendar month (USD). */
+  projected_month: number;
+  /** Total generation spend tracked in provider_cost_daily (USD). */
+  tracked_total: number;
+}
+
+export interface MonitorMonthlyCost {
+  /** Calendar month in YYYY-MM (local time). */
+  month: string;
+  calls: number;
+  tokens_in: number;
+  tokens_out: number;
+  input: number;
+  cached_input: number;
+  output: number;
+  total: number;
+}
+
 export interface MonitorCost {
   /** estimated, USD; pricing from providers.generation[].pricing_tpm */
   generation_input: number;
@@ -345,6 +382,10 @@ export interface MonitorCost {
   /** per-generation-provider breakdown; key = GenerationApi.id */
   by_provider?: Record<string, MonitorProviderCost>;
   note?: string; // e.g. "embedding cost not included"
+  /** Generation-only duration summary using local-time buckets; older cores omit. */
+  summary?: MonitorCostSummary;
+  /** Generation-only monthly breakdown (up to last 12 local calendar months); older cores omit. */
+  monthly?: MonitorMonthlyCost[];
 }
 
 export interface MonitorProviderCost {

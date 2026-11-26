@@ -200,20 +200,20 @@
 <div class="h-full relative">
   <div class="h-full flex">
     <!-- Desktop static sidebar -->
-    <div class="h-full max-w-xs hidden lg:block w-72">
+    <div class="h-full max-w-xs hidden xl:block w-72">
       {@render sidebar()}
     </div>
 
     <!-- Main content panel -->
-    <div class="grow h-full lg:pl-4 overflow-hidden">
+    <div class="grow h-full xl:pl-4 overflow-hidden">
       <ProjectPanel {active} />
     </div>
   </div>
 
-  <!-- Bottom-left trigger button for screens < lg -->
+  <!-- Bottom-left trigger button for screens < xl -->
   <button
     type="button"
-    class="lg:hidden fixed bottom-8 left-1 z-30 btn preset-filled-primary-500 shadow-lg flex items-center gap-2 rounded-xl px-4 py-2"
+    class="xl:hidden fixed bottom-8 left-1 z-30 btn preset-filled-primary-500 shadow-lg flex items-center gap-2 rounded-xl px-4 py-2"
     onclick={() => (drawerOpen = true)}
   >
     <icons.PanelLeftOpen size={18} />
@@ -226,13 +226,13 @@
       type="button"
       tabindex="-1"
       aria-label="Close drawer backdrop"
-      class="fixed inset-0 bg-black/50 backdrop-blur-xs z-40 lg:hidden cursor-default w-full h-full border-none p-0"
+      class="fixed inset-0 bg-black/50 backdrop-blur-xs z-40 xl:hidden cursor-default w-full h-full border-none p-0"
       onclick={() => (drawerOpen = false)}
       transition:fade={{ duration: 150 }}
     ></button>
 
     <aside
-      class="fixed inset-y-0 left-0 w-80 max-w-[85vw] bg-surface-50-950 p-4 shadow-xl z-50 flex flex-col space-y-3 lg:hidden"
+      class="fixed inset-y-0 left-0 w-80 max-w-[85vw] bg-surface-50-950 p-4 shadow-xl z-50 flex flex-col space-y-3 xl:hidden"
       transition:fly={{ x: -280, duration: 200 }}
     >
       <div class="flex items-center justify-between pb-2 border-b border-surface-200-800">

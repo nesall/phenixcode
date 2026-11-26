@@ -26,13 +26,13 @@
         </div>
       {/if}
     </Tabs.List>
-    <Tabs.Content value="config" class="h-0 flex-grow">
+    <Tabs.Content value="config" class="h-0 grow">
       <ConfigPanel active={active && tab === "config"} />
     </Tabs.Content>
-    <Tabs.Content value="instance" class="h-0 flex-grow">
+    <Tabs.Content value="instance" class="h-0 grow">
       <Instance />
     </Tabs.Content>
-    <Tabs.Content value="monitor" class="h-0 min-w-0 flex-grow">
+    <Tabs.Content value="monitor" class="h-0 min-w-0 grow">
       <Monitor active={active && tab === "monitor"} />
     </Tabs.Content>
   </Tabs>

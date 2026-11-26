@@ -33,19 +33,19 @@
   <Tabs {value} class="h-full min-w-0 w-full text-sm" orientation="vertical" onValueChange={onTabChange}>
     <Tabs.List class="items-start">
       <Tabs.Trigger value="embeddings" class="text-sm {selected(value, 'embeddings')} w-full justify-start">
-        <icons.Layers size={16} /><span class="hidden lg:inline">Embeddings</span>
+        <icons.Layers size={16} /><span class="hidden xl:inline">Embeddings</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="database" class="text-sm {selected(value, 'database')} w-full justify-start">
-        <icons.Database size={16} /><span class="hidden lg:inline">Database</span>
+        <icons.Database size={16} /><span class="hidden xl:inline">Database</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="metrics" class="text-sm {selected(value, 'metrics')} w-full justify-start">
-        <icons.ChartNoAxesCombined size={16} /><span class="hidden lg:inline">Metrics</span>
+        <icons.ChartNoAxesCombined size={16} /><span class="hidden xl:inline">Metrics</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="cost" class="text-sm {selected(value, 'cost')} w-full justify-start">
-        <icons.DollarSign size={16} /><span class="hidden lg:inline">Cost</span>
+        <icons.DollarSign size={16} /><span class="hidden xl:inline">Cost</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="logs" class="text-sm {selected(value, 'logs')} w-full justify-start">
-        <icons.ScrollText size={16} /><span class="hidden lg:inline">Logs</span>
+        <icons.ScrollText size={16} /><span class="hidden xl:inline">Logs</span>
       </Tabs.Trigger>
       <Tabs.Indicator />
     </Tabs.List>

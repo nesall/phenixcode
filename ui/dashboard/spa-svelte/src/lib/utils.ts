@@ -398,7 +398,13 @@ async function test_fetchSnapshot(settingsFilePath: string): Promise<{
   message?: string;
   monitor: MonitorSnapshot & { offline?: boolean };
 }> {
-  const now = Date.now() / 1000;
+  const nowDate = new Date();
+  const now = nowDate.getTime() / 1000;
+  const monthLabel = (offset: number): string => {
+    const d = new Date(nowDate.getFullYear(), nowDate.getMonth() + offset, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+  const historyStart = `${monthLabel(-5)}-04`;
   return {
     status: "success",
     monitor: {
@@ -443,6 +449,81 @@ async function test_fetchSnapshot(settingsFilePath: string): Promise<{
         note: "embedding cost not included",
         pricing_version: "8f22e7d0c586d92a",
         total: 0.38170638252782646,
+        summary: {
+          history_since: historyStart,
+          today: 0.0251,
+          last_7d: 0.0842,
+          last_30d: 0.1462,
+          this_month: 0.1462,
+          ytd: 0.38170638252782646,
+          avg_daily_30d: 0.1462 / 30,
+          avg_monthly: 0.38170638252782646 / 6,
+          months_tracked: 6,
+          projected_month: 0.2193,
+          tracked_total: 0.38170638252782646,
+        },
+        monthly: [
+          {
+            month: monthLabel(-5),
+            calls: 5,
+            tokens_in: 85156,
+            tokens_out: 2536,
+            input: 0.012439851004662736,
+            cached_input: 0.000013094580435962416,
+            output: 0.0018134400211572647,
+            total: 0.014266385606255965,
+          },
+          {
+            month: monthLabel(-4),
+            calls: 0,
+            tokens_in: 0,
+            tokens_out: 0,
+            input: 0,
+            cached_input: 0,
+            output: 0,
+            total: 0,
+          },
+          {
+            month: monthLabel(-3),
+            calls: 18,
+            tokens_in: 400197,
+            tokens_out: 9107,
+            input: 0.048023638926587994,
+            cached_input: 0,
+            output: 0.002094610037997365,
+            total: 0.05011824896458537,
+          },
+          {
+            month: monthLabel(-2),
+            calls: 9,
+            tokens_in: 192049,
+            tokens_out: 5498,
+            input: 0.06721714885529875,
+            cached_input: 0,
+            output: 0.003848599934458732,
+            total: 0.0710657487897575,
+          },
+          {
+            month: monthLabel(-1),
+            calls: 11,
+            tokens_in: 283330,
+            tokens_out: 954,
+            input: 0.09037452660433947,
+            cached_input: 0.00021249749525031078,
+            output: 0.009472400022745132,
+            total: 0.1000594241223349,
+          },
+          {
+            month: monthLabel(0),
+            calls: 9,
+            tokens_in: 152609,
+            tokens_out: 6061,
+            input: 0.12887906250000002,
+            cached_input: 0.0011297625448927285,
+            output: 0.01618775,
+            total: 0.14619657504489272,
+          },
+        ],
         by_provider: {
           "EmbeddingGemma": {
             "cached_input": 0,

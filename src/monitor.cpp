@@ -1,4 +1,5 @@
 #include "monitor.h"
+#include "monitor_store.h"
 #include "settings.h"
 #include "auth.h"
 #include "sqlite3_helper.h"
@@ -30,29 +31,6 @@ namespace fs = std::filesystem;
 namespace {
 
   constexpr size_t kReservoirSize = 256;
-
-  std::string getMetricsDbPath() {
-    const char *envPath = std::getenv("EMBEDDER_METRICS");
-    if (envPath) {
-      std::string path = envPath;
-      if (path.size() < 7 || path.substr(path.size() - 7) != ".sqlite") {
-        path += ".sqlite";
-      }
-      return path;
-    }
-
-#ifdef _WIN32
-    const char *home = std::getenv("USERPROFILE");
-#else
-    const char *home = std::getenv("HOME");
-#endif
-
-    if (home) {
-      return (fs::path(home) / ".embedder_metrics.sqlite").string();
-    }
-
-    return "embedder_metrics.sqlite";
-  }
 
   std::string stateToString(MonitorState s) {
     switch (s) {
@@ -167,7 +145,7 @@ struct MonitorTracker::Impl {
   Impl(const Settings &settings, const std::string &dbPath)
     : projectId_(settings.getProjectId())
     , sessionId_(defaultSessionId())
-    , dbPath_(dbPath.empty() ? getMetricsDbPath() : dbPath)
+    , dbPath_(dbPath.empty() ? monitor_store::defaultMetricsDbPath() : dbPath)
     , lastHeartbeat_(nowEpochSeconds())
   {
     if (projectId_.empty()) {
@@ -208,61 +186,7 @@ struct MonitorTracker::Impl {
     sqlite3_exec(db_, "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr);
     sqlite3_exec(db_, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, nullptr);
 
-    const char *sqlCreateTables = R"(
-      CREATE TABLE IF NOT EXISTS provider_costs (
-        project_id TEXT NOT NULL,
-        provider_id TEXT NOT NULL,
-        model TEXT NOT NULL,
-        calls INTEGER NOT NULL DEFAULT 0,
-        tokens_in INTEGER NOT NULL DEFAULT 0,
-        tokens_out INTEGER NOT NULL DEFAULT 0,
-        cost_input REAL NOT NULL DEFAULT 0.0,
-        cost_output REAL NOT NULL DEFAULT 0.0,
-        cost_cached REAL NOT NULL DEFAULT 0.0,
-        cost_total REAL NOT NULL DEFAULT 0.0,
-        last_updated INTEGER NOT NULL,
-        PRIMARY KEY (project_id, provider_id)
-      );
-      CREATE INDEX IF NOT EXISTS idx_provider_costs_project ON provider_costs(project_id);
-
-      CREATE TABLE IF NOT EXISTS endpoint_metrics (
-        project_id TEXT NOT NULL,
-        endpoint TEXT NOT NULL,
-        requests INTEGER NOT NULL DEFAULT 0,
-        errors INTEGER NOT NULL DEFAULT 0,
-        tokens_in INTEGER NOT NULL DEFAULT 0,
-        tokens_out INTEGER NOT NULL DEFAULT 0,
-        last_updated INTEGER NOT NULL,
-        PRIMARY KEY (project_id, endpoint)
-      );
-      CREATE INDEX IF NOT EXISTS idx_endpoint_metrics_project ON endpoint_metrics(project_id);
-
-      CREATE TABLE IF NOT EXISTS tool_usage (
-        project_id TEXT NOT NULL,
-        tool TEXT NOT NULL,
-        caller TEXT NOT NULL,
-        calls INTEGER NOT NULL,
-        errors INTEGER NOT NULL,
-        last_used INTEGER NOT NULL,
-        PRIMARY KEY (project_id, tool, caller)
-      );
-
-      CREATE TABLE IF NOT EXISTS session_heartbeats (
-        session_id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        state TEXT NOT NULL,
-        phase TEXT NOT NULL,
-        last_heartbeat INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_session_heartbeats_project ON session_heartbeats(project_id);
-    )";
-
-    char *errMsg = nullptr;
-    rc = sqlite3_exec(db_, sqlCreateTables, nullptr, nullptr, &errMsg);
-    if (rc != SQLITE_OK) {
-      LOG_MSG_ERROR << "[Monitor] Failed to create tables: " << (errMsg ? errMsg : "unknown error");
-      if (errMsg) sqlite3_free(errMsg);
-    }
+    monitor_store::ensureSchema(db_);
   }
 
   int64_t computeEtaSecondsLocked() const {
@@ -501,49 +425,23 @@ void MonitorTracker::recordGenerationCost(
     }
     outCost = (tokensOut / 1'000'000.0) * cfg->pricing.output;
   }
-  double totalCost = inCost + cachedCost + outCost;
   int64_t now = nowEpochSeconds();
 
   std::lock_guard<std::mutex> lock(imp->dbMtx_);
   if (!imp->db_) return;
 
-  const char *upsertSql = R"(
-    INSERT INTO provider_costs (
-      project_id, provider_id, model, calls, tokens_in, tokens_out,
-      cost_input, cost_output, cost_cached, cost_total, last_updated
-    ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(project_id, provider_id) DO UPDATE SET
-      model = excluded.model,
-      calls = calls + 1,
-      tokens_in = tokens_in + excluded.tokens_in,
-      tokens_out = tokens_out + excluded.tokens_out,
-      cost_input = cost_input + excluded.cost_input,
-      cost_output = cost_output + excluded.cost_output,
-      cost_cached = cost_cached + excluded.cost_cached,
-      cost_total = cost_total + excluded.cost_total,
-      last_updated = excluded.last_updated;
-  )";
-
-  utils::SqliteStmt stmt(imp->db_);
-  if (sqlite3_prepare_v2(imp->db_, upsertSql, -1, &stmt.ref(), nullptr) != SQLITE_OK) {
-    LOG_MSG_ERROR << "[Monitor] Failed to prepare generation cost upsert: " << sqlite3_errmsg(imp->db_);
-    return;
-  }
-
-  sqlite3_bind_text(stmt.ref(), 1, imp->projectId_.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt.ref(), 2, providerId.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt.ref(), 3, modelName.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int64(stmt.ref(), 4, static_cast<int64_t>(tokensIn));
-  sqlite3_bind_int64(stmt.ref(), 5, static_cast<int64_t>(tokensOut));
-  sqlite3_bind_double(stmt.ref(), 6, inCost);
-  sqlite3_bind_double(stmt.ref(), 7, outCost);
-  sqlite3_bind_double(stmt.ref(), 8, cachedCost);
-  sqlite3_bind_double(stmt.ref(), 9, totalCost);
-  sqlite3_bind_int64(stmt.ref(), 10, now);
-
-  if (sqlite3_step(stmt.ref()) != SQLITE_DONE) {
-    LOG_MSG_ERROR << "[Monitor] Failed to execute generation cost upsert: " << sqlite3_errmsg(imp->db_);
-  }
+  monitor_store::recordCost(imp->db_, {
+    imp->projectId_,
+    providerId,
+    modelName,
+    "generation",
+    static_cast<int64_t>(tokensIn),
+    static_cast<int64_t>(tokensOut),
+    inCost,
+    outCost,
+    cachedCost,
+    now
+  });
 }
 
 void MonitorTracker::recordEmbeddingCost(
@@ -566,37 +464,18 @@ void MonitorTracker::recordEmbeddingCost(
   std::lock_guard<std::mutex> lock(imp->dbMtx_);
   if (!imp->db_) return;
 
-  const char *upsertSql = R"(
-    INSERT INTO provider_costs (
-      project_id, provider_id, model, calls, tokens_in, tokens_out,
-      cost_input, cost_output, cost_cached, cost_total, last_updated
-    ) VALUES (?, ?, ?, 1, ?, 0, ?, 0.0, 0.0, ?, ?)
-    ON CONFLICT(project_id, provider_id) DO UPDATE SET
-      model = excluded.model,
-      calls = calls + 1,
-      tokens_in = tokens_in + excluded.tokens_in,
-      cost_input = cost_input + excluded.cost_input,
-      cost_total = cost_total + excluded.cost_total,
-      last_updated = excluded.last_updated;
-  )";
-
-  utils::SqliteStmt stmt(imp->db_);
-  if (sqlite3_prepare_v2(imp->db_, upsertSql, -1, &stmt.ref(), nullptr) != SQLITE_OK) {
-    LOG_MSG_ERROR << "[Monitor] Failed to prepare embedding cost upsert: " << sqlite3_errmsg(imp->db_);
-    return;
-  }
-
-  sqlite3_bind_text(stmt.ref(), 1, imp->projectId_.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt.ref(), 2, providerId.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmt.ref(), 3, modelName.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int64(stmt.ref(), 4, static_cast<int64_t>(tokensIn));
-  sqlite3_bind_double(stmt.ref(), 5, inCost);
-  sqlite3_bind_double(stmt.ref(), 6, inCost);
-  sqlite3_bind_int64(stmt.ref(), 7, now);
-
-  if (sqlite3_step(stmt.ref()) != SQLITE_DONE) {
-    LOG_MSG_ERROR << "[Monitor] Failed to execute embedding cost upsert: " << sqlite3_errmsg(imp->db_);
-  }
+  monitor_store::recordCost(imp->db_, {
+    imp->projectId_,
+    providerId,
+    modelName,
+    "embedding",
+    static_cast<int64_t>(tokensIn),
+    0,
+    inCost,
+    0.0,
+    0.0,
+    now
+  });
 }
 
 json MonitorTracker::toJson() const
@@ -607,143 +486,32 @@ json MonitorTracker::toJson() const
 
   auto [p50, p95] = imp->reservoir_.percentiles();
 
-  size_t totalRequests = 0;
-  size_t totalErrors = 0;
-  size_t totalTokensIn = 0;
-  size_t totalTokensOut = 0;
-  json byEndpointJson = json::object();
-  json toolUsageJson = json::array();
-
-  double genInputCost = 0.0;
-  double genOutputCost = 0.0;
-  double genCachedInputCost = 0.0;
-  double embeddingCost = 0.0;
-  double totalCost = 0.0;
-  json byProviderJson = json::object();
-
+  json metricsJson;
+  json costJson;
   {
     std::lock_guard<std::mutex> dbLock(imp->dbMtx_);
-    if (imp->db_) {
-      // 1. Read endpoint metrics
-      const char *selectEpSql = R"(
-        SELECT endpoint, requests, errors, tokens_in, tokens_out 
-        FROM endpoint_metrics 
-        WHERE project_id = ?
-      )";
-      utils::SqliteStmt epStmt(imp->db_);
-      if (sqlite3_prepare_v2(imp->db_, selectEpSql, -1, &epStmt.ref(), nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(epStmt.ref(), 1, imp->projectId_.c_str(), -1, SQLITE_TRANSIENT);
-        while (sqlite3_step(epStmt.ref()) == SQLITE_ROW) {
-          std::string name = reinterpret_cast<const char *>(sqlite3_column_text(epStmt.ref(), 0));
-          size_t reqs = static_cast<size_t>(sqlite3_column_int64(epStmt.ref(), 1));
-          size_t errs = static_cast<size_t>(sqlite3_column_int64(epStmt.ref(), 2));
-          size_t tIn = static_cast<size_t>(sqlite3_column_int64(epStmt.ref(), 3));
-          size_t tOut = static_cast<size_t>(sqlite3_column_int64(epStmt.ref(), 4));
+    metricsJson = monitor_store::readPersistedMetrics(imp->db_, imp->projectId_);
+    costJson = monitor_store::readCost(imp->db_, imp->projectId_, imp->pricingVersion_, now);
+  }
 
-          totalRequests += reqs;
-          totalErrors += errs;
-          totalTokensIn += tIn;
-          totalTokensOut += tOut;
-
-          double epP50 = 0.0;
-          double epP95 = 0.0;
-          size_t samples = 0;
-          auto it = imp->endpointReservoirs_.find(name);
-          if (it != imp->endpointReservoirs_.end()) {
-            std::tie(epP50, epP95) = it->second.percentiles();
-            samples = it->second.samples.size();
-          }
-
-          byEndpointJson[name] = {
-            { "requests", reqs },
-            { "errors", errs },
-            { "tokens_in", tIn },
-            { "tokens_out", tOut },
-            { "latency_p50_ms", epP50 },
-            { "latency_p95_ms", epP95 },
-            { "latency_samples", samples }
-          };
-        }
+  if (metricsJson.contains("by_endpoint") && metricsJson["by_endpoint"].is_object()) {
+    for (auto &[name, ep] : metricsJson["by_endpoint"].items()) {
+      double epP50 = 0.0;
+      double epP95 = 0.0;
+      size_t samples = 0;
+      auto it = imp->endpointReservoirs_.find(name);
+      if (it != imp->endpointReservoirs_.end()) {
+        std::tie(epP50, epP95) = it->second.percentiles();
+        samples = it->second.samples.size();
       }
-
-      const char *selectToolSql = R"(
-        SELECT tool, caller, calls, errors, last_used
-        FROM tool_usage
-        WHERE project_id = ?
-        ORDER BY tool, caller
-      )";
-      utils::SqliteStmt toolStmt(imp->db_);
-      if (sqlite3_prepare_v2(imp->db_, selectToolSql, -1, &toolStmt.ref(), nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(toolStmt.ref(), 1, imp->projectId_.c_str(), -1, SQLITE_TRANSIENT);
-        while (sqlite3_step(toolStmt.ref()) == SQLITE_ROW) {
-          toolUsageJson.push_back({
-            { "tool", reinterpret_cast<const char *>(sqlite3_column_text(toolStmt.ref(), 0)) },
-            { "caller", reinterpret_cast<const char *>(sqlite3_column_text(toolStmt.ref(), 1)) },
-            { "calls", sqlite3_column_int64(toolStmt.ref(), 2) },
-            { "errors", sqlite3_column_int64(toolStmt.ref(), 3) },
-            { "last_used", sqlite3_column_int64(toolStmt.ref(), 4) }
-          });
-        }
-      }
-
-      // 2. Read provider costs
-      const char *selectCostSql = R"(
-        SELECT provider_id, model, calls, tokens_in, tokens_out,
-               cost_input, cost_output, cost_cached, cost_total
-        FROM provider_costs
-        WHERE project_id = ?
-      )";
-      utils::SqliteStmt costStmt(imp->db_);
-      if (sqlite3_prepare_v2(imp->db_, selectCostSql, -1, &costStmt.ref(), nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(costStmt.ref(), 1, imp->projectId_.c_str(), -1, SQLITE_TRANSIENT);
-        while (sqlite3_step(costStmt.ref()) == SQLITE_ROW) {
-          std::string providerId = reinterpret_cast<const char *>(sqlite3_column_text(costStmt.ref(), 0));
-          std::string model = reinterpret_cast<const char *>(sqlite3_column_text(costStmt.ref(), 1));
-          size_t calls = static_cast<size_t>(sqlite3_column_int64(costStmt.ref(), 2));
-          size_t tIn = static_cast<size_t>(sqlite3_column_int64(costStmt.ref(), 3));
-          size_t tOut = static_cast<size_t>(sqlite3_column_int64(costStmt.ref(), 4));
-          double cIn = sqlite3_column_double(costStmt.ref(), 5);
-          double cOut = sqlite3_column_double(costStmt.ref(), 6);
-          double cCached = sqlite3_column_double(costStmt.ref(), 7);
-          double cTotal = sqlite3_column_double(costStmt.ref(), 8);
-
-          if (cOut == 0.0 && cCached == 0.0 && providerId.find("embed") != std::string::npos) {
-            embeddingCost += cTotal;
-          } else {
-            genInputCost += cIn;
-            genOutputCost += cOut;
-            genCachedInputCost += cCached;
-          }
-          totalCost += cTotal;
-
-          byProviderJson[providerId] = {
-            { "calls", calls },
-            { "input", cIn },
-            { "output", cOut },
-            { "cached_input", cCached },
-            { "total", cTotal },
-            { "tokens_in", tIn },
-            { "tokens_out", tOut },
-            { "model", model }
-          };
-        }
-      }
+      ep["latency_p50_ms"] = epP50;
+      ep["latency_p95_ms"] = epP95;
+      ep["latency_samples"] = samples;
     }
   }
-
-  json costJson = {
-    { "generation_input", genInputCost },
-    { "generation_output", genOutputCost },
-    { "generation_cached_input", genCachedInputCost },
-    { "embedding", embeddingCost },
-    { "total", totalCost },
-    { "pricing_version", imp->pricingVersion_ },
-    { "by_provider", byProviderJson }
-  };
-
-  if (embeddingCost == 0.0) {
-    costJson["note"] = "embedding cost not included";
-  }
+  metricsJson["latency_p50_ms"] = p50;
+  metricsJson["latency_p95_ms"] = p95;
+  metricsJson["latency_samples"] = imp->reservoir_.samples.size();
 
   return {
     { "project_id", imp->projectId_ },
@@ -763,18 +531,8 @@ json MonitorTracker::toJson() const
       { "eta_seconds", imp->computeEtaSecondsLocked() },
       { "started_at", imp->startedAt_ }
     } },
-    { "metrics",{
-      { "requests", totalRequests },
-      { "errors", totalErrors },
-      { "tokens_in", totalTokensIn },
-      { "tokens_out", totalTokensOut },
-      { "latency_p50_ms", p50 },
-      { "latency_p95_ms", p95 },
-      { "latency_samples", imp->reservoir_.samples.size() },
-      { "by_endpoint", byEndpointJson },
-      { "tool_usage", toolUsageJson }
-    } },
-    { "cost", costJson }
+    { "metrics", std::move(metricsJson) },
+    { "cost", std::move(costJson) }
   };
 }
 

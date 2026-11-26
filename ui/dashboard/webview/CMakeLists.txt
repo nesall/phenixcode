@@ -93,6 +93,7 @@ set(SOURCES
   "${ROOT_DIR}/src/instregistry.cpp"
   "${ROOT_DIR}/src/cutils.cpp"
   "${ROOT_DIR}/src/sqlite3_helper.cpp"
+  "${ROOT_DIR}/src/monitor_store.cpp"
   "${ROOT_DIR}/src/mcp_credentials.cpp"
   "${ROOT_DIR}/include/3rdparty/nlohmann/nlohmann_json.natvis"
   admconfig.json  

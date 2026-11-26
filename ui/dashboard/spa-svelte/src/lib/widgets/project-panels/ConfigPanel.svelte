@@ -32,31 +32,31 @@
   <Tabs {value} class="h-full w-full text-sm" orientation="vertical" onValueChange={onTabChange}>
     <Tabs.List class="items-start">
       <Tabs.Trigger value="sources" class="text-sm {selected(value, 'sources')} w-full justify-start">
-        <icons.FileText size={16} /><span class="hidden lg:inline">Sources</span>
+        <icons.FileText size={16} /><span class="hidden xl:inline">Sources</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="generation" class="text-sm {selected(value, 'generation')} w-full justify-start">
-        <icons.Merge size={16} /><span class="hidden lg:inline">Generation</span>
+        <icons.Merge size={16} /><span class="hidden xl:inline">Generation</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="embedding" class="text-sm {selected(value, 'embedding')} w-full justify-start">
-        <icons.Split size={16} /><span class="hidden lg:inline">Embedding</span>
+        <icons.Split size={16} /><span class="hidden xl:inline">Embedding</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="chunking" class="text-sm {selected(value, 'chunking')} w-full justify-start">
-        <icons.Scissors size={16} /><span class="hidden lg:inline">Chunking</span>
+        <icons.Scissors size={16} /><span class="hidden xl:inline">Chunking</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="database" class="text-sm {selected(value, 'database')} w-full justify-start">
-        <icons.Database size={16} /><span class="hidden lg:inline">Database</span>
+        <icons.Database size={16} /><span class="hidden xl:inline">Database</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="logging" class="text-sm {selected(value, 'logging')} w-full justify-start">
-        <icons.Logs size={16} /><span class="hidden lg:inline">Logging</span>
+        <icons.Logs size={16} /><span class="hidden xl:inline">Logging</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="tokenizer" class="text-sm {selected(value, 'tokenizer')} w-full justify-start">
-        <icons.CodeXml size={16} /><span class="hidden lg:inline">Tokenizer</span>
+        <icons.CodeXml size={16} /><span class="hidden xl:inline">Tokenizer</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="mcp" class="text-sm {selected(value, 'mcp')} w-full justify-start">
-        <icons.Network size={16} /><span class="hidden lg:inline">MCP</span>
+        <icons.Network size={16} /><span class="hidden xl:inline">MCP</span>
       </Tabs.Trigger>
       <Tabs.Trigger value="json" class="text-sm {selected(value, 'json')} w-full justify-start">
-        <icons.FileBraces size={16} /><span class="hidden lg:inline">JSON</span>
+        <icons.FileBraces size={16} /><span class="hidden xl:inline">JSON</span>
       </Tabs.Trigger>
       <Tabs.Indicator />
       <div class="ml-auto flex items-center"></div>

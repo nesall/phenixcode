@@ -10,6 +10,9 @@
 #include "settings.h"
 #include "mcp_credentials.h"
 #include "database_browser.h"
+#include "monitor_store.h"
+#include <sqlite3.h>
+#include <ctime>
 #include "3rdparty/portable-file-dialogs.h"
 #include "json_shim.h"
 #include <filesystem>
@@ -1198,6 +1201,32 @@ int main() {
           if (settingsPath.empty()) {
             res = { { "status", "error" },{ "message", "settingsFilePath is required" } };
             return res.dump();
+          }
+
+          std::string projectId = "default";
+          try {
+            std::ifstream sfile(settingsPath);
+            if (sfile.is_open()) {
+              json settings = json::parse(sfile);
+              if (settings.contains("source") && settings["source"].is_object()) {
+                std::string pid = settings["source"].value("project_id", std::string{});
+                if (!pid.empty()) projectId = std::move(pid);
+              }
+            }
+          } catch (...) {}
+
+          const auto dbPath = monitor_store::defaultMetricsDbPath();
+          if (std::filesystem::exists(dbPath)) {
+            sqlite3 *db = nullptr;
+            int rc = sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READWRITE, nullptr);
+            if (rc == SQLITE_OK && db) {
+              sqlite3_busy_timeout(db, 2000);
+              json snap = monitor_store::buildOfflineSnapshot(db, projectId, static_cast<int64_t>(std::time(nullptr)));
+              sqlite3_close(db);
+              res = { { "status", "success" }, { "monitor", std::move(snap) } };
+              return res.dump();
+            }
+            if (db) sqlite3_close(db);
           }
 
           const auto projectDir = std::filesystem::path(settingsPath).parent_path();

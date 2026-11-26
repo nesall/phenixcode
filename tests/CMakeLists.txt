@@ -29,6 +29,12 @@ target_include_directories(database_browser_tests PRIVATE ../include ../ui/dashb
 target_link_libraries(database_browser_tests PRIVATE browser_test_sqlite)
 add_test(NAME database_browser_tests COMMAND database_browser_tests)
 
+add_executable(monitor_store_tests monitor_store_tests.cpp ../src/monitor_store.cpp ../src/sqlite3_helper.cpp)
+target_compile_features(monitor_store_tests PRIVATE cxx_std_20)
+target_include_directories(monitor_store_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}")
+target_link_libraries(monitor_store_tests PRIVATE browser_test_sqlite)
+add_test(NAME monitor_store_tests COMMAND monitor_store_tests)
+
 add_executable(chunker_tests chunker_tests.cpp ../src/chunker.cpp ../src/tokenizer.cpp)
 target_compile_features(chunker_tests PRIVATE cxx_std_20)
 target_include_directories(chunker_tests PRIVATE ../include "${LOGGER_INCLUDE_DIR}")

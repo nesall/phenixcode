@@ -232,6 +232,7 @@ add_executable(${PROJECT_NAME}
   include/json_shim.h
   include/sqlite3_helper.h
   include/monitor.h
+  include/monitor_store.h
   include/evaluator.h
   include/updater.h
   include/context_builder.h
@@ -288,6 +289,7 @@ add_executable(${PROJECT_NAME}
   src/tests.cpp
   src/sqlite3_helper.cpp
   src/monitor.cpp
+  src/monitor_store.cpp
   src/evaluator.cpp
   src/updater.cpp
   src/app_cli.cpp

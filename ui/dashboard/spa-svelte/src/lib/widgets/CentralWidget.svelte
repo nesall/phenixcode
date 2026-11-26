@@ -8,11 +8,6 @@
   import { onMount } from "svelte";
   import CentralProviders from "./CentralProviders.svelte";
 
-  // interface Props {
-  //   fetchInstances: () => void;
-  // }
-  // let { fetchInstances }: Props = $props();
-
   let tab = $state("projects");
 
   function setDarkOrLight(dl: string | null) {
@@ -49,10 +44,10 @@
 <Tabs value={tab} onValueChange={details => tab = details.value} class="h-full">
   <Tabs.List>
     <Tabs.Trigger value="projects">
-      <icons.FolderGit2 size={20} /><span class="hidden lg:inline">Projects</span>
+      <icons.FolderGit2 size={20} /><span class="hidden md:inline">Projects</span>
     </Tabs.Trigger>
     <Tabs.Trigger value="providers">
-      <icons.Boxes size={20} /><span class="hidden lg:inline">Providers</span>
+      <icons.Boxes size={20} /><span class="hidden md:inline">Providers</span>
     </Tabs.Trigger>
     <Tabs.Trigger value="instances">
       <icons.Activity size={20} /><span class="hidden lg:inline">Instances</span>
@@ -75,13 +70,13 @@
   <Tabs.Content value="projects" class="h-full">
     <CentralProjects active={tab === "projects"} />
   </Tabs.Content>
-  <Tabs.Content value="providers" class="h-0 flex-grow">
+  <Tabs.Content value="providers" class="h-0 grow">
     <CentralProviders />
   </Tabs.Content>
-  <Tabs.Content value="instances" class="h-0 flex-grow">
+  <Tabs.Content value="instances" class="h-0 grow">
     <CentralInstances />
   </Tabs.Content>
-  <Tabs.Content value="settings" class="h-0 flex-grow">
+  <Tabs.Content value="settings" class="h-0 grow">
     <CentralSettings />
   </Tabs.Content>
 </Tabs>

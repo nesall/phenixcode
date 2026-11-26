@@ -22,7 +22,7 @@
     },
     {
       "key": "DatabaseLocation|D:/workspace/misc/phenixcode_projects/settings_phenixcode_and_ui.json",
-      "value": "{\"base_directory\":\"D:/workspace/projects/phenixcode/build_dbg\",\"configured\":\"D:/workspace/misc/phenixcode_projects/phenixcode_and_ui/db_metadata.db\"}"
+      "value": "{\"base_directory\":\"D:/workspace/misc/phenixcode-v2.14.1-win64\",\"configured\":\"D:/workspace/misc/phenixcode_projects/phenixcode_and_ui/db_metadata.db\"}"
     },
     {
       "key": "CoreExecutablePath",
@@ -35,6 +35,6 @@
   ],
   "window": {
     "height": 848,
-    "width": 1400
+    "width": 1500
   }
 }
